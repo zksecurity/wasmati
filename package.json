@@ -1,0 +1,22 @@
+{
+  "name": "wasmati",
+  "version": "0.0.1",
+  "description": "",
+  "main": "build/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "ts-node-esm examples/example.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ieee754": "^1.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^18.15.11",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.3",
+    "wabt": "^1.0.32"
+  }
+}
