@@ -11,7 +11,7 @@
   "scripts": {
     "test": "ts-node-esm examples/example.ts",
     "build": "tsc",
-    "prepublishOnly": "tsc && test"
+    "prepublishOnly": "npm run build && npm test"
   },
   "files": [
     "src",
