@@ -2,10 +2,16 @@
   "name": "wasmati",
   "version": "0.0.2",
   "description": "",
-  "main": "build/index.js",
   "type": "module",
+  "main": "build/index.js",
+  "exports": {
+    "types": "./build/index.d.ts",
+    "default": "./build/index.js"
+  },
   "scripts": {
-    "test": "ts-node-esm examples/example.ts"
+    "test": "ts-node-esm examples/example.ts",
+    "build": "tsc",
+    "prepublishOnly": "tsc && test"
   },
   "files": [
     "src",
