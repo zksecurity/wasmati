@@ -47,8 +47,8 @@ let mem = memory(
 );
 
 let myFunc = func(
-  { in: { x: i32, y: i32 }, locals: { tmp: i32, i: i32 }, out: [i32] },
-  ({ x, y }, { tmp, i }, ctx) => {
+  { in: [i32, i32], locals: [i32, i32], out: [i32] },
+  ([x, y], [tmp, i], ctx) => {
     f64.const(1.125);
     i64.trunc_sat_f64_s();
     call(consoleLog64);
@@ -94,7 +94,7 @@ let myFunc = func(
 let importedGlobal = importGlobal(i64, 1000n);
 let myFuncGlobal = global(Const.refFunc(myFunc));
 
-let testUnreachable = func({ in: {}, locals: {}, out: [] }, () => {
+let testUnreachable = func({ in: [], locals: [], out: [] }, () => {
   unreachable();
   // global.get(importedGlobal);
   i32.add();
@@ -110,11 +110,11 @@ let funcTable = table({ type: funcref, min: 4 }, [
 
 let exportedFunc = func(
   {
-    in: { x: i32, doLog: i32 },
-    locals: { y: i32, v: v128 },
+    in: [i32, i32],
+    locals: [i32, v128],
     out: [i32],
   },
-  ({ x, doLog }, { y, v }) => {
+  ([x, doLog], [y, v]) => {
     // call(testUnreachable);
     ref.func(myFunc); // TODO this fails if there is no table but a global, seems to be a V8 bug
     call(consoleLogFunc);

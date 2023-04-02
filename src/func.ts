@@ -20,7 +20,7 @@ export { func };
 export { FinalizedFunc, Code, JSFunctionType, ToTypeTuple };
 
 type Func<
-  Args extends Record<string, ValueType>,
+  Args extends readonly ValueType[],
   Results extends readonly ValueType[]
 > = {
   kind: "function";
@@ -31,8 +31,8 @@ type Func<
 };
 
 function func<
-  Args extends Record<string, ValueType>,
-  Locals extends Record<string, ValueType>,
+  Args extends Tuple<ValueType>,
+  Locals extends Tuple<ValueType>,
   Results extends Tuple<ValueType>
 >(
   ctx: LocalContext,
@@ -41,8 +41,8 @@ function func<
     locals,
     out: results,
   }: {
-    in: ToTypeRecord<Args>;
-    locals: ToTypeRecord<Locals>;
+    in: ToTypeTuple<Args>;
+    locals: ToTypeTuple<Locals>;
     out: ToTypeTuple<Results>;
   },
   run: (args: ToLocal<Args>, locals: ToLocal<Locals>, ctx: LocalContext) => void
@@ -106,16 +106,15 @@ function func<
 // type inference of function signature
 
 // example:
-// type Test = JSFunctionType<FullFunctionType<{ x: "i64"; y: "i32" }, ["i32"]>>;
-//       ^ (arg_0: bigint, arg_1: number) => number
+type Test = JSFunctionType<FullFunctionType<["i64", "i32"], ["i32"]>>;
+// ^ (arg_0: bigint, arg_1: number) => number
 
 type FullFunctionType<
-  Args extends Record<string, ValueType>,
+  Args extends readonly ValueType[],
   Results extends readonly ValueType[]
-> = {
-  args: [...ObjValueTuple<Args>];
-  results: Results;
-};
+> = { args: Args; results: Results };
+
+type ObjectValues<T> = UnionToTuple<T[keyof T]>;
 
 type JSValues<T extends readonly ValueType[]> = {
   [i in keyof T]: JSValue<T[i]>;
@@ -137,7 +136,7 @@ type JSFunctionType<T extends FunctionType> = JSFunctionType_<
 
 type Local<L extends ValueType> = { type?: L; index: number };
 
-type ToLocal<T extends Record<string, ValueType>> = {
+type ToLocal<T extends Tuple<ValueType>> = {
   [K in keyof T]: Local<T[K]>;
 };
 type ToTypeRecord<T extends Record<string, ValueType>> = {
@@ -146,14 +145,6 @@ type ToTypeRecord<T extends Record<string, ValueType>> = {
 type ToTypeTuple<T extends readonly ValueType[]> = {
   [K in keyof T]: { kind: T[K] };
 };
-
-type ObjValueTuple<
-  T,
-  K extends any[] = UnionToTuple<keyof T>,
-  R extends any[] = []
-> = K extends [infer K, ...infer KT]
-  ? ObjValueTuple<T, KT, [...R, T[K & keyof T]]>
-  : R;
 
 // bad hack :/
 
