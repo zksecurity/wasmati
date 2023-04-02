@@ -8,11 +8,24 @@ import {
 import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.js";
 import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.js";
 import { control as controlOps, parametric } from "./instruction/control.js";
-import { emptyContext, LocalContext } from "./local-context.js";
+import { emptyContext, LocalContext, Label } from "./local-context.js";
 import { Tuple } from "./util.js";
-import { f32t, f64t, i32t, i64t, v128t, ValueTypeObject } from "./types.js";
-import { func as originalFunc } from "./func.js";
-import { Instruction } from "./instruction/base.js";
+import {
+  f32t,
+  f64t,
+  i32t,
+  i64t,
+  v128t,
+  funcref,
+  externref,
+  ValueType,
+  ValueTypeObject,
+  RefType,
+  RefTypeObject,
+  Type,
+} from "./types.js";
+import { func as originalFunc, ToTypeTuple } from "./func.js";
+import { Instruction, FunctionTypeInput } from "./instruction/base.js";
 import {
   f32x4Ops,
   f64x2Ops,
@@ -29,6 +42,10 @@ import {
   memoryConstructor,
   tableConstructor,
 } from "./memory.js";
+import * as Dependency from "./dependency.js";
+import { Const } from "./dependency.js";
+import { importFunc, importGlobal } from "./export.js";
+import { TupleN } from "./util.js";
 
 // instruction API
 export {
@@ -70,15 +87,18 @@ export {
 
 // other public API
 export { func, defaultCtx };
-export { funcref, externref, Type } from "./types.js";
-export { importFunc, importGlobal } from "./export.js";
 export {
-  memoryConstructor,
-  dataConstructor,
-  tableConstructor,
-  elemConstructor,
-} from "./memory.js";
-export { Const } from "./dependency.js";
+  funcref,
+  externref,
+  Type,
+  ValueType,
+  ValueTypeObject,
+  RefType,
+  RefTypeObject,
+};
+export { importFunc, importGlobal };
+export { Const, Dependency };
+export type { ToTypeTuple, FunctionTypeInput, Label, TupleN };
 
 type i32 = "i32";
 type i64 = "i64";
