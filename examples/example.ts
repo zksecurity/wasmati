@@ -111,10 +111,10 @@ let funcTable = table({ type: funcref, min: 4 }, [
 let exportedFunc = func(
   {
     in: [i32, i32],
-    locals: [i32, v128],
+    locals: [v128, i32, v128],
     out: [i32],
   },
-  ([x, doLog], [y, v]) => {
+  ([x, doLog], [_, y, v]) => {
     // call(testUnreachable);
     ref.func(myFunc); // TODO this fails if there is no table but a global, seems to be a V8 bug
     call(consoleLogFunc);

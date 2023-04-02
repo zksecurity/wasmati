@@ -55,14 +55,15 @@ function func<
   };
   let nArgs = argsArray.length;
   let argsInput = argsArray.map((_, index) => ({ index })) as ToLocal<Args>;
-  let localsInput = localsArray.map((_, index) => ({
+  let { sortedLocals, localIndices } = sortLocals(localsArray);
+  let localsInput = localIndices.map((index) => ({
     index: index + nArgs,
   })) as ToLocal<Locals>;
   let stack: ValueType[] = [];
   let { body, deps } = withContext(
     ctx,
     {
-      locals: [...argsArray, ...localsArray],
+      locals: [...argsArray, ...sortedLocals],
       body: [],
       deps: [],
       stack,
@@ -91,7 +92,7 @@ function func<
     type,
     body,
     deps,
-    locals: localsArray,
+    locals: sortedLocals,
   } satisfies Dependency.Func;
   return func;
 }
@@ -160,6 +161,37 @@ type FinalizedFunc = {
   locals: ValueType[];
   body: ResolvedInstruction[];
 };
+
+// helper
+
+function sortLocals(locals: ValueType[]) {
+  let typeIndex: Record<string, number> = {};
+  let nextIndex = 0;
+  let count: number[] = [];
+  let offsetWithin: number[] = [];
+  for (let local of locals) {
+    if (typeIndex[local] === undefined) {
+      typeIndex[local] = nextIndex;
+      nextIndex++;
+    }
+    let i = typeIndex[local];
+    count[i] ??= 0;
+    offsetWithin.push(count[i]);
+    count[i]++;
+  }
+  let typeOffset: number[] = Array(count.length).fill(0);
+  for (let i = 1; i < count.length; i++) {
+    typeOffset[i] = count[i - 1] + typeOffset[i - 1];
+  }
+  let localIndices: number[] = [];
+  for (let j = 0; j < locals.length; j++) {
+    localIndices[j] = typeOffset[typeIndex[locals[j]]] + offsetWithin[j];
+  }
+  let sortedLocals: ValueType[] = Object.entries(typeIndex).flatMap(
+    ([type, i]) => Array(count[i]).fill(type as ValueType)
+  );
+  return { sortedLocals, localIndices };
+}
 
 // binable
 

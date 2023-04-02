@@ -13,7 +13,7 @@
   (import "" "f4" (func (;4;) (type 4)))
   (import "" "g0" (global (;0;) i64))
   (func (;5;) (type 5) (param i32 i32) (result i32)
-    (local i32 v128)
+    (local v128 v128 i32)
     ref.func 6
     call 2
     global.get 1
@@ -30,8 +30,8 @@
     local.get 1
     select
     call 1
-    local.set 2
-    local.get 2
+    local.set 4
+    local.get 4
     i32.const 5
     call 6
     i32.const 10
