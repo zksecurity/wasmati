@@ -55,10 +55,8 @@ function func<
   };
   let nArgs = argsArray.length;
   let argsInput = argsArray.map((_, index) => ({ index })) as ToLocal<Args>;
-  let { sortedLocals, localIndices } = sortLocals(localsArray);
-  let localsInput = localIndices.map((index) => ({
-    index: index + nArgs,
-  })) as ToLocal<Locals>;
+  let { sortedLocals, localIndices } = sortLocals(localsArray, nArgs);
+  let localsInput = localIndices.map((index) => ({ index })) as ToLocal<Locals>;
   let stack: ValueType[] = [];
   let { body, deps } = withContext(
     ctx,
@@ -164,7 +162,7 @@ type FinalizedFunc = {
 
 // helper
 
-function sortLocals(locals: ValueType[]) {
+function sortLocals(locals: ValueType[], offset: number) {
   let typeIndex: Record<string, number> = {};
   let nextIndex = 0;
   let count: number[] = [];
@@ -185,7 +183,8 @@ function sortLocals(locals: ValueType[]) {
   }
   let localIndices: number[] = [];
   for (let j = 0; j < locals.length; j++) {
-    localIndices[j] = typeOffset[typeIndex[locals[j]]] + offsetWithin[j];
+    localIndices[j] =
+      offset + typeOffset[typeIndex[locals[j]]] + offsetWithin[j];
   }
   let sortedLocals: ValueType[] = Object.entries(typeIndex).flatMap(
     ([type, i]) => Array(count[i]).fill(type as ValueType)
