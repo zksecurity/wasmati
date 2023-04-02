@@ -7,6 +7,10 @@
   "scripts": {
     "test": "ts-node-esm examples/example.ts"
   },
+  "files": [
+    "src",
+    "build"
+  ],
   "keywords": [],
   "author": "",
   "license": "MIT",
