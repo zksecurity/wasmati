@@ -24,7 +24,7 @@ import {
   RefTypeObject,
   Type,
 } from "./types.js";
-import { func as originalFunc, ToTypeTuple } from "./func.js";
+import { Func, Local, func as originalFunc, ToTypeTuple } from "./func.js";
 import { Instruction, FunctionTypeInput } from "./instruction/base.js";
 import {
   f32x4Ops,
@@ -86,7 +86,7 @@ export {
 };
 
 // other public API
-export { func, defaultCtx };
+export { func, defaultCtx, Func, Local };
 export {
   funcref,
   externref,

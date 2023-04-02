@@ -8,6 +8,7 @@ import {
   FunctionIndex,
   FunctionType,
   JSValue,
+  Type,
   TypeIndex,
   ValueType,
   valueTypeLiterals,
@@ -15,7 +16,7 @@ import {
 import { Tuple } from "./util.js";
 
 // external
-export { func };
+export { func, Func, Local };
 // internal
 export { FinalizedFunc, Code, JSFunctionType, ToTypeTuple };
 
@@ -36,17 +37,14 @@ function func<
   Results extends Tuple<ValueType>
 >(
   ctx: LocalContext,
-  {
-    in: args,
-    locals,
-    out: results,
-  }: {
+  signature: {
     in: ToTypeTuple<Args>;
     locals: ToTypeTuple<Locals>;
     out: ToTypeTuple<Results>;
   },
   run: (args: ToLocal<Args>, locals: ToLocal<Locals>, ctx: LocalContext) => void
 ): Func<Args, Results> {
+  let { in: args, locals, out: results } = signature;
   ctx.stack = [];
   let argsArray = valueTypeLiterals(Object.values(args));
   let localsArray = valueTypeLiterals(Object.values(locals));
@@ -106,7 +104,7 @@ function func<
 // type inference of function signature
 
 // example:
-type Test = JSFunctionType<FullFunctionType<["i64", "i32"], ["i32"]>>;
+// type Test = JSFunctionType<FullFunctionType<["i64", "i32"], ["i32"]>>;
 // ^ (arg_0: bigint, arg_1: number) => number
 
 type FullFunctionType<
@@ -143,7 +141,7 @@ type ToTypeRecord<T extends Record<string, ValueType>> = {
   [K in keyof T]: { kind: T[K] };
 };
 type ToTypeTuple<T extends readonly ValueType[]> = {
-  [K in keyof T]: { kind: T[K] };
+  [K in keyof T]: Type<T[K]>;
 };
 
 // bad hack :/
