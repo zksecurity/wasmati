@@ -46,23 +46,18 @@ function func<
 ): Func<Args, Results> {
   let { in: args, locals, out: results } = signature;
   ctx.stack = [];
-  let argsArray = valueTypeLiterals(Object.values(args));
-  let localsArray = valueTypeLiterals(Object.values(locals));
+  let argsArray = valueTypeLiterals(args);
+  let localsArray = valueTypeLiterals(locals);
   let resultsArray = valueTypeLiterals(results);
   let type: FullFunctionType<Args, Results> & FunctionType = {
     args: argsArray as any,
     results: resultsArray as any,
   };
   let nArgs = argsArray.length;
-  let argsInput = Object.fromEntries(
-    Object.entries(args).map(([key], index) => [key, { index }])
-  ) as ToLocal<Args>;
-  let localsInput = Object.fromEntries(
-    Object.entries(locals).map(([key], index) => [
-      key,
-      { index: index + nArgs },
-    ])
-  ) as ToLocal<Locals>;
+  let argsInput = argsArray.map((_, index) => ({ index })) as ToLocal<Args>;
+  let localsInput = localsArray.map((_, index) => ({
+    index: index + nArgs,
+  })) as ToLocal<Locals>;
   let stack: ValueType[] = [];
   let { body, deps } = withContext(
     ctx,
