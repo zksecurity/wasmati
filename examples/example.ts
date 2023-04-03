@@ -26,6 +26,7 @@ import {
   i32x4,
   f64x2,
   table,
+  $,
 } from "../src/index.js";
 import assert from "node:assert";
 import fs from "node:fs";
@@ -51,9 +52,8 @@ let myFunc = func(
   ([x, y], [tmp, i], ctx) => {
     i64.trunc_sat_f64_s(f64.const(1.125));
     call(consoleLog64);
-    i32.const(0);
     local.get(x);
-    i32.add();
+    i32.add($, i32.const(0));
     local.get(y);
     i32.add();
     block({ in: [i32], out: [i32] }, (block) => {

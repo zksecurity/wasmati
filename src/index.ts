@@ -90,6 +90,7 @@ export { func, defaultCtx, Func, Local };
 export {
   funcref,
   externref,
+  $,
   Type,
   ValueType,
   ValueTypeObject,
@@ -146,6 +147,8 @@ let {
   call,
   call_indirect,
 } = control;
+
+const $: Type<any> = { kind: "unknown" };
 
 function createInstructions(ctx: LocalContext) {
   const func = removeContext(ctx, originalFunc);
