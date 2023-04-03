@@ -9,6 +9,7 @@ import {
 } from "../local-context.js";
 import {
   FunctionType,
+  Type,
   ValueType,
   valueTypeLiterals,
   ValueTypeObject,
@@ -79,7 +80,7 @@ function baseInstruction<
 ): (
   ctx: LocalContext,
   ...createArgs: CreateArgs
-) => Instruction<Args, Results> {
+) => Instruction_<Args, Results> {
   resolve ??= noResolve;
   let opcode = nameToOpcode[string];
   let instruction = { string, opcode, immediate, resolve };
@@ -106,7 +107,13 @@ function baseInstruction<
       type: { args, results },
       resolveArgs,
     });
-    return { in: args, out: results };
+    return (
+      results.length === 0
+        ? undefined
+        : results.length === 1
+        ? results[0]
+        : results
+    ) as Instruction_<Args, Results>;
   };
 }
 
@@ -116,7 +123,17 @@ function isInstruction(
   return "opcode" in value;
 }
 
-type Instruction<Args, Results> = { in: Args; out: Results };
+type Instruction<Args, Results> = {
+  [i in keyof Results & number]: Type<Results[i]>;
+} & { in?: Args };
+
+type Instruction_<Args, Results> = Results extends []
+  ? void
+  : Results extends [ValueType]
+  ? Type<Results[0]>
+  : Instruction<Args, Results>;
+
+type t = Instruction_<["i32"], ["i32"]>;
 
 /**
  * instruction that is completely fixed
@@ -128,11 +145,32 @@ function instruction<
   string: InstructionName,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>
-) {
+): ((ctx: LocalContext, ...args: [] | Args) => any) extends (
+  ctx: LocalContext,
+  ...args: infer P
+) => any
+  ? (
+      ctx: LocalContext,
+      ...args: {
+        [i in keyof P]: Type<P[i]>;
+      }
+    ) => Instruction_<Args, Results>
+  : never {
   let instr = { in: valueTypeLiterals(args), out: valueTypeLiterals(results) };
-  return baseInstruction<undefined, [], [], Args, Results>(string, Undefined, {
-    create: () => instr,
-  });
+  let createInstr = baseInstruction<undefined, [], [], Args, Results>(
+    string,
+    Undefined,
+    { create: () => instr }
+  );
+  return function (
+    ctx: LocalContext,
+    ...args: [] | (ValueTypeObjects<Args> & any[])
+  ): Instruction_<Args, Results> {
+    if (args.length !== 0) {
+      // TODO do some checks on the args
+    }
+    return createInstr(ctx);
+  } as any;
 }
 
 /**

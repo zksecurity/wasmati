@@ -49,8 +49,7 @@ let mem = memory(
 let myFunc = func(
   { in: [i32, i32], locals: [i32, i32], out: [i32] },
   ([x, y], [tmp, i], ctx) => {
-    f64.const(1.125);
-    i64.trunc_sat_f64_s();
+    i64.trunc_sat_f64_s(f64.const(1.125));
     call(consoleLog64);
     i32.const(0);
     local.get(x);
@@ -84,9 +83,7 @@ let myFunc = func(
       });
       local.get(tmp);
       local.get(tmp);
-      console.log(ctx.stack);
       drop();
-      console.log(ctx.stack);
     });
   }
 );
@@ -156,10 +153,9 @@ let exportedFunc = func(
     v128.const("i32x4", [3, 4, 5, 6]);
     i32x4.add();
     local.set(v);
-    v128.const("f64x2", [0.1, 0.2]);
-    f64.const(6.25);
-    f64x2.splat();
-    f64x2.mul();
+    let $0 = v128.const("f64x2", [0.1, 0.2]);
+    let $1 = f64x2.splat(f64.const(6.25));
+    f64x2.mul($0, $1);
     f64x2.extract_lane(1);
     call(consoleLogF64); // should log 1.25
 

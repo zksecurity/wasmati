@@ -42,7 +42,7 @@ function valueTypeLiteral<L extends ValueType>({ kind }: { kind: L }): L {
   return kind;
 }
 type ValueTypeObjects<T extends Tuple<ValueType>> = {
-  [i in keyof T]: { kind: T[i] };
+  [i in keyof T]: Type<T[i]>;
 };
 function valueType<L extends ValueType>(kind: L): Type<L> {
   return { kind };

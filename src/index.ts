@@ -98,7 +98,7 @@ export {
 };
 export { importFunc, importGlobal };
 export { Const, Dependency };
-export type { ToTypeTuple, FunctionTypeInput, Label, TupleN };
+export type { ToTypeTuple, FunctionTypeInput, Label, TupleN, Instruction };
 
 type i32 = "i32";
 type i64 = "i64";
@@ -216,7 +216,7 @@ function createInstructions(ctx: LocalContext) {
 
 function removeContexts<
   T extends {
-    [K in any]: (ctx: LocalContext, ...args: any) => Instruction<any, any>;
+    [K in any]: (ctx: LocalContext, ...args: any) => any;
   }
 >(
   ctx: LocalContext,
