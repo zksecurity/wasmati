@@ -13,12 +13,12 @@ import {
 } from "../types.js";
 import { LocalContext } from "../local-context.js";
 
-export { localOps, globalOps, globalConstructor, refOps };
+export { localOps, bindLocalOps, globalOps, globalConstructor, refOps };
 
 type AnyLocal = Local<ValueType>;
 
-function localOps(ctx: LocalContext) {
-  const get = baseInstruction("local.get", U32, {
+const localOps = {
+  get: baseInstruction("local.get", U32, {
     create({ locals }, x: AnyLocal) {
       let local = locals[x.index];
       if (local === undefined)
@@ -26,8 +26,8 @@ function localOps(ctx: LocalContext) {
       return { in: [], out: [local] };
     },
     resolve: (_, x: AnyLocal) => x.index,
-  });
-  const set = baseInstruction("local.set", U32, {
+  }),
+  set: baseInstruction("local.set", U32, {
     create({ locals }, x: AnyLocal) {
       let local = locals[x.index];
       if (local === undefined)
@@ -35,8 +35,8 @@ function localOps(ctx: LocalContext) {
       return { in: [local], out: [] };
     },
     resolve: (_, x: AnyLocal) => x.index,
-  });
-  const tee = baseInstruction("local.tee", U32, {
+  }),
+  tee: baseInstruction("local.tee", U32, {
     create({ locals }, x: AnyLocal) {
       let type = locals[x.index];
       if (type === undefined)
@@ -44,17 +44,19 @@ function localOps(ctx: LocalContext) {
       return { in: [type], out: [type] };
     },
     resolve: (_, x: AnyLocal) => x.index,
-  });
+  }),
+};
 
+function bindLocalOps(ctx: LocalContext) {
   return {
     get: function <T extends ValueType>(x: Local<T>) {
-      return get(ctx, x) as Type<T>;
+      return localOps.get(ctx, x) as Type<T>;
     },
     set: function <T extends ValueType>(x: Local<T>) {
-      return set(ctx, x);
+      return localOps.set(ctx, x);
     },
     tee: function <T extends ValueType>(x: Local<T>) {
-      return tee(ctx, x) as Type<T>;
+      return localOps.tee(ctx, x) as Type<T>;
     },
   };
 }

@@ -1,7 +1,9 @@
 import { F32, F64, I32, I64 } from "../immediate.js";
-import { instruction, instructionWithArg } from "./base.js";
+import { instructionWithArg } from "./base.js";
 import { i32t, i64t, f32t, f64t } from "../types.js";
 import { memoryInstruction } from "./memory.js";
+import { instruction } from "./stack-args.js";
+import { f32Const, f64Const, i32Const, i64Const } from "./const.js";
 
 export { i32Ops, i64Ops, f32Ops, f64Ops };
 
@@ -17,7 +19,7 @@ const i32Ops = {
   store8: memoryInstruction("i32.store8", 8, [i32t, i32t], []),
 
   // const
-  const: instructionWithArg("i32.const", I32, [], [i32t]),
+  const: i32Const,
 
   // comparison
   eqz: instruction("i32.eqz", [i32t], [i32t]),
@@ -86,7 +88,7 @@ const i64Ops = {
   store8: memoryInstruction("i64.store8", 8, [i32t, i64t], []),
 
   // const
-  const: instructionWithArg("i64.const", I64, [], [i64t]),
+  const: i64Const,
 
   // comparison
   eqz: instruction("i64.eqz", [i64t], [i32t]),
@@ -148,7 +150,7 @@ const f32Ops = {
   store: memoryInstruction("f32.store", 32, [i32t, f32t], []),
 
   // const
-  const: instructionWithArg("f32.const", F32, [], [f32t]),
+  const: f32Const,
 
   // comparison
   eq: instruction("f32.eq", [f32t, f32t], [i32t]),
@@ -191,7 +193,7 @@ const f64Ops = {
   store: memoryInstruction("f64.store", 64, [i32t, f64t], []),
 
   // const
-  const: instructionWithArg("f64.const", F64, [], [f64t]),
+  const: f64Const,
 
   // comparison
   eq: instruction("f64.eq", [f64t, f64t], [i32t]),

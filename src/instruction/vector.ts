@@ -1,10 +1,11 @@
 import { F32, F64, U8 } from "../immediate.js";
-import { baseInstruction, instruction, instructionWithArg } from "./base.js";
+import { baseInstruction, instructionWithArg } from "./base.js";
 import { i32t, i64t, f32t, f64t, v128t } from "../types.js";
 import { memoryLaneInstruction, memoryInstruction } from "./memory.js";
 import { array, Byte } from "../binable.js";
 import { TupleN } from "../util.js";
 import { LocalContext } from "../local-context.js";
+import { instruction } from "./stack-args.js";
 
 export {
   v128Ops,

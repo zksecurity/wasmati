@@ -1,9 +1,9 @@
 export { Module } from "./module.js";
 import {
-  localOps,
   globalOps,
   globalConstructor,
   refOps,
+  bindLocalOps,
 } from "./instruction/variable.js";
 import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.js";
 import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.js";
@@ -156,7 +156,7 @@ function createInstructions(ctx: LocalContext) {
   const i64 = Object.assign(i64t, removeContexts(ctx, i64Ops));
   const f32 = Object.assign(f32t, removeContexts(ctx, f32Ops));
   const f64 = Object.assign(f64t, removeContexts(ctx, f64Ops));
-  const local = localOps(ctx);
+  const local = bindLocalOps(ctx);
   const global = Object.assign(
     globalConstructor,
     removeContexts(ctx, globalOps)

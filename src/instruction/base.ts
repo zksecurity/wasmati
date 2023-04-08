@@ -20,7 +20,6 @@ import { Tuple } from "../util.js";
 import { InstructionName, nameToOpcode } from "./opcodes.js";
 
 export {
-  instruction,
   instructionWithArg,
   baseInstruction,
   BaseInstruction,
@@ -35,6 +34,7 @@ export {
   typeFromInput,
   Instruction,
   isInstruction,
+  Instruction_,
 };
 
 const nameToInstruction: Record<string, BaseInstruction> = {};
@@ -133,46 +133,6 @@ type Instruction_<Args, Results> = Results extends []
   : Results extends [ValueType]
   ? Type<Results[0]>
   : Instruction<Args, Results>;
-
-type t = Instruction_<["i32"], ["i32"]>;
-
-/**
- * instruction that is completely fixed
- */
-function instruction<
-  Args extends Tuple<ValueType>,
-  Results extends Tuple<ValueType>
->(
-  string: InstructionName,
-  args: ValueTypeObjects<Args>,
-  results: ValueTypeObjects<Results>
-): ((ctx: LocalContext, ...args: [] | Args) => any) extends (
-  ctx: LocalContext,
-  ...args: infer P
-) => any
-  ? (
-      ctx: LocalContext,
-      ...args: {
-        [i in keyof P]: Type<P[i]>;
-      }
-    ) => Instruction_<Args, Results>
-  : never {
-  let instr = { in: valueTypeLiterals(args), out: valueTypeLiterals(results) };
-  let createInstr = baseInstruction<undefined, [], [], Args, Results>(
-    string,
-    Undefined,
-    { create: () => instr }
-  );
-  return function (
-    ctx: LocalContext,
-    ...args: [] | (ValueTypeObjects<Args> & any[])
-  ): Instruction_<Args, Results> {
-    if (args.length !== 0) {
-      // TODO do some checks on the args
-    }
-    return createInstr(ctx);
-  } as any;
-}
 
 /**
  * instruction of constant type without dependencies,

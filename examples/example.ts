@@ -50,23 +50,19 @@ let mem = memory(
 let myFunc = func(
   { in: [i32, i32], locals: [i32, i32], out: [i32] },
   ([x, y], [tmp, i], ctx) => {
-    i64.trunc_sat_f64_s(f64.const(1.125));
+    i64.trunc_sat_f64_s(1.125);
     call(consoleLog64);
-    i32.add(local.get(x), i32.const(0));
-    local.get(y);
-    i32.add();
+    i32.add(x, 0);
+    i32.add($, y);
     block({ in: [i32], out: [i32] }, (block) => {
       local.tee(tmp);
       call(consoleLog);
       loop({}, (loop) => {
         local.get(i);
         call(consoleLog);
-        local.get(i);
-        i32.const(1);
-        i32.add();
+        i32.add(i, 1);
         local.tee(i);
-        i32.const(5);
-        i32.eq();
+        i32.eq($, 5);
         control.if({}, () => {
           local.get(tmp);
           control.return();
