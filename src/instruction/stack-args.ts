@@ -79,7 +79,6 @@ function instruction<
             );
         } else {
           // could be const
-          console.log({ type, x });
           let Unsupported = Error(
             `${string}: Unsupported input for type ${type}, got ${x}.`
           );
