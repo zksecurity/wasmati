@@ -52,8 +52,7 @@ let myFunc = func(
   ([x, y], [tmp, i], ctx) => {
     i64.trunc_sat_f64_s(f64.const(1.125));
     call(consoleLog64);
-    local.get(x);
-    i32.add($, i32.const(0));
+    i32.add(local.get(x), i32.const(0));
     local.get(y);
     i32.add();
     block({ in: [i32], out: [i32] }, (block) => {

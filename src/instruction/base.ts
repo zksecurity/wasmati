@@ -10,6 +10,7 @@ import {
 import {
   FunctionType,
   Type,
+  valueType,
   ValueType,
   valueTypeLiterals,
   ValueTypeObject,
@@ -111,8 +112,8 @@ function baseInstruction<
       results.length === 0
         ? undefined
         : results.length === 1
-        ? results[0]
-        : results
+        ? valueType(results[0])
+        : results.map(valueType)
     ) as Instruction_<Args, Results>;
   };
 }

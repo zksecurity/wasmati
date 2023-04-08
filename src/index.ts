@@ -156,7 +156,7 @@ function createInstructions(ctx: LocalContext) {
   const i64 = Object.assign(i64t, removeContexts(ctx, i64Ops));
   const f32 = Object.assign(f32t, removeContexts(ctx, f32Ops));
   const f64 = Object.assign(f64t, removeContexts(ctx, f64Ops));
-  const local = removeContexts(ctx, localOps);
+  const local = localOps(ctx);
   const global = Object.assign(
     globalConstructor,
     removeContexts(ctx, globalOps)

@@ -3,42 +3,61 @@ import { Const } from "../dependency.js";
 import * as Dependency from "../dependency.js";
 import { U32 } from "../immediate.js";
 import { baseInstruction } from "./base.js";
-import { RefType, RefTypeObject, valueTypeLiteral } from "../types.js";
+import {
+  Local,
+  RefType,
+  RefTypeObject,
+  Type,
+  ValueType,
+  valueTypeLiteral,
+} from "../types.js";
 import { LocalContext } from "../local-context.js";
 
 export { localOps, globalOps, globalConstructor, refOps };
 
-type Local = { index: number };
+type AnyLocal = Local<ValueType>;
 
-const localOps = {
-  get: baseInstruction("local.get", U32, {
-    create({ locals }, x: Local) {
+function localOps(ctx: LocalContext) {
+  const get = baseInstruction("local.get", U32, {
+    create({ locals }, x: AnyLocal) {
       let local = locals[x.index];
       if (local === undefined)
         throw Error(`local with index ${x.index} not available`);
       return { in: [], out: [local] };
     },
-    resolve: (_, x: Local) => x.index,
-  }),
-  set: baseInstruction("local.set", U32, {
-    create({ locals }, x: Local) {
+    resolve: (_, x: AnyLocal) => x.index,
+  });
+  const set = baseInstruction("local.set", U32, {
+    create({ locals }, x: AnyLocal) {
       let local = locals[x.index];
       if (local === undefined)
         throw Error(`local with index ${x.index} not available`);
       return { in: [local], out: [] };
     },
-    resolve: (_, x: Local) => x.index,
-  }),
-  tee: baseInstruction("local.tee", U32, {
-    create({ locals }, x: Local) {
+    resolve: (_, x: AnyLocal) => x.index,
+  });
+  const tee = baseInstruction("local.tee", U32, {
+    create({ locals }, x: AnyLocal) {
       let type = locals[x.index];
       if (type === undefined)
         throw Error(`local with index ${x.index} not available`);
       return { in: [type], out: [type] };
     },
-    resolve: (_, x: Local) => x.index,
-  }),
-};
+    resolve: (_, x: AnyLocal) => x.index,
+  });
+
+  return {
+    get: function <T extends ValueType>(x: Local<T>) {
+      return get(ctx, x) as Type<T>;
+    },
+    set: function <T extends ValueType>(x: Local<T>) {
+      return set(ctx, x);
+    },
+    tee: function <T extends ValueType>(x: Local<T>) {
+      return tee(ctx, x) as Type<T>;
+    },
+  };
+}
 
 const globalOps = {
   get: baseInstruction("global.get", U32, {

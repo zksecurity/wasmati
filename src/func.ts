@@ -8,6 +8,7 @@ import {
   FunctionIndex,
   FunctionType,
   JSValue,
+  Local,
   Type,
   TypeIndex,
   ValueType,
@@ -125,8 +126,6 @@ type JSFunctionType<T extends FunctionType> = JSFunctionType_<
   T["args"],
   T["results"]
 >;
-
-type Local<L extends ValueType> = { type?: L; index: number };
 
 type ToLocal<T extends Tuple<ValueType>> = {
   [K in keyof T]: Local<T[K]>;
