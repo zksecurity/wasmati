@@ -94,7 +94,7 @@ function instruction<
         } else if (isGlobal(x)) {
           if (x.type.value !== type)
             throw Error(
-              `${string}: Expected type ${type}, got global of type ${x.type}.`
+              `${string}: Expected type ${type}, got global of type ${x.type.value}.`
             );
           globalOps.get(ctx, x);
         } else if (isType(x)) {
