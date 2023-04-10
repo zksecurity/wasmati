@@ -1,6 +1,11 @@
 import { Const } from "./dependency.js";
 import * as Dependency from "./dependency.js";
-import { RefTypeObject, valueTypeLiteral } from "./types.js";
+import {
+  RefType,
+  RefTypeObject,
+  ValueType,
+  valueTypeLiteral,
+} from "./types.js";
 
 export {
   memoryConstructor,
@@ -36,7 +41,7 @@ function dataConstructor(
   mode:
     | {
         memory?: Dependency.AnyMemory;
-        offset: Const.i32 | Const.globalGet;
+        offset: Const.i32 | Const.globalGet<"i32">;
       }
     | "passive",
   [...init]: number[] | Uint8Array
@@ -45,7 +50,7 @@ function dataConstructor(
     return { kind: "data", init, mode, deps: [] };
   }
   let { memory, offset } = mode;
-  let deps = [...offset.deps] as Dependency.AnyGlobal[];
+  let deps = [...offset.deps] as Dependency.AnyGlobal<ValueType>[];
   let result: Dependency.Data = {
     kind: "data",
     init,
@@ -71,7 +76,7 @@ function tableConstructor(
     min: number;
     max?: number;
   },
-  content?: (Const.refFunc | Const.refNull)[]
+  content?: (Const.refFunc | Const.refNull<RefType>)[]
 ): Dependency.Table {
   let table = {
     kind: "table" as const,
@@ -95,10 +100,10 @@ function elemConstructor(
       | "declarative"
       | {
           table: Dependency.AnyTable;
-          offset: Const.i32 | Const.globalGet;
+          offset: Const.i32 | Const.globalGet<"i32">;
         };
   },
-  init: (Const.refFunc | Const.refNull)[]
+  init: (Const.refFunc | Const.refNull<RefType>)[]
 ): Dependency.Elem {
   let deps = init.flatMap((i) => i.deps as Dependency.Elem["deps"]);
   let result = {

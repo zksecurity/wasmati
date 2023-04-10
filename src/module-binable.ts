@@ -17,6 +17,7 @@ import {
   GlobalType,
   MemoryType,
   TableType,
+  ValueType,
   ValueTypeObject,
 } from "./types.js";
 import { Export, Import } from "./export.js";
@@ -243,7 +244,7 @@ type ValidationContext = {
   funcs: FunctionType[];
   tables: TableType[];
   memories: MemoryType[];
-  globals: GlobalType[];
+  globals: GlobalType<ValueType>[];
   elems: Elem[];
   datas: Data[];
   locals: ValueTypeObject[];

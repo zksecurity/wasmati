@@ -10,6 +10,7 @@ import {
   Limits,
   MemoryType,
   TableType,
+  ValueType,
 } from "./types.js";
 import { memoryConstructor } from "./memory.js";
 
@@ -213,7 +214,7 @@ type NiceExports<Exports extends Record<string, Dependency.Export>> = {
 type NiceExport<Export extends Dependency.Export> =
   Export extends Dependency.AnyFunc
     ? JSFunctionType<Export["type"]>
-    : Export extends Dependency.AnyGlobal
+    : Export extends Dependency.AnyGlobal<ValueType>
     ? WebAssembly.Global
     : Export extends Dependency.AnyMemory
     ? WebAssembly.Memory

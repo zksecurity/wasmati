@@ -12,21 +12,22 @@ import {
   valueTypeLiteral,
 } from "../types.js";
 import { LocalContext } from "../local-context.js";
+import { globalGet, localGet } from "./variable-get.js";
+import { Input, processStackArgs } from "./stack-args.js";
 
-export { localOps, bindLocalOps, globalOps, globalConstructor, refOps };
+export {
+  localOps,
+  bindLocalOps,
+  globalOps,
+  bindGlobalOps,
+  globalConstructor,
+  refOps,
+};
 
 type AnyLocal = Local<ValueType>;
 
 const localOps = {
-  get: baseInstruction("local.get", U32, {
-    create({ locals }, x: AnyLocal) {
-      let local = locals[x.index];
-      if (local === undefined)
-        throw Error(`local with index ${x.index} not available`);
-      return { in: [], out: [local] };
-    },
-    resolve: (_, x: AnyLocal) => x.index,
-  }),
+  get: localGet,
   set: baseInstruction("local.set", U32, {
     create({ locals }, x: AnyLocal) {
       let local = locals[x.index];
@@ -52,28 +53,31 @@ function bindLocalOps(ctx: LocalContext) {
     get: function <T extends ValueType>(x: Local<T>) {
       return localOps.get(ctx, x) as Type<T>;
     },
-    set: function <T extends ValueType>(x: Local<T>) {
+    set: function <T extends ValueType>(x: Local<T>, value?: Input<T>) {
+      processStackArgs(
+        ctx,
+        "local.set",
+        [x.type],
+        value === undefined ? [] : [value]
+      );
       return localOps.set(ctx, x);
     },
-    tee: function <T extends ValueType>(x: Local<T>) {
+    tee: function <T extends ValueType>(x: Local<T>, value?: Input<T>) {
+      processStackArgs(
+        ctx,
+        "local.tee",
+        [x.type],
+        value === undefined ? [] : [value]
+      );
       return localOps.tee(ctx, x) as Type<T>;
     },
   };
 }
 
 const globalOps = {
-  get: baseInstruction("global.get", U32, {
-    create(_, global: Dependency.AnyGlobal) {
-      return {
-        in: [],
-        out: [global.type.value],
-        deps: [global],
-      };
-    },
-    resolve: ([globalIdx]) => globalIdx,
-  }),
+  get: globalGet,
   set: baseInstruction("global.set", U32, {
-    create(_, global: Dependency.AnyGlobal) {
+    create(_, global: Dependency.AnyGlobal<ValueType>) {
       if (!global.type.mutable) {
         throw Error("global.set used on immutable global");
       }
@@ -87,11 +91,31 @@ const globalOps = {
   }),
 };
 
-function globalConstructor(
-  init: Const.t,
+function bindGlobalOps(ctx: LocalContext) {
+  return {
+    get: function <T extends ValueType>(x: Dependency.AnyGlobal<T>) {
+      return globalOps.get(ctx, x) as Type<T>;
+    },
+    set: function <T extends ValueType>(
+      x: Dependency.AnyGlobal<T>,
+      value?: Input<T>
+    ) {
+      processStackArgs(
+        ctx,
+        "global.set",
+        [x.type.value],
+        value === undefined ? [] : [value]
+      );
+      return globalOps.set(ctx, x);
+    },
+  };
+}
+
+function globalConstructor<T extends ValueType>(
+  init: Const.t<T>,
   { mutable = false } = {}
-): Dependency.Global {
-  let deps = init.deps as Dependency.Global["deps"];
+): Dependency.Global<T> {
+  let deps = init.deps as Dependency.Global<T>["deps"];
   let type = init.type.results[0];
   return { kind: "global", type: { value: type, mutable }, init, deps };
 }
