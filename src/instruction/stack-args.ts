@@ -14,9 +14,9 @@ import { Tuple } from "../util.js";
 import { Instruction_, baseInstruction } from "./base.js";
 import { f32Const, f64Const, i32Const, i64Const } from "./const.js";
 import { InstructionName } from "./opcodes.js";
-import { globalOps, localOps } from "./variable.js";
+import { globalGet, localGet } from "./variable-get.js";
 
-export { instruction };
+export { instruction, Input, processStackArgs };
 
 type Input<T extends ValueType> =
   | Type<T>
@@ -75,65 +75,74 @@ function instruction<
     ctx: LocalContext,
     ...actualArgs: Input<ValueType>[]
   ): Instruction_<Args, Results> {
-    let n = instr.in.length;
-    if (actualArgs.length !== 0 && actualArgs.length !== n) {
-      throw Error(
-        `${string}: Expected 0 or ${n} arguments, got ${actualArgs.length}.`
-      );
-    }
-    if (actualArgs.length !== 0) {
-      for (let i = 0; i < n; i++) {
-        let x = actualArgs[i];
-        let type = instr.in[i];
-        if (isLocal(x)) {
-          if (x.type !== type)
-            throw Error(
-              `${string}: Expected type ${type}, got local of type ${x.type}.`
-            );
-          localOps.get(ctx, x);
-        } else if (isGlobal(x)) {
-          if (x.type.value !== type)
-            throw Error(
-              `${string}: Expected type ${type}, got global of type ${x.type.value}.`
-            );
-          globalOps.get(ctx, x);
-        } else if (isType(x)) {
-          if (x.kind !== type && x.kind !== "unknown")
-            throw Error(
-              `${string}: Expected argument of type ${type}, got ${x.kind}.`
-            );
-        } else {
-          // could be const
-          let Unsupported = Error(
-            `${string}: Unsupported input for type ${type}, got ${x}.`
-          );
-          switch (type) {
-            case "i32":
-              if (typeof x !== "number") throw Unsupported;
-              i32Const(ctx, x);
-              break;
-            case "i64":
-              if (typeof x !== "bigint") throw Unsupported;
-              i64Const(ctx, x);
-              break;
-            case "f32":
-              if (typeof x !== "number") throw Unsupported;
-              f32Const(ctx, x);
-              break;
-            case "f64":
-              if (typeof x !== "number") throw Unsupported;
-              f64Const(ctx, x);
-              break;
-            case "v128":
-            case "funcref":
-            case "externref":
-            default:
-              throw Unsupported;
-          }
-        }
-      }
-    }
+    processStackArgs(ctx, string, instr.in, actualArgs);
     return createInstr(ctx);
   }
   return createInstr_ as any;
+}
+
+function processStackArgs(
+  ctx: LocalContext,
+  string: string,
+  expectedArgs: ValueType[],
+  actualArgs: Input<ValueType>[]
+) {
+  let n = expectedArgs.length;
+  if (actualArgs.length !== 0 && actualArgs.length !== n) {
+    throw Error(
+      `${string}: Expected 0 or ${n} arguments, got ${actualArgs.length}.`
+    );
+  }
+  if (actualArgs.length !== 0) {
+    for (let i = 0; i < n; i++) {
+      let x = actualArgs[i];
+      let type = expectedArgs[i];
+      if (isLocal(x)) {
+        if (x.type !== type)
+          throw Error(
+            `${string}: Expected type ${type}, got local of type ${x.type}.`
+          );
+        localGet(ctx, x);
+      } else if (isGlobal(x)) {
+        if (x.type.value !== type)
+          throw Error(
+            `${string}: Expected type ${type}, got global of type ${x.type.value}.`
+          );
+        globalGet(ctx, x);
+      } else if (isType(x)) {
+        if (x.kind !== type && x.kind !== "unknown")
+          throw Error(
+            `${string}: Expected argument of type ${type}, got ${x.kind}.`
+          );
+      } else {
+        // could be const
+        let Unsupported = Error(
+          `${string}: Unsupported input for type ${type}, got ${x}.`
+        );
+        switch (type) {
+          case "i32":
+            if (typeof x !== "number") throw Unsupported;
+            i32Const(ctx, x);
+            break;
+          case "i64":
+            if (typeof x !== "bigint") throw Unsupported;
+            i64Const(ctx, x);
+            break;
+          case "f32":
+            if (typeof x !== "number") throw Unsupported;
+            f32Const(ctx, x);
+            break;
+          case "f64":
+            if (typeof x !== "number") throw Unsupported;
+            f64Const(ctx, x);
+            break;
+          case "v128":
+          case "funcref":
+          case "externref":
+          default:
+            throw Unsupported;
+        }
+      }
+    }
+  }
 }

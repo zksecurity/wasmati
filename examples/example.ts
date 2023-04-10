@@ -55,13 +55,12 @@ let myFunc = func(
     i32.add(x, 0);
     i32.add($, y);
     block({ in: [i32], out: [i32] }, (block) => {
-      local.tee(tmp);
+      local.tee(tmp, $);
       call(consoleLog);
       loop({}, (loop) => {
         local.get(i);
         call(consoleLog);
-        i32.add(i, 1);
-        local.tee(i);
+        local.tee(i, i32.add(i, 1));
         i32.eq($, 5);
         control.if({}, () => {
           local.get(tmp);
@@ -85,7 +84,7 @@ let myFunc = func(
 
 let importedGlobal = importGlobal(i64, 1000n);
 let myFuncGlobal = global(Const.refFunc(myFunc));
-let f64Global = global(Const.f64(1.001));
+let f64Global = global(Const.f64(0), { mutable: true });
 
 let testUnreachable = func({ in: [], locals: [], out: [] }, () => {
   unreachable();
@@ -114,7 +113,8 @@ let exportedFunc = func(
     global.get(myFuncGlobal);
     i32.const(0);
     call_indirect(funcTable, { in: [funcref], out: [] });
-    f64.mul(f64.const(1.01), f64Global);
+    global.set(f64Global, 1.001);
+    f64.mul(1.01, f64Global);
     call(consoleLogF64);
     local.get(x);
     local.get(doLog);
@@ -149,8 +149,7 @@ let exportedFunc = func(
     // test vector instr
     v128.const("i64x2", [1n, 2n]);
     v128.const("i32x4", [3, 4, 5, 6]);
-    i32x4.add();
-    local.set(v);
+    local.set(v, i32x4.add());
     let $0 = v128.const("f64x2", [0.1, 0.2]);
     let $1 = f64x2.splat(f64.const(6.25));
     f64x2.mul($0, $1);
