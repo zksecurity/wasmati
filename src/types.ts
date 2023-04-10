@@ -33,6 +33,7 @@ export {
   printFunctionType,
   JSValue,
   Limits,
+  valueTypeSet,
 };
 
 type RefType = "funcref" | "externref";
@@ -77,6 +78,8 @@ const funcref = valueType("funcref");
 const externref = valueType("externref");
 
 const codeToValueType = invertRecord(valueTypeCodes);
+
+const valueTypeSet = new Set(Object.keys(valueTypeCodes) as ValueType[]);
 
 type ValueTypeObject = { kind: ValueType };
 const ValueType = Binable<ValueType>({

@@ -114,7 +114,7 @@ let exportedFunc = func(
     global.get(myFuncGlobal);
     i32.const(0);
     call_indirect(funcTable, { in: [funcref], out: [] });
-    f64.mul(global.get(f64Global), f64.const(1.01));
+    f64.mul(f64.const(1.01), f64Global);
     call(consoleLogF64);
     local.get(x);
     local.get(doLog);

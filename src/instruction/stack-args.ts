@@ -1,4 +1,5 @@
 import { Undefined } from "../binable.js";
+import { AnyGlobal } from "../dependency.js";
 import { LocalContext } from "../local-context.js";
 import {
   JSValue,
@@ -7,22 +8,40 @@ import {
   ValueType,
   valueTypeLiterals,
   ValueTypeObjects,
+  valueTypeSet,
 } from "../types.js";
 import { Tuple } from "../util.js";
 import { Instruction_, baseInstruction } from "./base.js";
 import { f32Const, f64Const, i32Const, i64Const } from "./const.js";
 import { InstructionName } from "./opcodes.js";
-import { localOps } from "./variable.js";
+import { globalOps, localOps } from "./variable.js";
 
 export { instruction };
 
-type Input<T> = Type<T> | Local<T> | JSValue<T>;
+type Input<T extends ValueType> =
+  | Type<T>
+  | Local<T>
+  | AnyGlobal<T>
+  | JSValue<T>;
 
 function isLocal(x: any): x is Local<ValueType> {
   return typeof x === "object" && x !== null && "index" in x;
 }
+function isGlobal(x: any): x is AnyGlobal<ValueType> {
+  return (
+    typeof x === "object" &&
+    x !== null &&
+    "kind" in x &&
+    (x.kind === "global" || x.kind === "importGlobal")
+  );
+}
 function isType(x: any): x is Type<ValueType | "unknown"> {
-  return typeof x === "object" && x !== null && "kind" in x;
+  return (
+    typeof x === "object" &&
+    x !== null &&
+    "kind" in x &&
+    (x.kind === "unknown" || valueTypeSet.has(x.kind))
+  );
 }
 
 /**
@@ -42,7 +61,7 @@ function instruction<
   ? (
       ctx: LocalContext,
       ...args: {
-        [i in keyof P]: Input<P[i]>;
+        [i in keyof P]: Input<P[i] extends ValueType ? P[i] : never>;
       }
     ) => Instruction_<Args, Results>
   : never {
@@ -72,6 +91,12 @@ function instruction<
               `${string}: Expected type ${type}, got local of type ${x.type}.`
             );
           localOps.get(ctx, x);
+        } else if (isGlobal(x)) {
+          if (x.type.value !== type)
+            throw Error(
+              `${string}: Expected type ${type}, got global of type ${x.type}.`
+            );
+          globalOps.get(ctx, x);
         } else if (isType(x)) {
           if (x.kind !== type && x.kind !== "unknown")
             throw Error(

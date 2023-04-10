@@ -19,8 +19,8 @@
     global.get 1
     i32.const 0
     call_indirect (type 2)
-    global.get 2
     f64.const 0x1.028f5c28f5c29p+0 (;=1.01;)
+    global.get 2
     f64.mul
     call 3
     local.get 0
