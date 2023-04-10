@@ -1,4 +1,4 @@
-import { baseInstruction } from "./base.js";
+import { Instruction_, baseInstruction } from "./base.js";
 import * as Dependency from "../dependency.js";
 import { LocalContext } from "../local-context.js";
 import { U32, U8 } from "../immediate.js";
@@ -14,6 +14,7 @@ import {
 } from "../types.js";
 import { Tuple } from "../util.js";
 import { InstructionName } from "./opcodes.js";
+import { Input, processStackArgs } from "./stack-args.js";
 
 export {
   memoryOps,
@@ -193,8 +194,17 @@ function memoryInstruction<
   bits: number,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>
-) {
-  return baseInstruction<
+): ((...args: [] | Args) => any) extends (...args: infer P) => any
+  ? (
+      ctx: LocalContext,
+      memArg: { offset?: number; align?: number },
+      ...args: {
+        [i in keyof P]: Input<P[i] extends ValueType ? P[i] : never>;
+      }
+    ) => Instruction_<Args, Results>
+  : never {
+  let expectedArgs = valueTypeLiterals(args);
+  let createInstr = baseInstruction<
     MemArg,
     [memArg: { offset?: number; align?: number }],
     [memArg: MemArg],
@@ -204,13 +214,22 @@ function memoryInstruction<
     create(_: LocalContext, memArg: { offset?: number; align?: number }) {
       let memArg_ = memArgFromInput(name, bits, memArg);
       return {
-        in: valueTypeLiterals(args),
+        in: expectedArgs,
         out: valueTypeLiterals(results),
         resolveArgs: [memArg_],
         deps: [Dependency.hasMemory],
       };
     },
   });
+  function createInstr_(
+    ctx: LocalContext,
+    memArgs: { offset?: number; align?: number },
+    ...actualArgs: Input<ValueType>[]
+  ): Instruction_<Args, Results> {
+    processStackArgs(ctx, name, expectedArgs, actualArgs);
+    return createInstr(ctx, memArgs);
+  }
+  return createInstr_ as any;
 }
 
 type MemArgAndLane = { memArg: MemArg; lane: U8 };

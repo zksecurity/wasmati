@@ -54,10 +54,7 @@ function instruction<
   string: InstructionName,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>
-): ((ctx: LocalContext, ...args: [] | Args) => any) extends (
-  ctx: LocalContext,
-  ...args: infer P
-) => any
+): ((...args: [] | Args) => any) extends (...args: infer P) => any
   ? (
       ctx: LocalContext,
       ...args: {

@@ -142,8 +142,7 @@ let exportedFunc = func(
 
     // move int32 at location 4 to location 0
     i32.const(0);
-    i32.const(0);
-    i32.load({ offset: 4 });
+    i32.load({ offset: 4 }, 0);
     i32.store({});
 
     // test vector instr
