@@ -85,6 +85,7 @@ let myFunc = func(
 
 let importedGlobal = importGlobal(i64, 1000n);
 let myFuncGlobal = global(Const.refFunc(myFunc));
+let f64Global = global(Const.f64(1.001));
 
 let testUnreachable = func({ in: [], locals: [], out: [] }, () => {
   unreachable();
@@ -113,6 +114,8 @@ let exportedFunc = func(
     global.get(myFuncGlobal);
     i32.const(0);
     call_indirect(funcTable, { in: [funcref], out: [] });
+    f64.mul(global.get(f64Global), f64.const(1.01));
+    call(consoleLogF64);
     local.get(x);
     local.get(doLog);
     control.if(null, () => {

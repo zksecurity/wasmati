@@ -19,6 +19,10 @@
     global.get 1
     i32.const 0
     call_indirect (type 2)
+    global.get 2
+    f64.const 0x1.028f5c28f5c29p+0 (;=1.01;)
+    f64.mul
+    call 3
     local.get 0
     local.get 1
     if  ;; label = @1
@@ -94,6 +98,7 @@
   (table (;0;) 4 funcref)
   (memory (;0;) 1 65536)
   (global (;1;) funcref (ref.func 6))
+  (global (;2;) f64 (f64.const 0x1.004189374bc6ap+0 (;=1.001;)))
   (export "exportedFunc" (func 5))
   (export "importedGlobal" (global 0))
   (export "memory" (memory 0))

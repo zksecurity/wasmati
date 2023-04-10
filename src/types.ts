@@ -106,8 +106,8 @@ const RefType = Binable<RefType>({
   },
 });
 
-type GlobalType = { value: ValueType; mutable: boolean };
-const GlobalType = record<GlobalType>({
+type GlobalType<T> = { value: T; mutable: boolean };
+const GlobalType = record<GlobalType<ValueType>>({
   value: ValueType,
   mutable: Bool,
 });

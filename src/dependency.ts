@@ -45,20 +45,20 @@ export { hasRefTo, hasMemory, dependencyKinds, kindToExportKind };
 
 type anyDependency = { kind: string; deps: anyDependency[] };
 
-type Export = AnyFunc | AnyGlobal | AnyMemory | AnyTable;
+type Export = AnyFunc | AnyGlobal<ValueType> | AnyMemory | AnyTable;
 
 type t =
   | Type
   | Func
   | HasRefTo
-  | Global
+  | Global<ValueType>
   | Table
   | Memory
   | HasMemory
   | Data
   | Elem
   | ImportFunc
-  | ImportGlobal
+  | ImportGlobal<ValueType>
   | ImportTable
   | ImportMemory;
 
@@ -79,11 +79,11 @@ function hasRefTo(value: AnyFunc): HasRefTo {
   return { kind: "hasRefTo", value, deps: [] };
 }
 
-type Global = {
+type Global<T extends ValueType> = {
   kind: "global";
-  type: GlobalType;
-  init: Const.t;
-  deps: (AnyGlobal | AnyFunc)[];
+  type: GlobalType<T>;
+  init: Const.t<T>;
+  deps: (AnyGlobal<ValueType> | AnyFunc)[];
 };
 
 type Table = {
@@ -102,22 +102,22 @@ const hasMemory: HasMemory = { kind: "hasMemory", deps: [] };
 type Data = {
   kind: "data";
   init: Byte[];
-  mode: "passive" | { memory: 0; offset: Const.i32 | Const.globalGet };
-  deps: (HasMemory | AnyGlobal | AnyMemory)[];
+  mode: "passive" | { memory: 0; offset: Const.i32 | Const.globalGet<"i32"> };
+  deps: (HasMemory | AnyGlobal<ValueType> | AnyMemory)[];
 };
 
 type Elem = {
   kind: "elem";
   type: RefType;
-  init: (Const.refFunc | Const.refNull)[];
+  init: (Const.refFunc | Const.refNull<RefType>)[];
   mode:
     | "passive"
     | "declarative"
     | {
         table: AnyTable;
-        offset: Const.i32 | Const.globalGet;
+        offset: Const.i32 | Const.globalGet<"i32">;
       };
-  deps: (AnyTable | AnyFunc | AnyGlobal)[];
+  deps: (AnyTable | AnyFunc | AnyGlobal<ValueType>)[];
 };
 
 type ImportPath = { module?: string; string?: string };
@@ -127,9 +127,9 @@ type ImportFunc = ImportPath & {
   value: Function;
   deps: [];
 };
-type ImportGlobal = ImportPath & {
+type ImportGlobal<T> = ImportPath & {
   kind: "importGlobal";
-  type: GlobalType;
+  type: GlobalType<T>;
   value: WebAssembly.Global;
   deps: [];
 };
@@ -147,10 +147,14 @@ type ImportMemory = ImportPath & {
 };
 
 type AnyFunc = Func | ImportFunc;
-type AnyGlobal = Global | ImportGlobal;
+type AnyGlobal<T extends ValueType> = Global<T> | ImportGlobal<T>;
 type AnyTable = Table | ImportTable;
 type AnyMemory = Memory | ImportMemory;
-type AnyImport = ImportFunc | ImportGlobal | ImportTable | ImportMemory;
+type AnyImport =
+  | ImportFunc
+  | ImportGlobal<ValueType>
+  | ImportTable
+  | ImportMemory;
 
 const dependencyKinds = [
   "function",
@@ -169,8 +173,8 @@ const dependencyKinds = [
 ] as const satisfies readonly t["kind"][];
 
 const kindToExportKind: Record<
-  (AnyFunc | AnyGlobal | AnyTable | AnyMemory)["kind"],
-  (Func | Global | Table | Memory)["kind"]
+  (AnyFunc | AnyGlobal<ValueType> | AnyTable | AnyMemory)["kind"],
+  (Func | Global<ValueType> | Table | Memory)["kind"]
 > = {
   function: "function",
   importFunction: "function",
@@ -193,13 +197,36 @@ type Instruction = {
 
 // constant instructions
 
+type ConstInstruction<T extends ValueType> = {
+  string: string;
+  type: { args: []; results: [T] };
+  deps: t[];
+  resolveArgs: any[];
+};
+
 namespace Const {
-  export type i32 = Instruction & { string: "i32.const" };
-  export type i64 = Instruction & { string: "i64.const" };
-  export type refNull = Instruction & { string: "ref.null" };
-  export type refFunc = Instruction & { string: "ref.func" };
-  export type globalGet = Instruction & { string: "global.get" };
-  export type t = i32 | i64 | refNull | refFunc | globalGet;
+  export type i32 = ConstInstruction<"i32"> & { string: "i32.const" };
+  export type i64 = ConstInstruction<"i64"> & { string: "i64.const" };
+  export type f32 = ConstInstruction<"f32"> & { string: "f32.const" };
+  export type f64 = ConstInstruction<"f64"> & { string: "f64.const" };
+  export type refNull<T extends RefType> = ConstInstruction<T> & {
+    string: "ref.null";
+  };
+  export type refFunc = ConstInstruction<"funcref"> & { string: "ref.func" };
+  export type globalGet<T extends ValueType> = ConstInstruction<T> & {
+    string: "global.get";
+  };
+  export type t_ =
+    | i32
+    | i64
+    | f32
+    | f64
+    | refNull<RefType>
+    | refFunc
+    | globalGet<ValueType>;
+  export type t<T extends ValueType> = ConstInstruction<T> & {
+    string: t_["string"];
+  };
 }
 
 const Const = {
@@ -219,18 +246,34 @@ const Const = {
       resolveArgs: [BigInt(x)],
     };
   },
+  f32(x: number): Const.f32 {
+    return {
+      string: "f32.const",
+      type: { args: [], results: ["f32"] },
+      deps: [],
+      resolveArgs: [x],
+    };
+  },
+  f64(x: number): Const.f64 {
+    return {
+      string: "f64.const",
+      type: { args: [], results: ["f64"] },
+      deps: [],
+      resolveArgs: [x],
+    };
+  },
   refFuncNull: {
     string: "ref.null",
     type: { args: [], results: ["funcref"] },
     deps: [],
     resolveArgs: ["funcref"],
-  } as Const.refNull,
+  } as Const.refNull<"funcref">,
   refExternNull: {
     string: "ref.null",
     type: { args: [], results: ["externref"] },
     deps: [],
     resolveArgs: ["externref"],
-  } as Const.refNull,
+  } as Const.refNull<"externref">,
   refFunc(func: AnyFunc): Const.refFunc {
     return {
       string: "ref.func",
@@ -239,7 +282,7 @@ const Const = {
       resolveArgs: [],
     };
   },
-  globalGet(global: Global): Const.globalGet {
+  globalGet<T extends ValueType>(global: Global<T>): Const.globalGet<T> {
     if (global.type.mutable)
       throw Error("global in a const expression can not be mutable");
     return {

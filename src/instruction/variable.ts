@@ -13,7 +13,14 @@ import {
 } from "../types.js";
 import { LocalContext } from "../local-context.js";
 
-export { localOps, bindLocalOps, globalOps, globalConstructor, refOps };
+export {
+  localOps,
+  bindLocalOps,
+  globalOps,
+  bindGlobalOps,
+  globalConstructor,
+  refOps,
+};
 
 type AnyLocal = Local<ValueType>;
 
@@ -63,7 +70,7 @@ function bindLocalOps(ctx: LocalContext) {
 
 const globalOps = {
   get: baseInstruction("global.get", U32, {
-    create(_, global: Dependency.AnyGlobal) {
+    create(_, global: Dependency.AnyGlobal<ValueType>) {
       return {
         in: [],
         out: [global.type.value],
@@ -73,7 +80,7 @@ const globalOps = {
     resolve: ([globalIdx]) => globalIdx,
   }),
   set: baseInstruction("global.set", U32, {
-    create(_, global: Dependency.AnyGlobal) {
+    create(_, global: Dependency.AnyGlobal<ValueType>) {
       if (!global.type.mutable) {
         throw Error("global.set used on immutable global");
       }
@@ -87,11 +94,22 @@ const globalOps = {
   }),
 };
 
-function globalConstructor(
-  init: Const.t,
+function bindGlobalOps(ctx: LocalContext) {
+  return {
+    get: function <T extends ValueType>(x: Dependency.AnyGlobal<T>) {
+      return globalOps.get(ctx, x) as Type<T>;
+    },
+    set: function <T extends ValueType>(x: Dependency.AnyGlobal<T>) {
+      return globalOps.set(ctx, x);
+    },
+  };
+}
+
+function globalConstructor<T extends ValueType>(
+  init: Const.t<T>,
   { mutable = false } = {}
-): Dependency.Global {
-  let deps = init.deps as Dependency.Global["deps"];
+): Dependency.Global<T> {
+  let deps = init.deps as Dependency.Global<T>["deps"];
   let type = init.type.results[0];
   return { kind: "global", type: { value: type, mutable }, init, deps };
 }

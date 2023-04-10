@@ -22,7 +22,7 @@ type ExternType =
   | { kind: "function"; value: FunctionType }
   | { kind: "table"; value: TableType }
   | { kind: "memory"; value: MemoryType }
-  | { kind: "global"; value: GlobalType };
+  | { kind: "global"; value: GlobalType<ValueType> };
 
 type ExportDescription = {
   kind: "function" | "table" | "memory" | "global";
@@ -47,12 +47,12 @@ type ImportDescription =
   | { kind: "function"; value: TypeIndex }
   | { kind: "table"; value: TableType }
   | { kind: "memory"; value: MemoryType }
-  | { kind: "global"; value: GlobalType };
+  | { kind: "global"; value: GlobalType<ValueType> };
 const ImportDescription: Binable<ImportDescription> = byteEnum<{
   0x00: { kind: "function"; value: TypeIndex };
   0x01: { kind: "table"; value: TableType };
   0x02: { kind: "memory"; value: MemoryType };
-  0x03: { kind: "global"; value: GlobalType };
+  0x03: { kind: "global"; value: GlobalType<ValueType> };
 }>({
   0x00: { kind: "function", value: TypeIndex },
   0x01: { kind: "table", value: TableType },
@@ -94,7 +94,7 @@ function importGlobal<V extends ValueType>(
   type: Type<V>,
   value: JSValue<V>,
   { mutable = false } = {}
-): Dependency.ImportGlobal {
+): Dependency.ImportGlobal<V> {
   let globalType = { value: valueTypeLiteral(type), mutable };
   let valueType: WebAssembly.ValueType =
     type.kind === "funcref" ? "anyfunc" : type.kind;
