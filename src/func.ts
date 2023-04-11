@@ -40,12 +40,16 @@ function func<
   ctx: LocalContext,
   signature: {
     in: ToTypeTuple<Args>;
-    locals: ToTypeTuple<Locals>;
+    locals?: ToTypeTuple<Locals>;
     out: ToTypeTuple<Results>;
   },
   run: (args: ToLocal<Args>, locals: ToLocal<Locals>, ctx: LocalContext) => void
 ): Func<Args, Results> {
-  let { in: args, locals, out: results } = signature;
+  let {
+    in: args,
+    locals = [] as ToTypeTuple<Locals>,
+    out: results,
+  } = signature;
   ctx.stack = [];
   let argsArray = valueTypeLiterals(args);
   let localsArray = valueTypeLiterals(locals);

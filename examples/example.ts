@@ -86,11 +86,11 @@ let importedGlobal = importGlobal(i64, 1000n);
 let myFuncGlobal = global(Const.refFunc(myFunc));
 let f64Global = global(Const.f64(0), { mutable: true });
 
-let testUnreachable = func({ in: [], locals: [], out: [] }, () => {
+// this function is not part of the import graph of the module, so won't end up in the assembly
+let testUnreachable = func({ in: [i32, i32], out: [i32] }, ([x]) => {
   unreachable();
-  // global.get(importedGlobal);
-  i32.add();
-  call(consoleLog);
+  // global.get(importedGlobal); // uncommenting shows that we handle type errors after unreachable correctly
+  i32.add($, x);
 });
 
 let funcTable = table({ type: funcref, min: 4 }, [
