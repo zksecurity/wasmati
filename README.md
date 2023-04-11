@@ -12,7 +12,7 @@ This is the beginnings of a fully-featured Wasm DSL for TS.
 - **Readability.** Wasm code should look imperative - like writing WAT by hand, just with better DX:
 
 ```ts
-const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
   local.get(x);
   local.get(y);
   i32.add();
@@ -22,11 +22,10 @@ const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
 });
 ```
 
-- Syntax sugar to reduce boilerplate assembly like `local.get` and `i32.const`
-  - should remain optional; but in practice, this proved extremely useful in `../lib/wasm-generate.js`
+- Optional syntax sugar to reduce boilerplate assembly like `local.get` and `i32.const`
 
 ```ts
-const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
   i32.add(x, y); // local.get(x), local.get(y) are filled in
   i32.shl($, 2); // $ is the top of the stack; i32.const(2) is filled in
   call(otherFunction);
@@ -34,7 +33,7 @@ const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
 
 // or maybe also
 
-const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
   let z = i32.add(x, y);
   call(otherFunction, [i32.shl(z, 2)]);
 });
@@ -43,7 +42,7 @@ const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
 - **Type-safe.** Example: Local variables are typed; instructions know their input types:
 
 ```ts
-const myFunction = func({ in: { x: i64, y: i32 }, out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: [i64, i32], out: [i32] }, ([x, y]) => {
   i32.add(x, y); // type error: "Argument of type 'i64' is not assignable to parameter of type 'i32'."
 });
 ```
@@ -58,9 +57,9 @@ Error: i32.add: expected i32 on the stack for first argument, got i64
 - **Trivial construction of modules.** Just declare exports; dependencies and imports are collected for you:
 
 ```ts
-let memory = Memory({ initialMB: 1 });
+let mem = memory({ min: 10 });
 
-let module = Module({ exports: { myFunction, memory } });
+let module = Module({ exports: { myFunction, mem } });
 let instance = await module.instantiate();
 ```
 
@@ -78,7 +77,7 @@ const consoleLog = importFunc({ in: [i32], out: [] }, (x) =>
   console.log("logging from wasm:", x)
 );
 
-const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
   call(consoleLog, [x]);
   i32.add(x, y);
 });
@@ -88,7 +87,7 @@ const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
 
 ```ts
 // example.ts
-let module = Module({ exports: { myFunction, memory } });
+let module = Module({ exports: { myFunction, mem } });
 
 export { module as default };
 ```
