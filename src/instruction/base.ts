@@ -5,12 +5,12 @@ import {
   popStack,
   pushInstruction,
   RandomLabel,
+  StackVar,
+  stackVars,
   withContext,
 } from "../local-context.js";
 import {
   FunctionType,
-  Type,
-  valueType,
   ValueType,
   valueTypeLiterals,
   ValueTypeObject,
@@ -112,8 +112,8 @@ function baseInstruction<
       results.length === 0
         ? undefined
         : results.length === 1
-        ? valueType(results[0])
-        : results.map(valueType)
+        ? StackVar(results[0])
+        : results.map(StackVar)
     ) as Instruction_<Args, Results>;
   };
 }
@@ -125,13 +125,13 @@ function isInstruction(
 }
 
 type Instruction<Args, Results> = {
-  [i in keyof Results & number]: Type<Results[i]>;
+  [i in keyof Results & number]: StackVar<Results[i]>;
 } & { in?: Args };
 
 type Instruction_<Args, Results> = Results extends []
   ? void
   : Results extends [ValueType]
-  ? Type<Results[0]>
+  ? StackVar<Results[0]>
   : Instruction<Args, Results>;
 
 /**
@@ -182,42 +182,6 @@ function resolveInstruction(
 
 const noResolve = (_: number[], ...args: any) => args[0];
 
-// TODO: the input type is simply taken as the current stack, which could be much larger than the minimal needed input type
-// to compute the minimal type signature, local context needs to keep track of the minimum stack height
-// function createExpression(
-//   name: LocalContext["frames"][number]["opcode"],
-//   ctx: LocalContext,
-//   run: (label: RandomLabel) => void
-// ): {
-//   body: Dependency.Instruction[];
-//   type: FunctionType;
-//   deps: Dependency.t[];
-// } {
-//   let args = [...ctx.stack];
-//   let stack = [...ctx.stack];
-//   let label = String(Math.random()) as RandomLabel;
-//   let { stack: results, body } = withContext(
-//     ctx,
-//     {
-//       body: [],
-//       stack,
-//       frames: [
-//         {
-//           label,
-//           opcode: name,
-//           startTypes: null,
-//           endTypes: null,
-//           unreachable: false,
-//           stack,
-//         },
-//         ...ctx.frames,
-//       ],
-//     },
-//     () => run(label)
-//   );
-//   return { body, type: { args, results }, deps: body.flatMap((i) => i.deps) };
-// }
-
 type FunctionTypeInput = {
   in?: ValueTypeObject[];
   out?: ValueTypeObject[];
@@ -242,7 +206,7 @@ function createExpressionWithType(
 } {
   let args = valueTypeLiterals(type?.in ?? []);
   let results = valueTypeLiterals(type?.out ?? []);
-  let stack = [...args];
+  let stack = stackVars(args);
   let label = String(Math.random()) as RandomLabel;
   let subCtx = withContext(
     ctx,

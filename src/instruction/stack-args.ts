@@ -1,14 +1,12 @@
 import { Undefined } from "../binable.js";
 import { AnyGlobal } from "../dependency.js";
-import { LocalContext } from "../local-context.js";
+import { LocalContext, StackVar, Unknown } from "../local-context.js";
 import {
   JSValue,
   Local,
-  Type,
   ValueType,
   valueTypeLiterals,
   ValueTypeObjects,
-  valueTypeSet,
 } from "../types.js";
 import { Tuple } from "../util.js";
 import { Instruction_, baseInstruction } from "./base.js";
@@ -19,7 +17,7 @@ import { globalGet, localGet } from "./variable-get.js";
 export { instruction, Input, processStackArgs };
 
 type Input<T extends ValueType> =
-  | Type<T>
+  | StackVar<T>
   | Local<T>
   | AnyGlobal<T>
   | JSValue<T>;
@@ -31,17 +29,11 @@ function isGlobal(x: any): x is AnyGlobal<ValueType> {
   return (
     typeof x === "object" &&
     x !== null &&
-    "kind" in x &&
     (x.kind === "global" || x.kind === "importGlobal")
   );
 }
-function isType(x: any): x is Type<ValueType | "unknown"> {
-  return (
-    typeof x === "object" &&
-    x !== null &&
-    "kind" in x &&
-    (x.kind === "unknown" || valueTypeSet.has(x.kind))
-  );
+function isStackVar(x: any): x is StackVar<ValueType | Unknown> {
+  return typeof x === "object" && x !== null && x.kind === "stack-var";
 }
 
 /**
@@ -106,10 +98,10 @@ function processStackArgs(
             `${string}: Expected type ${type}, got global of type ${x.type.value}.`
           );
         globalGet(ctx, x);
-      } else if (isType(x)) {
-        if (x.kind !== type && x.kind !== "unknown")
+      } else if (isStackVar(x)) {
+        if (x.type !== type && x.type !== Unknown)
           throw Error(
-            `${string}: Expected argument of type ${type}, got ${x.kind}.`
+            `${string}: Expected argument of type ${type}, got ${x.type}.`
           );
       } else {
         // could be const

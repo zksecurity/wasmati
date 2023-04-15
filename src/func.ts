@@ -3,7 +3,12 @@ import * as Dependency from "./dependency.js";
 import { U32, vec, withByteLength } from "./immediate.js";
 import { ResolvedInstruction } from "./instruction/base.js";
 import { Expression } from "./instruction/binable.js";
-import { LocalContext, popStack, withContext } from "./local-context.js";
+import {
+  LocalContext,
+  StackVar,
+  popStack,
+  withContext,
+} from "./local-context.js";
 import {
   FunctionIndex,
   FunctionType,
@@ -68,7 +73,7 @@ function func<
     type: localsArray[j],
     index,
   })) as ToLocal<Locals>;
-  let stack: ValueType[] = [];
+  let stack: StackVar<ValueType>[] = [];
   let { body, deps } = withContext(
     ctx,
     {

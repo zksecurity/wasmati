@@ -4,6 +4,9 @@ import { ValueType } from "./types.js";
 
 export {
   LocalContext,
+  StackVar,
+  stackVars,
+  Unknown,
   Label,
   RandomLabel,
   popStack,
@@ -25,20 +28,26 @@ const Unknown = "unknown";
 type RandomLabel = `0.${string}`;
 type Label = "top" | RandomLabel;
 
+type StackVar<T> = {
+  id: number;
+  kind: "stack-var";
+  type: T;
+};
+
 type ControlFrame = {
   label: Label; // unique id
   opcode: InstructionName | "function" | "else";
   startTypes: ValueType[];
   endTypes: ValueType[];
   unreachable: boolean;
-  stack: ValueType[];
+  stack: StackVar<ValueType>[];
 };
 
 type LocalContext = {
   locals: ValueType[];
   deps: Dependency.t[];
   body: Dependency.Instruction[];
-  stack: ValueType[]; // === frames[0].stack
+  stack: StackVar<ValueType>[]; // === frames[0].stack
   frames: ControlFrame[];
   return: ValueType[] | null;
 };
@@ -102,7 +111,7 @@ function popStack(
     if (stackValue === undefined && frames[0].unreachable) {
       // implicitly returning 'unknown'
       popped.unshift(value);
-    } else if (stackValue === undefined || value !== stackValue) {
+    } else if (stackValue === undefined || value !== stackValue.type) {
       throw Error(
         `expected ${value} on the stack, got ${stackValue ?? "nothing"}`
       );
@@ -121,11 +130,16 @@ function popUnknown({ stack, frames }: LocalContext): ValueType | Unknown {
   if (stackValue === undefined) {
     throw Error(`expected value on the stack, got nothing`);
   }
-  return stackValue;
+  return stackValue.type;
 }
 
-function pushStack({ stack }: LocalContext, values: ValueType[]) {
-  stack.push(...values);
+function pushStack(
+  { stack }: LocalContext,
+  values: ValueType[]
+): StackVar<ValueType>[] {
+  let stackVars = values.map(StackVar);
+  stack.push(...stackVars);
+  return stackVars;
 }
 
 function setUnreachable(ctx: LocalContext) {
@@ -168,4 +182,17 @@ function isVectorType(type: ValueType | Unknown) {
 
 function isSameType(t1: ValueType | Unknown, t2: ValueType | Unknown) {
   return t1 === t2 || t1 === Unknown || t2 === Unknown;
+}
+
+function StackVar<T extends ValueType | Unknown>(type: T): StackVar<T> {
+  return { kind: "stack-var", id: id(), type };
+}
+
+function stackVars(types: ValueType[]) {
+  return types.map(StackVar);
+}
+
+let i = 0;
+function id() {
+  return i++;
 }

@@ -7,11 +7,10 @@ import {
   Local,
   RefType,
   RefTypeObject,
-  Type,
   ValueType,
   valueTypeLiteral,
 } from "../types.js";
-import { LocalContext } from "../local-context.js";
+import { LocalContext, StackVar } from "../local-context.js";
 import { globalGet, localGet } from "./variable-get.js";
 import { Input, processStackArgs } from "./stack-args.js";
 
@@ -51,7 +50,7 @@ const localOps = {
 function bindLocalOps(ctx: LocalContext) {
   return {
     get: function <T extends ValueType>(x: Local<T>) {
-      return localOps.get(ctx, x) as Type<T>;
+      return localOps.get(ctx, x) as StackVar<T>;
     },
     set: function <T extends ValueType>(x: Local<T>, value?: Input<T>) {
       processStackArgs(
@@ -69,7 +68,7 @@ function bindLocalOps(ctx: LocalContext) {
         [x.type],
         value === undefined ? [] : [value]
       );
-      return localOps.tee(ctx, x) as Type<T>;
+      return localOps.tee(ctx, x) as StackVar<T>;
     },
   };
 }
@@ -94,7 +93,7 @@ const globalOps = {
 function bindGlobalOps(ctx: LocalContext) {
   return {
     get: function <T extends ValueType>(x: Dependency.AnyGlobal<T>) {
-      return globalOps.get(ctx, x) as Type<T>;
+      return globalOps.get(ctx, x) as StackVar<T>;
     },
     set: function <T extends ValueType>(
       x: Dependency.AnyGlobal<T>,
@@ -132,7 +131,7 @@ const refOps = {
   }),
   is_null: baseInstruction("ref.is_null", Undefined, {
     create({ stack }: LocalContext) {
-      return { in: [stack[stack.length - 1]], out: ["i32"] };
+      return { in: [stack[stack.length - 1].type], out: ["i32"] };
     },
     resolve: () => undefined,
   }),

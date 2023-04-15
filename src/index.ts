@@ -1,6 +1,5 @@
 export { Module } from "./module.js";
 import {
-  globalOps,
   globalConstructor,
   refOps,
   bindLocalOps,
@@ -9,7 +8,13 @@ import {
 import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.js";
 import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.js";
 import { control as controlOps, parametric } from "./instruction/control.js";
-import { emptyContext, LocalContext, Label } from "./local-context.js";
+import {
+  emptyContext,
+  LocalContext,
+  Label,
+  StackVar,
+  Unknown,
+} from "./local-context.js";
 import { Tuple } from "./util.js";
 import {
   f32t,
@@ -92,6 +97,7 @@ export {
   funcref,
   externref,
   $,
+  StackVar,
   Type,
   ValueType,
   ValueTypeObject,
@@ -149,7 +155,7 @@ let {
   call_indirect,
 } = control;
 
-const $: Type<any> = { kind: "unknown" };
+const $: StackVar<any> = StackVar(Unknown);
 
 function createInstructions(ctx: LocalContext) {
   const func = removeContext(ctx, originalFunc);
