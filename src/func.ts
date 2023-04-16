@@ -25,7 +25,7 @@ import { Tuple } from "./util.js";
 // external
 export { func, Func, Local };
 // internal
-export { FinalizedFunc, Code, JSFunctionType, ToTypeTuple };
+export { FinalizedFunc, Code, JSFunction, ToTypeTuple };
 
 type Func<
   Args extends readonly ValueType[],
@@ -140,9 +140,9 @@ type JSFunctionType_<Args extends ValueType[], Results extends ValueType[]> = (
   ...arg: JSValues<Args>
 ) => ReturnValues<Results>;
 
-type JSFunctionType<T extends FunctionType> = JSFunctionType_<
-  T["args"],
-  T["results"]
+type JSFunction<T extends Dependency.AnyFunc> = JSFunctionType_<
+  T["type"]["args"],
+  T["type"]["results"]
 >;
 
 type ToLocal<T extends Tuple<ValueType>> = {

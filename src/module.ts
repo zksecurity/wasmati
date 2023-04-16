@@ -1,6 +1,6 @@
 import * as Dependency from "./dependency.js";
 import { Export, Import } from "./export.js";
-import { FinalizedFunc, JSFunctionType } from "./func.js";
+import { FinalizedFunc, JSFunction } from "./func.js";
 import { resolveInstruction } from "./instruction/base.js";
 import { Module as BinableModule } from "./module-binable.js";
 import { Data, Elem, Global } from "./memory-binable.js";
@@ -14,7 +14,7 @@ import {
 } from "./types.js";
 import { memoryConstructor } from "./memory.js";
 
-export { Module };
+export { Module, ModuleExport };
 
 type Module = BinableModule;
 
@@ -196,7 +196,11 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
         Uint8Array.from(wasmByteCode),
         importMap
       )) as {
-        instance: WebAssembly.Instance & { exports: NiceExports<Exports> };
+        instance: WebAssembly.Instance & {
+          exports: {
+            [K in keyof Exports]: ModuleExport<Exports[K]>;
+          };
+        };
         module: WebAssembly.Module;
       };
     },
@@ -208,12 +212,9 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   return module;
 }
 
-type NiceExports<Exports extends Record<string, Dependency.Export>> = {
-  [K in keyof Exports]: NiceExport<Exports[K]>;
-};
-type NiceExport<Export extends Dependency.Export> =
+type ModuleExport<Export extends Dependency.Export> =
   Export extends Dependency.AnyFunc
-    ? JSFunctionType<Export["type"]>
+    ? JSFunction<Export>
     : Export extends Dependency.AnyGlobal<ValueType>
     ? WebAssembly.Global
     : Export extends Dependency.AnyMemory

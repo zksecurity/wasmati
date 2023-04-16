@@ -30,7 +30,13 @@ import {
   RefTypeObject,
   Type,
 } from "./types.js";
-import { Func, Local, func as originalFunc, ToTypeTuple } from "./func.js";
+import {
+  Func,
+  JSFunction,
+  Local,
+  func as originalFunc,
+  ToTypeTuple,
+} from "./func.js";
 import { Instruction, FunctionTypeInput } from "./instruction/base.js";
 import {
   f32x4Ops,
@@ -52,6 +58,7 @@ import * as Dependency from "./dependency.js";
 import { Const } from "./dependency.js";
 import { importFunc, importGlobal } from "./export.js";
 import { TupleN } from "./util.js";
+import { ModuleExport } from "./module.js";
 
 // instruction API
 export {
@@ -106,7 +113,15 @@ export {
 };
 export { importFunc, importGlobal };
 export { Const, Dependency };
-export type { ToTypeTuple, FunctionTypeInput, Label, TupleN, Instruction };
+export type {
+  ToTypeTuple,
+  FunctionTypeInput,
+  Label,
+  TupleN,
+  Instruction,
+  ModuleExport,
+  JSFunction,
+};
 
 type i32 = "i32";
 type i64 = "i64";
