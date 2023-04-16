@@ -53,7 +53,7 @@ let myFunc = func(
     i64.trunc_sat_f64_s(1.125);
     call(consoleLog64);
     i32.add(x, 0);
-    i32.add($, y);
+    i32.add(y, $);
     block({ in: [i32], out: [i32] }, (block) => {
       local.tee(tmp, $);
       call(consoleLog);
@@ -121,7 +121,6 @@ let exportedFunc = func(
     control.if(null, () => {
       local.get(x);
       call(consoleLog);
-      // console.log({ stack: ctx.stack });
     });
     i32.const(2 ** 31 - 1);
     i32.const(-(2 ** 31));
@@ -141,16 +140,14 @@ let exportedFunc = func(
     drop();
 
     // move int32 at location 4 to location 0
-    i32.const(0);
-    i32.load({ offset: 4 }, 0);
-    i32.store({});
+    i32.store({}, 0, i32.load({ offset: 4 }, 0));
 
     // test vector instr
     v128.const("i64x2", [1n, 2n]);
     v128.const("i32x4", [3, 4, 5, 6]);
     local.set(v, i32x4.add());
     let $0 = v128.const("f64x2", [0.1, 0.2]);
-    let $1 = f64x2.splat(f64.const(6.25));
+    let $1 = f64x2.splat(6.25);
     f64x2.mul($0, $1);
     f64x2.extract_lane(1);
     call(consoleLogF64); // should log 1.25

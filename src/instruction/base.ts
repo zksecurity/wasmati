@@ -78,10 +78,12 @@ function baseInstruction<
     };
     resolve?(deps: number[], ...args: ResolveArgs): Immediate;
   }
-): (
+): ((
   ctx: LocalContext,
   ...createArgs: CreateArgs
-) => Instruction_<Args, Results> {
+) => Instruction_<Args, Results>) & {
+  create(ctx: LocalContext, ...createArgs: CreateArgs): Dependency.Instruction;
+} {
   resolve ??= noResolve;
   let opcode = nameToOpcode[string];
   let instruction = { string, opcode, immediate, resolve };
@@ -95,27 +97,34 @@ function baseInstruction<
     ] = instruction;
   }
 
-  return function instruction(ctx: LocalContext, ...createArgs: CreateArgs) {
+  function wrapCreate(
+    ctx: LocalContext,
+    ...createArgs: CreateArgs
+  ): Dependency.Instruction {
     let {
       in: args,
       out: results,
       deps = [],
       resolveArgs = createArgs,
     } = create(ctx, ...createArgs);
-    pushInstruction(ctx, {
-      string,
-      deps,
-      type: { args, results },
-      resolveArgs,
-    });
-    return (
-      results.length === 0
-        ? undefined
-        : results.length === 1
-        ? StackVar(results[0])
-        : results.map(StackVar)
-    ) as Instruction_<Args, Results>;
-  };
+    return { string, deps, type: { args, results }, resolveArgs };
+  }
+
+  return Object.assign(
+    function instruction(ctx: LocalContext, ...createArgs: CreateArgs) {
+      let instr = wrapCreate(ctx, ...createArgs);
+      pushInstruction(ctx, instr);
+      let results = instr.type.results;
+      return (
+        results.length === 0
+          ? undefined
+          : results.length === 1
+          ? StackVar(results[0])
+          : results.map(StackVar)
+      ) as Instruction_<Args, Results>;
+    },
+    { create: wrapCreate }
+  );
 }
 
 function isInstruction(

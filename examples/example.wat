@@ -66,10 +66,10 @@
     f64.const 0x1.2p+0 (;=1.125;)
     i64.trunc_sat_f64_s
     call 0
+    local.get 1
     local.get 0
     i32.const 0
     i32.add
-    local.get 1
     i32.add
     block (param i32) (result i32)  ;; label = @1
       local.tee 2
