@@ -21,6 +21,7 @@ export {
   isNumberType,
   isVectorType,
   isSameType,
+  formatStack,
 };
 
 type Unknown = "unknown";
@@ -113,7 +114,7 @@ function popStack(
       popped.unshift(value);
     } else if (stackValue === undefined || value !== stackValue.type) {
       throw Error(
-        `expected ${value} on the stack, got ${stackValue ?? "nothing"}`
+        `expected ${value} on the stack, got ${stackValue?.type ?? "nothing"}`
       );
     } else {
       popped.unshift(value);
@@ -166,6 +167,21 @@ function getFrameFromLabel(
   }
 }
 
+function StackVar<T extends ValueType | Unknown>(type: T): StackVar<T> {
+  return { kind: "stack-var", id: id(), type };
+}
+
+function stackVars(types: ValueType[]) {
+  return types.map(StackVar);
+}
+
+let i = 0;
+function id() {
+  return i++;
+}
+
+// helpers
+
 function isNumberType(type: ValueType | Unknown) {
   return (
     type === "i32" ||
@@ -184,15 +200,6 @@ function isSameType(t1: ValueType | Unknown, t2: ValueType | Unknown) {
   return t1 === t2 || t1 === Unknown || t2 === Unknown;
 }
 
-function StackVar<T extends ValueType | Unknown>(type: T): StackVar<T> {
-  return { kind: "stack-var", id: id(), type };
-}
-
-function stackVars(types: ValueType[]) {
-  return types.map(StackVar);
-}
-
-let i = 0;
-function id() {
-  return i++;
+function formatStack(stack: StackVar<ValueType>[]): string {
+  return `[${stack.map((v) => v.type).join(",")}]`;
 }

@@ -6,6 +6,7 @@ import { Expression } from "./instruction/binable.js";
 import {
   LocalContext,
   StackVar,
+  formatStack,
   popStack,
   withContext,
 } from "./local-context.js";
@@ -98,7 +99,9 @@ function func<
       popStack(ctx, resultsArray);
       // TODO nice error
       if (ctx.stack.length !== 0)
-        throw Error(`expected stack to be empty, got [${ctx.stack}]`);
+        throw Error(
+          `expected stack to be empty, got ${formatStack(ctx.stack)}`
+        );
     }
   );
   let func = {
