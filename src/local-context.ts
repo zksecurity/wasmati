@@ -105,22 +105,20 @@ function popStack(
   values: ValueType[]
 ): ValueType[] {
   // TODO nicer errors, which display entire stack vs entire instruction signature
-  let popped: ValueType[] = [];
-  let reversed = [...values].reverse();
-  for (let value of reversed) {
+  let n = values.length;
+  for (let i = n - 1; i >= 0; i--) {
     let stackValue = stack.pop();
-    if (stackValue === undefined && frames[0].unreachable) {
-      // implicitly returning 'unknown'
-      popped.unshift(value);
-    } else if (stackValue === undefined || value !== stackValue.type) {
+    let value = values[i];
+    if (
+      (stackValue === undefined && !frames[0].unreachable) ||
+      (stackValue !== undefined && value !== stackValue.type)
+    ) {
       throw Error(
         `expected ${value} on the stack, got ${stackValue?.type ?? "nothing"}`
       );
-    } else {
-      popped.unshift(value);
     }
   }
-  return popped;
+  return values;
 }
 
 function popUnknown({ stack, frames }: LocalContext): ValueType | Unknown {

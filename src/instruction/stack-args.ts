@@ -121,27 +121,25 @@ function processStackArgs(
         );
     } else {
       // could be const
-      let Unsupported = Error(
-        `${string}: Unsupported input for type ${type}, got ${x}.`
-      );
+      let unsupported = `${string}: Unsupported input for type ${type}, got ${x}.`;
       switch (type) {
         case "i32":
-          if (typeof x !== "number") throw Unsupported;
+          if (typeof x !== "number") throw Error(unsupported);
           if (mustReorder) insertInstruction(ctx, i, i32Const.create(ctx, x));
           else i32Const(ctx, x);
           break;
         case "i64":
-          if (typeof x !== "bigint") throw Unsupported;
+          if (typeof x !== "bigint") throw Error(unsupported);
           if (mustReorder) insertInstruction(ctx, i, i64Const.create(ctx, x));
           else i64Const(ctx, x);
           break;
         case "f32":
-          if (typeof x !== "number") throw Unsupported;
+          if (typeof x !== "number") throw Error(unsupported);
           if (mustReorder) insertInstruction(ctx, i, f32Const.create(ctx, x));
           else f32Const(ctx, x);
           break;
         case "f64":
-          if (typeof x !== "number") throw Unsupported;
+          if (typeof x !== "number") throw Error(unsupported);
           if (mustReorder) insertInstruction(ctx, i, f64Const.create(ctx, x));
           else f64Const(ctx, x);
           break;
@@ -149,7 +147,7 @@ function processStackArgs(
         case "funcref":
         case "externref":
         default:
-          throw Unsupported;
+          throw Error(unsupported);
       }
     }
   }
