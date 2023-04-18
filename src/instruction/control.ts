@@ -1,5 +1,6 @@
 import { record, tuple, Undefined } from "../binable.js";
 import * as Dependency from "../dependency.js";
+import { AnyFunc } from "../func-types.js";
 import { U32, vec } from "../immediate.js";
 import {
   getFrameFromLabel,
@@ -14,6 +15,7 @@ import {
   isVectorType,
   isSameType,
   LocalContext,
+  StackVars,
 } from "../local-context.js";
 import { ValueType, valueTypeLiteral, ValueTypeObject } from "../types.js";
 import {
@@ -25,8 +27,9 @@ import {
   typeFromInput,
 } from "./base.js";
 import { Block, IfBlock } from "./binable.js";
+import { Input, Inputs, processStackArgs } from "./stack-args.js";
 
-export { control, parametric };
+export { control, bindControlOps, parametric };
 
 // control instructions
 
@@ -185,6 +188,25 @@ const call_indirect = baseInstruction("call_indirect", tuple([U32, U32]), {
   resolve: ([typeIdx, tableIdx]) => [typeIdx, tableIdx],
 });
 
+function bindControlOps(ctx: LocalContext) {
+  return {
+    call: <F extends AnyFunc<any, any>>(
+      func: F,
+      args?: Inputs<F["type"]["args"]>
+    ) => {
+      if (args !== undefined) {
+        processStackArgs(
+          ctx,
+          "call",
+          func.type.args,
+          args as Input<ValueType>[]
+        );
+      }
+      return call(ctx, func) as StackVars<F["type"]["results"]>;
+    },
+  };
+}
+
 const control = {
   nop,
   unreachable,
@@ -195,7 +217,7 @@ const control = {
   br_if,
   br_table,
   return: return_,
-  call,
+  // call,
   call_indirect,
 };
 

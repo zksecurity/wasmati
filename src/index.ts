@@ -7,7 +7,11 @@ import {
 } from "./instruction/variable.js";
 import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.js";
 import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.js";
-import { control as controlOps, parametric } from "./instruction/control.js";
+import {
+  bindControlOps,
+  control as controlOps,
+  parametric,
+} from "./instruction/control.js";
 import {
   emptyContext,
   LocalContext,
@@ -181,7 +185,11 @@ function createInstructions(ctx: LocalContext) {
   const local = bindLocalOps(ctx);
   const global = Object.assign(globalConstructor, bindGlobalOps(ctx));
   const ref = removeContexts(ctx, refOps);
-  const control = removeContexts(ctx, controlOps);
+
+  const control1 = removeContexts(ctx, controlOps);
+  const cpntrol2 = bindControlOps(ctx);
+  const control = Object.assign(control1, cpntrol2);
+
   const { drop, select_poly, select_t } = removeContexts(ctx, parametric);
 
   const memory = Object.assign(

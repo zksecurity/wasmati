@@ -5,6 +5,7 @@ import { ValueType } from "./types.js";
 export {
   LocalContext,
   StackVar,
+  StackVars,
   stackVars,
   Unknown,
   Label,
@@ -168,6 +169,10 @@ function getFrameFromLabel(
 function StackVar<T extends ValueType | Unknown>(type: T): StackVar<T> {
   return { kind: "stack-var", id: id(), type };
 }
+
+type StackVars<Results extends readonly ValueType[]> = {
+  [k in keyof Results]: StackVar<Results[k]>;
+};
 
 function stackVars(types: ValueType[]) {
   return types.map(StackVar);

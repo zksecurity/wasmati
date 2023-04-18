@@ -58,8 +58,7 @@ let myFunc = func(
       local.tee(tmp, $);
       call(consoleLog);
       loop({}, (loop) => {
-        local.get(i);
-        call(consoleLog);
+        call(consoleLog, [i]);
         local.tee(i, i32.add(i, 1));
         i32.eq($, 5);
         control.if({}, () => {
@@ -119,8 +118,7 @@ let exportedFunc = func(
     local.get(x);
     local.get(doLog);
     control.if(null, () => {
-      local.get(x);
-      call(consoleLog);
+      call(consoleLog, [x]);
     });
     i32.const(2 ** 31 - 1);
     i32.const(-(2 ** 31));
@@ -130,9 +128,7 @@ let exportedFunc = func(
     // drop();
     // local.get(x);
     local.set(y);
-    local.get(y);
-    i32.const(5);
-    call(myFunc);
+    call(myFunc, [y, 5]);
     // unreachable();
 
     i32.const(10);

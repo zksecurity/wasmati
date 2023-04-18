@@ -19,7 +19,7 @@ import { f32Const, f64Const, i32Const, i64Const } from "./const.js";
 import { InstructionName } from "./opcodes.js";
 import { globalGet, localGet } from "./variable-get.js";
 
-export { instruction, Input, processStackArgs, insertInstruction };
+export { instruction, Input, Inputs, processStackArgs, insertInstruction };
 
 type Input<T extends ValueType> =
   | StackVar<T>
@@ -40,6 +40,20 @@ function isGlobal(x: any): x is AnyGlobal<ValueType> {
 function isStackVar(x: any): x is StackVar<ValueType | Unknown> {
   return typeof x === "object" && x !== null && x.kind === "stack-var";
 }
+
+type Inputs<P extends readonly ValueType[]> = {
+  [i in keyof P]: Input<P[i]>;
+};
+
+type InputsAsParameters<Args extends readonly ValueType[]> = ((
+  ...args: [] | Args
+) => any) extends (...args: infer P) => any
+  ? (
+      ...args: {
+        [i in keyof P]: Input<P[i] extends ValueType ? P[i] : never>;
+      }
+    ) => any
+  : never;
 
 /**
  * instruction that is completely fixed
