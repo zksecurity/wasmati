@@ -30,8 +30,8 @@ import {
   RefTypeObject,
   Type,
 } from "./types.js";
+import { Func, ImportFunc, AnyFunc } from "./func-types.js";
 import {
-  Func,
   JSFunction,
   Local,
   func as originalFunc,
@@ -99,7 +99,7 @@ export {
 };
 
 // other public API
-export { func, defaultCtx, Func, Local };
+export { func, defaultCtx, Local, Func, ImportFunc, AnyFunc };
 export {
   funcref,
   externref,

@@ -21,22 +21,12 @@ import {
   valueTypeLiterals,
 } from "./types.js";
 import { Tuple } from "./util.js";
+import { Func } from "./func-types.js";
 
 // external
-export { func, Func, Local };
+export { func, Local };
 // internal
 export { FinalizedFunc, Code, JSFunction, ToTypeTuple };
-
-type Func<
-  Args extends readonly ValueType[],
-  Results extends readonly ValueType[]
-> = {
-  kind: "function";
-  locals: ValueType[];
-  body: Dependency.Instruction[];
-  deps: Dependency.t[];
-  type: FullFunctionType<Args, Results>;
-};
 
 function func<
   Args extends Tuple<ValueType>,
@@ -60,7 +50,7 @@ function func<
   let argsArray = valueTypeLiterals(args);
   let localsArray = valueTypeLiterals(locals);
   let resultsArray = valueTypeLiterals(results);
-  let type: FullFunctionType<Args, Results> & FunctionType = {
+  let type: { args: Args; results: Results } & FunctionType = {
     args: argsArray as any,
     results: resultsArray as any,
   };
@@ -117,13 +107,8 @@ function func<
 // type inference of function signature
 
 // example:
-// type Test = JSFunctionType<FullFunctionType<["i64", "i32"], ["i32"]>>;
+// type Test = JSFunction<Func<["i64", "i32"], ["i32"]>>;
 // ^ (arg_0: bigint, arg_1: number) => number
-
-type FullFunctionType<
-  Args extends readonly ValueType[],
-  Results extends readonly ValueType[]
-> = { args: Args; results: Results };
 
 type ObjectValues<T> = UnionToTuple<T[keyof T]>;
 

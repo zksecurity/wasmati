@@ -15,6 +15,7 @@ import {
 import { ToTypeTuple } from "./func.js";
 import { Tuple } from "./util.js";
 import * as Dependency from "./dependency.js";
+import { ImportFunc } from "./func-types.js";
 
 export { Export, Import, ExternType, importFunc, importGlobal };
 
@@ -83,7 +84,7 @@ function importFunc<
     out: ToTypeTuple<Results>;
   },
   run: Function
-): Dependency.ImportFunc {
+): ImportFunc<Args, Results> {
   let args = valueTypeLiterals(args_);
   let results = valueTypeLiterals(results_);
   let type = { args, results };
