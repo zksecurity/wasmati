@@ -6,9 +6,7 @@ import { popStack } from "../local-context.js";
 import { emptyContext } from "../local-context.js";
 import { LocalContext, StackVar, Unknown } from "../local-context.js";
 import {
-  JSValue,
   Local,
-  printFunctionType,
   ValueType,
   valueTypeLiterals,
   ValueTypeObjects,
@@ -21,27 +19,35 @@ import { globalGet, localGet } from "./variable-get.js";
 
 export { instruction, Input, Inputs, processStackArgs, insertInstruction };
 
-type Input<T extends ValueType> =
-  | StackVar<T>
-  | Local<T>
-  | AnyGlobal<T>
-  | JSValue<T>;
+type JSNumberValue<T extends ValueType> = T extends "i32"
+  ? number
+  : T extends "i64"
+  ? bigint
+  : T extends "f32"
+  ? number
+  : T extends "f64"
+  ? number
+  : never;
 
-function isLocal(x: any): x is Local<ValueType> {
-  return typeof x === "object" && x !== null && "index" in x;
+type Input<T extends ValueType | Unknown> =
+  | StackVar<T>
+  | (T extends ValueType ? Local<T> | AnyGlobal<T> | JSNumberValue<T> : never);
+
+function isLocal(x: Input<any>): x is Local<ValueType> {
+  return typeof x === "object" && x !== null && x.kind === "local";
 }
-function isGlobal(x: any): x is AnyGlobal<ValueType> {
+function isGlobal(x: Input<any>): x is AnyGlobal<ValueType> {
   return (
     typeof x === "object" &&
     x !== null &&
     (x.kind === "global" || x.kind === "importGlobal")
   );
 }
-function isStackVar(x: any): x is StackVar<ValueType | Unknown> {
+function isStackVar(x: Input<any>): x is StackVar<ValueType | Unknown> {
   return typeof x === "object" && x !== null && x.kind === "stack-var";
 }
 
-type Inputs<P extends readonly ValueType[]> = {
+type Inputs<P extends ValueType[]> = {
   [i in keyof P]: Input<P[i]>;
 };
 
@@ -93,7 +99,7 @@ function processStackArgs(
   ctx: LocalContext,
   string: string,
   expectedArgs: ValueType[],
-  actualArgs: Input<ValueType>[]
+  actualArgs: Input<ValueType | Unknown>[]
 ) {
   if (actualArgs.length === 0) return;
   let n = expectedArgs.length;

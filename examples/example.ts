@@ -54,10 +54,10 @@ let myFunc = func(
     call(consoleLog64);
     i32.add(x, 0);
     i32.add(y, $);
-    block({ in: [i32], out: [i32] }, (block) => {
+    block({ in: [i32], out: [i32] }, ($block) => {
       local.tee(tmp, $);
       call(consoleLog);
-      loop({}, (loop) => {
+      loop({}, ($loop) => {
         call(consoleLog, [i]);
         local.tee(i, i32.add(i, 1));
         i32.eq($, 5);
@@ -67,7 +67,7 @@ let myFunc = func(
           // fine that this is missing input, because code path is unreachable
           call(consoleLog);
         });
-        br(loop);
+        br($loop);
         // unreachable
         local.get(i);
         // i64.const(10n);

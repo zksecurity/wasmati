@@ -52,7 +52,7 @@ function bindLocalOps(ctx: LocalContext) {
     get: function <T extends ValueType>(x: Local<T>) {
       return localOps.get(ctx, x) as StackVar<T>;
     },
-    set: function <T extends ValueType>(x: Local<T>, value?: Input<T>) {
+    set: function <L extends Local<ValueType>>(x: L, value?: Input<L["type"]>) {
       processStackArgs(
         ctx,
         "local.set",
@@ -61,14 +61,14 @@ function bindLocalOps(ctx: LocalContext) {
       );
       return localOps.set(ctx, x);
     },
-    tee: function <T extends ValueType>(x: Local<T>, value?: Input<T>) {
+    tee: function <L extends Local<ValueType>>(x: L, value?: Input<L["type"]>) {
       processStackArgs(
         ctx,
         "local.tee",
         [x.type],
         value === undefined ? [] : [value]
       );
-      return localOps.tee(ctx, x) as StackVar<T>;
+      return localOps.tee(ctx, x) as StackVar<L["type"]>;
     },
   };
 }
@@ -95,9 +95,9 @@ function bindGlobalOps(ctx: LocalContext) {
     get: function <T extends ValueType>(x: Dependency.AnyGlobal<T>) {
       return globalOps.get(ctx, x) as StackVar<T>;
     },
-    set: function <T extends ValueType>(
-      x: Dependency.AnyGlobal<T>,
-      value?: Input<T>
+    set: function <G extends Dependency.AnyGlobal<ValueType>>(
+      x: G,
+      value?: Input<G["type"]["value"]>
     ) {
       processStackArgs(
         ctx,

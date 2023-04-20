@@ -40,7 +40,7 @@ type RefType = "funcref" | "externref";
 type ValueType = "i32" | "i64" | "f32" | "f64" | "v128" | RefType;
 
 type Type<L> = { kind: L };
-type Local<L> = { type: L; index: number };
+type Local<L> = { kind: "local"; type: L; index: number };
 
 function valueTypeLiteral<L extends ValueType>({ kind }: { kind: L }): L {
   return kind;
@@ -202,5 +202,5 @@ type JSValue<T> = T extends "i32"
   : T extends "funcref"
   ? Function | null
   : T extends "externref"
-  ? any
-  : any;
+  ? unknown
+  : never;

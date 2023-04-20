@@ -33,6 +33,7 @@ import {
   RefType,
   RefTypeObject,
   Type,
+  JSValue,
 } from "./types.js";
 import { Func, ImportFunc, AnyFunc } from "./func-types.js";
 import {
@@ -59,10 +60,12 @@ import {
   tableConstructor,
 } from "./memory.js";
 import * as Dependency from "./dependency.js";
+import { Global, ImportGlobal, AnyGlobal } from "./dependency.js";
 import { Const } from "./dependency.js";
 import { importFunc, importGlobal } from "./export.js";
 import { TupleN } from "./util.js";
 import { ModuleExport } from "./module.js";
+import { Input } from "./instruction/stack-args.js";
 
 // instruction API
 export {
@@ -103,19 +106,22 @@ export {
 };
 
 // other public API
-export { func, defaultCtx, Local, Func, ImportFunc, AnyFunc };
+export { defaultCtx };
+export { func, Func, importFunc, ImportFunc, AnyFunc };
+export { Global, importGlobal, ImportGlobal, AnyGlobal };
 export {
   funcref,
   externref,
+  Local,
   $,
   StackVar,
+  Input,
   Type,
   ValueType,
   ValueTypeObject,
   RefType,
   RefTypeObject,
 };
-export { importFunc, importGlobal };
 export { Const, Dependency };
 export type {
   ToTypeTuple,
@@ -125,6 +131,7 @@ export type {
   Instruction,
   ModuleExport,
   JSFunction,
+  JSValue,
 };
 
 type i32 = "i32";

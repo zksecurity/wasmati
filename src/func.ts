@@ -55,15 +55,21 @@ function func<
     results: resultsArray as any,
   };
   let nArgs = argsArray.length;
-  let argsInput = argsArray.map((type, index) => ({
-    type,
-    index,
-  })) as ToLocal<Args>;
+  let argsInput = argsArray.map(
+    (type, index): Local<ValueType> => ({
+      kind: "local",
+      type,
+      index,
+    })
+  ) as ToLocal<Args>;
   let { sortedLocals, localIndices } = sortLocals(localsArray, nArgs);
-  let localsInput = localIndices.map((index, j) => ({
-    type: localsArray[j],
-    index,
-  })) as ToLocal<Locals>;
+  let localsInput = localIndices.map(
+    (index, j): Local<ValueType> => ({
+      kind: "local",
+      type: localsArray[j],
+      index,
+    })
+  ) as ToLocal<Locals>;
   let stack: StackVar<ValueType>[] = [];
   let { body, deps } = withContext(
     ctx,
