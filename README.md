@@ -4,9 +4,9 @@ _Write low-level WebAssembly, from JavaScript_
 
 **wasmati** is a TS library that lets you create Wasm modules by writing out their instructions.
 
-* 🥷 You want to create low-level, hand-optimized Wasm libraries? wasmati is the toolset to do so effectively.
-* 🚀 You want to sprinkle some Wasm into your JS application, to speed up critical parts? wasmati gives you a JS-native way to achieve that.
-* ⚠️ You want to compile your Wasm modules from a high-level language, like Rust or C? wasmati is not for you.
+- 🥷 You want to create low-level, hand-optimized Wasm libraries? wasmati is the toolset to do so effectively.
+- 🚀 You want to sprinkle some Wasm into your JS application, to speed up critical parts? wasmati gives you a JS-native way to achieve that.
+- ⚠️ You want to compile your Wasm modules from a high-level language, like Rust or C? wasmati is not for you.
 
 ```sh
 npm i wasmati
@@ -38,7 +38,7 @@ $ ts-node-esm example.ts
 
 - **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of the [latest WebAssembly spec (2.0)](https://webassembly.github.io/spec/core/index.html) are supported.
 
-- **Readability.**  Wasm code looks imperative - like writing WAT by hand, just with better DX:
+- **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
 ```ts
 const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
@@ -71,9 +71,12 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
 - **Type-safe.** Example: Local variables are typed; instructions know their input types:
 
 ```ts
-const myFunction = func({ in: [i64, i32], out: [i32] }, ([x, y]) => {
-  i32.add(x, y); // type error: "Argument of type 'i64' is not assignable to parameter of type 'i32'."
-});
+const myFunction = func(
+  { in: [i32, i32], locals: [i64], out: [i32] },
+  ([x, y], [u]) => {
+    i32.add(x, u); // type error: "Argument of type 'i64' is not assignable to parameter of type 'i32'."
+  }
+);
 ```
 
 - **Great debugging DX.** Stack traces point to the exact line in your code where an invalid opcode is called:
