@@ -74,7 +74,7 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
 const myFunction = func(
   { in: [i32, i32], locals: [i64], out: [i32] },
   ([x, y], [u]) => {
-    i32.add(x, u); // type error: "Argument of type 'i64' is not assignable to parameter of type 'i32'."
+    i32.add(x, u); // type error: Type '"i64"' is not assignable to type '"i32"'.
   }
 );
 ```
