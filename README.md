@@ -28,6 +28,8 @@ console.log({ result }); // { result: 100n }
 
 ## Features
 
+- Works in all modern browsers, `node` and `deno`
+
 - **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of the [latest WebAssembly spec (2.0)](https://webassembly.github.io/spec/core/index.html) are supported.
 
 - **Readability.**  Wasm code looks imperative - like writing WAT by hand, just with better DX:
