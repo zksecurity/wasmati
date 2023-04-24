@@ -119,7 +119,7 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
 - Great composability and IO
   - Internal representation of modules / funcs / etc is a readable JSON object
     - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
-  - Helpers like `module.toBytes()`, `Module.fromBytes(bytes, imports)`
+  - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes, imports)`
 
 ### Features that aren't implemented yet
 
