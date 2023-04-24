@@ -1,4 +1,4 @@
-# wasmati
+# wasmati 🍚 &nbsp; [![npm version](https://img.shields.io/npm/v/wasmati.svg?style=flat)](https://www.npmjs.com/package/wasmati)
 
 _Write low-level WebAssembly, from JavaScript_
 
