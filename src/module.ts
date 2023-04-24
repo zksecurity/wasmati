@@ -7,6 +7,7 @@ import { Data, Elem, Global } from "./memory-binable.js";
 import {
   FunctionType,
   functionTypeEquals,
+  JSValue,
   Limits,
   MemoryType,
   TableType,
@@ -16,7 +17,7 @@ import { memoryConstructor } from "./memory.js";
 
 export { Module, ModuleExport };
 
-type Module = BinableModule;
+type Module = ReturnType<typeof ModuleConstructor>;
 
 function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   exports: inputExports,
@@ -187,11 +188,18 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     memory,
     start,
   };
+  return createModule<Exports>(binableModule, importMap);
+}
+
+function createModule<Exports extends Record<string, Dependency.Export>>(
+  binableModule: BinableModule,
+  importMap: WebAssembly.Imports
+) {
   let module = {
     module: binableModule,
     importMap,
     async instantiate() {
-      let wasmByteCode = Module.toBytes(binableModule);
+      let wasmByteCode = BinableModule.toBytes(binableModule);
       return (await WebAssembly.instantiate(
         Uint8Array.from(wasmByteCode),
         importMap
@@ -205,7 +213,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
       };
     },
     toBytes() {
-      let bytes = Module.toBytes(module.module);
+      let bytes = BinableModule.toBytes(module.module);
       return Uint8Array.from(bytes);
     },
   };
@@ -216,14 +224,25 @@ type ModuleExport<Export extends Dependency.Export> =
   Export extends Dependency.AnyFunc
     ? JSFunction<Export>
     : Export extends Dependency.AnyGlobal<ValueType>
-    ? WebAssembly.Global
+    ? {
+        value: JSValue<Export["type"]["value"]>;
+        valueOf(): JSValue<Export["type"]["value"]>;
+      }
     : Export extends Dependency.AnyMemory
     ? WebAssembly.Memory
     : Export extends Dependency.AnyTable
     ? WebAssembly.Table
     : unknown;
 
-const Module = Object.assign(ModuleConstructor, BinableModule);
+const Module = Object.assign(ModuleConstructor, {
+  fromBytes<Exports extends Record<string, Dependency.Export>>(
+    bytes: Uint8Array,
+    importMap: WebAssembly.Imports = {}
+  ) {
+    let binableModule = BinableModule.fromBytes(bytes);
+    return createModule<Exports>(binableModule, importMap);
+  },
+});
 
 function pushDependency(
   existing: Set<Dependency.anyDependency>,

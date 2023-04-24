@@ -47,6 +47,8 @@
     i32.const 0
     i32.load offset=4
     i32.store
+    i64.const 64
+    call 0
     v128.const i32x4 0x00000001 0x00000000 0x00000002 0x00000000
     v128.const i32x4 0x00000003 0x00000004 0x00000005 0x00000006
     i32x4.add

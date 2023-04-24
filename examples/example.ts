@@ -138,6 +138,9 @@ let exportedFunc = func(
     // move int32 at location 4 to location 0
     i32.store({}, 0, i32.load({ offset: 4 }, 0));
 
+    // test i64
+    call(consoleLog64, [64n]);
+
     // test vector instr
     v128.const("i64x2", [1n, 2n]);
     v128.const("i32x4", [3, 4, 5, 6]);
@@ -171,17 +174,25 @@ console.dir(module.module, { depth: Infinity });
 let wasmByteCode = module.toBytes();
 console.log(`wasm size: ${wasmByteCode.length} byte`);
 let recoveredModule = Module.fromBytes(wasmByteCode);
-assert.deepStrictEqual(recoveredModule, module.module);
+assert.deepStrictEqual(recoveredModule.module, module.module);
 
 // write wat file for comparison
 let wabtModule = wabt.readWasm(wasmByteCode, wabtFeatures());
 let wat = wabtModule.toText({});
 await writeFile(import.meta.url.slice(7).replace(".ts", ".wat"), wat);
 
-// instantiate & run exported function
+// instantiate
 let wasmModule = await module.instantiate();
 let { exports } = wasmModule.instance;
 console.log(exports);
+
+// check type inference
+exports.exportedFunc satisfies (x: number, y: number) => number;
+exports.importedGlobal satisfies WebAssembly.Global;
+exports.importedGlobal.value satisfies bigint;
+exports.memory satisfies WebAssembly.Memory;
+
+// run exported function
 let result = exports.exportedFunc(10, 0);
 assert(result === 15);
 assert(exports.importedGlobal.value === 1000n);
