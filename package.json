@@ -1,7 +1,7 @@
 {
   "name": "wasmati",
   "version": "0.1.8",
-  "description": "",
+  "description": "Write low-level WebAssembly, from JavaScript",
   "type": "module",
   "main": "build/index.js",
   "types": "./build/index.d.ts",
@@ -18,9 +18,16 @@
     "src",
     "build"
   ],
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "webassembly",
+    "wasm"
+  ],
+  "author": "Gregor Mitscha-Baude <gregor.mitscha-baude@gmx.at>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zk-security/wasmati"
+  },
   "dependencies": {
     "ieee754": "^1.2.1"
   },
