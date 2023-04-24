@@ -5,7 +5,7 @@ _Write low-level WebAssembly, from JavaScript_
 **wasmati** is a TS library that lets you create Wasm modules by writing out their instructions.
 
 - 🥷 You want to create low-level, hand-optimized Wasm libraries? wasmati is the toolset to do so effectively.
-- 🚀 You want to sprinkle some Wasm into your JS application, to speed up critical parts? wasmati gives you a JS-native way to achieve that.
+- 🚀 You want to sprinkle some Wasm in your JS app, to speed up critical parts? wasmati gives you a JS-native way to achieve that.
 - ⚠️ You want to compile your Wasm modules from a high-level language, like Rust or C? wasmati is not for you.
 
 ```sh
