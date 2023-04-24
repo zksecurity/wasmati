@@ -1,15 +1,36 @@
 # wasmati
 
-> Write low-level WebAssembly from JavaScript
+_Write low-level WebAssembly, from JavaScript_
 
-This is the beginnings of a fully-featured Wasm DSL for TS.
+**wasmati** is a TS library that lets you create Wasm modules by writing out their instructions.
 
-## Goals:
+* 🥷 You want to create low-level, hand-optimized Wasm libraries? wasmati is the toolset to do so effectively.
+* 🚀 You want to sprinkle some Wasm into your JS application, to speed up critical parts? wasmati gives you a JS-native way to achieve that.
+* ⚠️ You want to compile your Wasm modules from a high-level language, like Rust or C? wasmati is not for you.
 
-- **Write low-level Wasm from TS**
-- API directly corresponds to Wasm opcodes, like `i32.add` etc
+```sh
+npm i wasmati
+```
 
-- **Readability.** Wasm code should look imperative - like writing WAT by hand, just with better DX:
+```ts
+import { i64, func, Module } from "wasmati";
+
+const myFunction = func({ in: [i64, i64], out: [i64] }, ([x, y]) => {
+  i64.mul(x, y);
+});
+
+let module = Module({ exports: { myFunction } });
+let { instance } = await module.instantiate();
+
+let result = instance.exports.myFunction(5n, 20n);
+console.log({ result }); // { result: 100n }
+```
+
+## Features
+
+- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of the [latest WebAssembly spec (2.0)](https://webassembly.github.io/spec/core/index.html) are supported.
+
+- **Readability.**  Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
 ```ts
 const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
@@ -31,7 +52,7 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
   call(otherFunction);
 });
 
-// or maybe also
+// or also
 
 const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
   let z = i32.add(x, y);
@@ -47,14 +68,15 @@ const myFunction = func({ in: [i64, i32], out: [i32] }, ([x, y]) => {
 });
 ```
 
-- **Great debugging DX.** Example: Stack traces point to the exact line in your code where the invalid opcode is called:
+- **Great debugging DX.** Stack traces point to the exact line in your code where an invalid opcode is called:
 
 ```
-Error: i32.add: expected i32 on the stack for first argument, got i64
-    at file:///home/gregor/code/wasm-generate/example.ts:16:9
+Error: i32.add: Expected i32 on the stack, got i64.
+    ...
+    at file:///home/gregor/code/wasmati/examples/example.ts:16:9
 ```
 
-- **Trivial construction of modules.** Just declare exports; dependencies and imports are collected for you:
+- **Easy construction of modules.** Just declare exports; dependencies and imports are collected for you. Nothing ends up in the module which isn't needed by any of its exports or its start function.
 
 ```ts
 let mem = memory({ min: 10 });
@@ -83,7 +105,16 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
 });
 ```
 
-- Optional **build step** which takes as input a file that exports your `Module`, and compiles it to a file which hard-codes the Wasm bytecode as base64 string, correctly imports all dependencies (imports) for the instantiation like the original file did, instantiates the module (top-level await) and exports the module's exports.
+- Great composability and IO
+  - Internal representation of modules / funcs / etc is a readable JSON object
+    - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
+  - Helpers like `module.toBytes()`, `Module.fromBytes(bytes, imports)`
+
+### Features that aren't implemented yet
+
+_PRs welcome!_
+
+- **Wasmati build.** We want to add an optional build step which takes as input a file that exports your `Module`, and compiles it to a file which doesn't depend on wasmati at runtime. Instead, it hard-codes the Wasm bytecode as base64 string, correctly imports all dependencies (imports) for the instantiation like the original file did, instantiates the module (top-level await) and exports the module's exports.
 
 ```ts
 // example.ts
@@ -93,14 +124,12 @@ export { module as default };
 ```
 
 ```ts
-import { myFunction } from "./example.wasm.js"; // example.wasm.js does not depend on this lib at runtime
+import { myFunction } from "./example.wasm.js"; // example.wasm.js does not depend on wasmati at runtime
 ```
 
-- Excellent composability and IO
-  - Internal representation of modules / funcs / etc is a readable JSON object
-    - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
-  - Helpers like `module.toJSON`, `Module.fromJSON(json, imports)`
-  - `toBytes`, `fromBytes`, `toBase64`, `fromBase64`
+- **Experimental Wasm opcodes.** We want to support opcodes from recently standardized or in-progress feature proposals ([like this one](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)) which haven't yet made it to the spec. The eventual goal is to support these as soon as they are implemented in at least one JS engine.implemented yet
+
+- **Custom module sections.** We want to support creation and parsing of "custom sections" like the [name section](https://webassembly.github.io/spec/core/appendix/custom.html#name-section)
 
 ### Some ideas that are a bit further out:
 
