@@ -16,14 +16,14 @@ npm i wasmati
 // example.ts
 import { i64, func, Module } from "wasmati";
 
-const myFunction = func({ in: [i64, i64], out: [i64] }, ([x, y]) => {
+const myMultiply = func({ in: [i64, i64], out: [i64] }, ([x, y]) => {
   i64.mul(x, y);
 });
 
-let module = Module({ exports: { myFunction } });
+let module = Module({ exports: { myMultiply } });
 let { instance } = await module.instantiate();
 
-let result = instance.exports.myFunction(5n, 20n);
+let result = instance.exports.myMultiply(5n, 20n);
 console.log({ result });
 ```
 
