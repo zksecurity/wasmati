@@ -138,13 +138,13 @@ export { module as default };
 import { myFunction } from "./example.wasm.js"; // example.wasm.js does not depend on wasmati at runtime
 ```
 
-- **Experimental Wasm opcodes.** We want to support opcodes from recently standardized or in-progress feature proposals ([like this one](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)) which haven't yet made it to the spec. The eventual goal is to support these as soon as they are implemented in at least one JS engine.
+- **Experimental Wasm opcodes.** We want to support opcodes from recently standardized or in-progress feature proposals ([like this one](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)) which haven't yet made it to the spec. The eventual goal is to support proposals as soon as they are implemented in at least one JS engine.
 
 - **Custom module sections.** We want to support creation and parsing of "custom sections" like the [name section](https://webassembly.github.io/spec/core/appendix/custom.html#name-section)
 
 ### Some ideas that are a bit further out:
 
-- **Decompiler**: take _any_ Wasm file and create TS DSL code from it, to modify it, debug it etc
+- **Decompiler**: take _any_ Wasm file and create wasmati TS code from it -- to modify it, debug it etc
 - **Source maps**, so you can look at the culprit JS code when Wasm throws an error
 - Optional JS interpreter which can take DSL code and execute it _in JS_
   - could enable even more flexible debugging -- inspect the stack, global/local scope etc
