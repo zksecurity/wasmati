@@ -79,7 +79,10 @@ function instruction<
       }
     ) => Instruction_<Args, Results>
   : never {
-  let instr = { in: valueTypeLiterals(args), out: valueTypeLiterals(results) };
+  let instr = {
+    in: valueTypeLiterals<Args>(args),
+    out: valueTypeLiterals<Results>(results),
+  };
   let createInstr = baseInstruction<undefined, [], [], Args, Results>(
     string,
     Undefined,

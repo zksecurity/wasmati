@@ -187,8 +187,8 @@ type MemArg = { align: U32; offset: U32 };
 const MemArg = record({ align: U32, offset: U32 });
 
 function memoryInstruction<
-  Args extends Tuple<ValueType>,
-  Results extends Tuple<ValueType>
+  const Args extends Tuple<ValueType>,
+  const Results extends Tuple<ValueType>
 >(
   name: InstructionName,
   bits: number,
@@ -203,7 +203,7 @@ function memoryInstruction<
       }
     ) => Instruction_<Args, Results>
   : never {
-  let expectedArgs = valueTypeLiterals(args);
+  let expectedArgs = valueTypeLiterals<Args>(args);
   let createInstr = baseInstruction<
     MemArg,
     [memArg: { offset?: number; align?: number }],
@@ -215,7 +215,7 @@ function memoryInstruction<
       let memArg_ = memArgFromInput(name, bits, memArg);
       return {
         in: expectedArgs,
-        out: valueTypeLiterals(results),
+        out: valueTypeLiterals<Results>(results),
         resolveArgs: [memArg_],
         deps: [Dependency.hasMemory],
       };
@@ -258,8 +258,8 @@ function memoryAndLaneInstruction<
     ) {
       let memArg_ = memArgFromInput(name, bits, memArg);
       return {
-        in: valueTypeLiterals(args),
-        out: valueTypeLiterals(results),
+        in: valueTypeLiterals<Args>(args),
+        out: valueTypeLiterals<Results>(results),
         resolveArgs: [{ memArg: memArg_, lane }],
         deps: [Dependency.hasMemory],
       };

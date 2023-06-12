@@ -54,7 +54,7 @@ function valueType<L extends ValueType>(kind: L): Type<L> {
 type ValueTypeLiterals<T extends Tuple<ValueTypeObject>> = {
   [i in keyof T]: T[i] extends { kind: infer L } ? L : never;
 };
-function valueTypeLiterals<L extends ValueType[]>(types: {
+function valueTypeLiterals<const L extends ValueType[]>(types: {
   [i in keyof L]: Type<L[i]>;
 }): L & ValueType[] {
   return types.map((t) => t.kind) as L;

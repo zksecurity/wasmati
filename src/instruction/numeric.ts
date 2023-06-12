@@ -1,5 +1,3 @@
-import { F32, F64, I32, I64 } from "../immediate.js";
-import { instructionWithArg } from "./base.js";
 import { i32t, i64t, f32t, f64t } from "../types.js";
 import { memoryInstruction } from "./memory.js";
 import { instruction } from "./stack-args.js";

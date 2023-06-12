@@ -160,8 +160,8 @@ function instructionWithArg<
   immediate = immediate === Undefined ? undefined : immediate;
   type CreateArgs = Immediate extends undefined ? [] : [immediate: Immediate];
   let instr = {
-    in: valueTypeLiterals(args),
-    out: valueTypeLiterals(results),
+    in: valueTypeLiterals<Args>(args),
+    out: valueTypeLiterals<Results>(results),
   };
   return baseInstruction<Immediate, CreateArgs, CreateArgs, Args, Results>(
     string,

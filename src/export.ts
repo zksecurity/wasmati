@@ -73,8 +73,8 @@ const Import = record<Import>({
 });
 
 function importFunc<
-  Args extends Tuple<ValueType>,
-  Results extends Tuple<ValueType>
+  const Args extends Tuple<ValueType>,
+  const Results extends Tuple<ValueType>
 >(
   {
     in: args_,
@@ -85,8 +85,8 @@ function importFunc<
   },
   run: Function
 ): ImportFunc<Args, Results> {
-  let args = valueTypeLiterals(args_);
-  let results = valueTypeLiterals(results_);
+  let args = valueTypeLiterals<Args>(args_);
+  let results = valueTypeLiterals<Results>(results_);
   let type = { args, results };
   return { kind: "importFunction", type, deps: [], value: run };
 }

@@ -29,9 +29,9 @@ export { func, Local };
 export { FinalizedFunc, Code, JSFunction, ToTypeTuple };
 
 function func<
-  Args extends Tuple<ValueType>,
-  Locals extends Tuple<ValueType>,
-  Results extends Tuple<ValueType>
+  const Args extends Tuple<ValueType>,
+  const Locals extends Tuple<ValueType>,
+  const Results extends Tuple<ValueType>
 >(
   ctx: LocalContext,
   signature: {
@@ -47,9 +47,9 @@ function func<
     out: results,
   } = signature;
   ctx.stack = [];
-  let argsArray = valueTypeLiterals(args);
-  let localsArray = valueTypeLiterals(locals);
-  let resultsArray = valueTypeLiterals(results);
+  let argsArray = valueTypeLiterals<Args>(args);
+  let localsArray = valueTypeLiterals<Locals>(locals);
+  let resultsArray = valueTypeLiterals<Results>(results);
   let type: { args: Args; results: Results } & FunctionType = {
     args: argsArray as any,
     results: resultsArray as any,
