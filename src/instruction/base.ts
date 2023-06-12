@@ -1,6 +1,7 @@
 import { Binable, Undefined } from "../binable.js";
 import * as Dependency from "../dependency.js";
 import {
+  formatStack,
   LocalContext,
   popStack,
   pushInstruction,
@@ -239,7 +240,9 @@ function createExpressionWithType(
   popStack(subCtx, results);
   if (stack.length !== 0)
     throw Error(
-      `expected stack to be empty at the end of block, got [${stack}]`
+      `expected stack to be empty at the end of block, got ${formatStack(
+        stack
+      )}`
     );
   let { body } = subCtx;
   return { body, type: { args, results }, deps: body.flatMap((i) => i.deps) };
