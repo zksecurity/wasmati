@@ -475,9 +475,9 @@ const i64x2Ops = {
     [v128t],
     [v128t]
   ),
-  shl: instruction("i64x2.shl", [v128t, i64t], [v128t]),
-  shr_s: instruction("i64x2.shr_s", [v128t, i64t], [v128t]),
-  shr_u: instruction("i64x2.shr_u", [v128t, i64t], [v128t]),
+  shl: instruction("i64x2.shl", [v128t, i32t], [v128t]),
+  shr_s: instruction("i64x2.shr_s", [v128t, i32t], [v128t]),
+  shr_u: instruction("i64x2.shr_u", [v128t, i32t], [v128t]),
   add: instruction("i64x2.add", [v128t, v128t], [v128t]),
   sub: instruction("i64x2.sub", [v128t, v128t], [v128t]),
   mul: instruction("i64x2.mul", [v128t, v128t], [v128t]),
