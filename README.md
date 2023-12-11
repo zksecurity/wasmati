@@ -36,7 +36,10 @@ $ ts-node-esm example.ts
 
 - Works in all modern browsers, `node` and `deno`
 
-- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of the [latest WebAssembly spec (2.0)](https://webassembly.github.io/spec/core/index.html) are supported.
+- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of the [latest WebAssembly spec (2.0)](https://webassembly.github.io/spec/core/index.html) are supported.  
+  In addition, wasmati supports the following extensions which are not part of the spec at the time of writing:
+
+  - [threads and atomics](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)
 
 - **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
@@ -138,7 +141,7 @@ export { module as default };
 import { myFunction } from "./example.wasm.js"; // example.wasm.js does not depend on wasmati at runtime
 ```
 
-- **Experimental Wasm opcodes.** We want to support opcodes from recently standardized or in-progress feature proposals ([like this one](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)) which haven't yet made it to the spec. The eventual goal is to support proposals as soon as they are implemented in at least one JS engine.
+- **Experimental Wasm opcodes.** We want to support opcodes from recently standardized or in-progress feature proposals ([like this one](https://github.com/WebAssembly/gc/blob/main/proposals/gc/Overview.md)) which haven't yet made it to the spec. The eventual goal is to support proposals as soon as they are implemented in at least one JS engine.
 
 - **Custom module sections.** We want to support creation and parsing of "custom sections" like the [name section](https://webassembly.github.io/spec/core/appendix/custom.html#name-section)
 
