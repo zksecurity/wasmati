@@ -29,7 +29,7 @@ import {
   $,
   importMemory,
   atomic,
-} from "../src/index.js";
+} from "../build/index.js";
 import assert from "node:assert";
 import Wabt from "wabt";
 import { writeFile } from "../src/util-node.js";
