@@ -12,7 +12,8 @@
   "scripts": {
     "test": "node --loader=ts-node/esm examples/example.ts",
     "build": "tsc",
-    "prepublishOnly": "npm run build && npm test"
+    "clean": "rm -rf build",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "files": [
     "src",
