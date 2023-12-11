@@ -18,15 +18,17 @@ function memoryConstructor(
   {
     min,
     max,
+    shared = false,
   }: {
     min: number;
     max?: number;
+    shared?: boolean;
   },
   ...content: (number[] | Uint8Array)[]
 ): Dependency.Memory {
   let memory: Dependency.Memory = {
     kind: "memory",
-    type: { limits: { min, max } },
+    type: { limits: { min, max, shared } },
     deps: [],
   };
   let offset = 0;
@@ -80,7 +82,7 @@ function tableConstructor(
 ): Dependency.Table {
   let table = {
     kind: "table" as const,
-    type: { type: valueTypeLiteral(type), limits: { min, max } },
+    type: { type: valueTypeLiteral(type), limits: { min, max, shared: false } },
     deps: [],
   };
   if (content !== undefined) {

@@ -27,6 +27,7 @@ import {
   f64x2,
   table,
   $,
+  importMemory,
 } from "../src/index.js";
 import assert from "node:assert";
 import fs from "node:fs";
@@ -42,9 +43,10 @@ let consoleLog64 = importFunc({ in: [i64], out: [] }, log);
 let consoleLogF64 = importFunc({ in: [f64], out: [] }, log);
 let consoleLogFunc = importFunc({ in: [funcref], out: [] }, log);
 
-let mem = memory(
-  { min: 1, max: 2 ** 16 },
-  Uint8Array.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+let mem = importMemory(
+  { min: 1, max: 2 ** 16, shared: true },
+  undefined,
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 );
 
 let myFunc = func(

@@ -1,4 +1,4 @@
-import { Binable, Bool, record, withByteCode } from "./binable.js";
+import { Binable, Bool, Byte, record, withByteCode } from "./binable.js";
 import { U32, vec } from "./immediate.js";
 import { Tuple } from "./util.js";
 
@@ -115,20 +115,24 @@ const GlobalType = record<GlobalType<ValueType>>({
   mutable: Bool,
 });
 
-type Limits = { min: number; max?: number };
+type Limits = { min: number; max?: number; shared: boolean };
 const Limits = Binable<Limits>({
-  toBytes({ min, max }) {
+  toBytes({ min, max, shared }) {
     if (max === undefined) return [0x00, ...U32.toBytes(min)];
-    return [0x01, ...U32.toBytes(min), ...U32.toBytes(max)];
+    let startByte = shared ? 0x03 : 0x01;
+    return [startByte, ...U32.toBytes(min), ...U32.toBytes(max)];
   },
   readBytes(bytes, offset) {
-    let hasMax: boolean, min: number, max: number | undefined;
-    [hasMax, offset] = Bool.readBytes(bytes, offset);
+    let type: number, min: number, max: number | undefined;
+    [type, offset] = Byte.readBytes(bytes, offset);
     [min, offset] = U32.readBytes(bytes, offset);
-    if (hasMax) {
+    let shared = type === 0x03;
+    if (type === 0x01 || type === 0x03) {
       [max, offset] = U32.readBytes(bytes, offset);
+    } else if (type !== 0x00) {
+      throw Error("invalid limit type");
     }
-    return [{ min, max }, offset];
+    return [{ min, max, shared }, offset];
   },
 });
 

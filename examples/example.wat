@@ -12,6 +12,7 @@
   (import "" "f3" (func (;3;) (type 3)))
   (import "" "f4" (func (;4;) (type 4)))
   (import "" "g0" (global (;0;) i64))
+  (import "" "m0" (memory (;0;) 1 65536 shared))
   (func (;5;) (type 5) (param i32 i32) (result i32)
     (local v128 v128 i32)
     ref.func 6
@@ -100,7 +101,6 @@
       drop
     end)
   (table (;0;) 4 funcref)
-  (memory (;0;) 1 65536)
   (global (;1;) funcref (ref.func 6))
   (global (;2;) (mut f64) (f64.const 0x0p+0 (;=0;)))
   (export "exportedFunc" (func 5))

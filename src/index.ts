@@ -60,9 +60,15 @@ import {
   tableConstructor,
 } from "./memory.js";
 import * as Dependency from "./dependency.js";
-import { Global, ImportGlobal, AnyGlobal } from "./dependency.js";
+import {
+  Global,
+  ImportGlobal,
+  AnyGlobal,
+  ImportMemory,
+  AnyMemory,
+} from "./dependency.js";
 import { Const } from "./dependency.js";
-import { importFunc, importGlobal } from "./export.js";
+import { importFunc, importGlobal, importMemory } from "./export.js";
 import { TupleN } from "./util.js";
 import { ModuleExport } from "./module.js";
 import { Input } from "./instruction/stack-args.js";
@@ -108,6 +114,7 @@ export {
 // other public API
 export { defaultCtx };
 export { func, Func, importFunc, ImportFunc, AnyFunc };
+export { importMemory, ImportMemory, AnyMemory };
 export { Global, importGlobal, ImportGlobal, AnyGlobal };
 export {
   funcref,
