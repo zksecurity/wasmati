@@ -125,6 +125,11 @@ export {
   call_indirect,
 };
 
+type func<
+  Args extends readonly ValueType[],
+  Results extends readonly ValueType[]
+> = Func<Args, Results>;
+
 // other public API
 export { defaultCtx };
 export { func, Func, importFunc, ImportFunc, AnyFunc };
