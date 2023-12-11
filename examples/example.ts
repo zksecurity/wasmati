@@ -28,9 +28,9 @@ import {
   table,
   $,
   importMemory,
+  atomic,
 } from "../src/index.js";
 import assert from "node:assert";
-import fs from "node:fs";
 import Wabt from "wabt";
 import { writeFile } from "../src/util-node.js";
 
@@ -44,7 +44,7 @@ let consoleLogF64 = importFunc({ in: [f64], out: [] }, log);
 let consoleLogFunc = importFunc({ in: [funcref], out: [] }, log);
 
 let mem = importMemory(
-  { min: 1, max: 2 ** 16, shared: true },
+  { min: 1, max: 1 << 16, shared: true },
   undefined,
   [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 );
@@ -158,6 +158,13 @@ let exportedFunc = func(
     i32.const(10);
     table.grow(funcTable);
     drop();
+
+    // test atomic
+    i32.atomic.rmw.add({}, 0, 4);
+    memory.atomic.notify({}, 0, 0);
+    drop();
+    drop();
+    atomic.fence();
   }
 );
 

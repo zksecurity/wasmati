@@ -63,7 +63,16 @@
     ref.null func
     i32.const 10
     table.grow 0
-    drop)
+    drop
+    i32.const 0
+    i32.const 4
+    i32.atomic.rmw.add
+    i32.const 0
+    i32.const 0
+    memory.atomic.notify
+    drop
+    drop
+    atomic.fence)
   (func (;6;) (type 5) (param i32 i32) (result i32)
     (local i32 i32)
     f64.const 0x1.2p+0 (;=1.125;)
