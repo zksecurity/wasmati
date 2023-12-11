@@ -17,8 +17,6 @@ import { memoryConstructor } from "./memory.js";
 
 export { Module, ModuleExport };
 
-type Module = ReturnType<typeof ModuleConstructor>;
-
 function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   exports: inputExports,
   memory: inputMemory,
@@ -204,11 +202,7 @@ function createModule<Exports extends Record<string, Dependency.Export>>(
         Uint8Array.from(wasmByteCode),
         importMap
       )) as {
-        instance: WebAssembly.Instance & {
-          exports: {
-            [K in keyof Exports]: ModuleExport<Exports[K]>;
-          };
-        };
+        instance: WebAssembly.Instance & Module<Exports>;
         module: WebAssembly.Module;
       };
     },
@@ -219,6 +213,12 @@ function createModule<Exports extends Record<string, Dependency.Export>>(
   };
   return module;
 }
+
+type Module<Exports extends Record<string, Dependency.Export>> = {
+  exports: {
+    [K in keyof Exports]: ModuleExport<Exports[K]>;
+  };
+};
 
 type ModuleExport<Export extends Dependency.Export> =
   Export extends Dependency.AnyFunc
