@@ -72,6 +72,19 @@ import { importFunc, importGlobal, importMemory } from "./export.js";
 import { TupleN } from "./util.js";
 import { ModuleExport } from "./module.js";
 import { Input } from "./instruction/stack-args.js";
+import {
+  atomicOps,
+  i32AtomicOps,
+  i32AtomicRmw16Ops,
+  i32AtomicRmw8Ops,
+  i32AtomicRmwOps,
+  i64AtomicOps,
+  i64AtomicRmw16Ops,
+  i64AtomicRmw32Ops,
+  i64AtomicRmw8Ops,
+  i64AtomicRmwOps,
+  memoryAtomicOps,
+} from "./instruction/atomic.js";
 
 // instruction API
 export {
@@ -96,6 +109,7 @@ export {
   i64x2,
   f32x4,
   f64x2,
+  atomic,
 };
 export {
   nop,
@@ -172,6 +186,7 @@ const {
   i64x2,
   f32x4,
   f64x2,
+  atomic,
 } = createInstructions(defaultCtx);
 
 let {
@@ -192,10 +207,41 @@ const $: StackVar<any> = StackVar(Unknown);
 
 function createInstructions(ctx: LocalContext) {
   const func = removeContext(ctx, originalFunc);
-  const i32 = Object.assign(i32t, removeContexts(ctx, i32Ops));
-  const i64 = Object.assign(i64t, removeContexts(ctx, i64Ops));
+
+  const atomic = removeContexts(ctx, atomicOps);
+  const memoryAtomic = removeContexts(ctx, memoryAtomicOps);
+
+  const i32AtomicBase = removeContexts(ctx, i32AtomicOps);
+  const i32AtomicRmw = removeContexts(ctx, i32AtomicRmwOps);
+  const i32AtomicRmw8 = removeContexts(ctx, i32AtomicRmw8Ops);
+  const i32AtomicRmw16 = removeContexts(ctx, i32AtomicRmw16Ops);
+  const i32Atomic = Object.assign(i32AtomicBase, {
+    rmw: i32AtomicRmw,
+    rmw8: i32AtomicRmw8,
+    rmw16: i32AtomicRmw16,
+  });
+
+  const i64AtomicBase = removeContexts(ctx, i64AtomicOps);
+  const i64AtomicRmw = removeContexts(ctx, i64AtomicRmwOps);
+  const i64AtomicRmw8 = removeContexts(ctx, i64AtomicRmw8Ops);
+  const i64AtomicRmw16 = removeContexts(ctx, i64AtomicRmw16Ops);
+  const i64AtomicRmw32 = removeContexts(ctx, i64AtomicRmw32Ops);
+  const i64Atomic = Object.assign(i64AtomicBase, {
+    rmw: i64AtomicRmw,
+    rmw8: i64AtomicRmw8,
+    rmw16: i64AtomicRmw16,
+    rmw32: i64AtomicRmw32,
+  });
+
+  const i32 = Object.assign(i32t, removeContexts(ctx, i32Ops), {
+    atomic: i32Atomic,
+  });
+  const i64 = Object.assign(i64t, removeContexts(ctx, i64Ops), {
+    atomic: i64Atomic,
+  });
   const f32 = Object.assign(f32t, removeContexts(ctx, f32Ops));
   const f64 = Object.assign(f64t, removeContexts(ctx, f64Ops));
+
   const local = bindLocalOps(ctx);
   const global = Object.assign(globalConstructor, bindGlobalOps(ctx));
   const ref = removeContexts(ctx, refOps);
@@ -208,7 +254,8 @@ function createInstructions(ctx: LocalContext) {
 
   const memory = Object.assign(
     memoryConstructor,
-    removeContexts(ctx, memoryOps)
+    removeContexts(ctx, memoryOps),
+    { atomic: memoryAtomic }
   );
   const data = Object.assign(dataConstructor, removeContexts(ctx, dataOps));
   const table = Object.assign(tableConstructor, removeContexts(ctx, tableOps));
@@ -255,6 +302,7 @@ function createInstructions(ctx: LocalContext) {
     i64x2,
     f32x4,
     f64x2,
+    atomic,
   };
 }
 
