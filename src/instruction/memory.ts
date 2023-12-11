@@ -22,7 +22,7 @@ export {
   tableOps,
   elemOps,
   memoryInstruction,
-  memoryAndLaneInstruction as memoryLaneInstruction,
+  memoryLaneInstruction,
 };
 
 const memoryOps = {
@@ -235,7 +235,7 @@ function memoryInstruction<
 type MemArgAndLane = { memArg: MemArg; lane: U8 };
 const MemArgAndLane = record({ memArg: MemArg, lane: U8 });
 
-function memoryAndLaneInstruction<
+function memoryLaneInstruction<
   Args extends Tuple<ValueType>,
   Results extends Tuple<ValueType>
 >(
