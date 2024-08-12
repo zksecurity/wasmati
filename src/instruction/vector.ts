@@ -367,6 +367,12 @@ const f32x4Ops = {
   convert_i32x4_s: i("f32x4.convert_i32x4_s", [v128t], [v128t]),
   convert_i32x4_u: i("f32x4.convert_i32x4_u", [v128t], [v128t]),
   demote_f64x2_zero: i("f32x4.demote_f64x2_zero", [v128t], [v128t]),
+
+  // relaxed
+  relaxed_madd: i("f32x4.relaxed_madd", [v128t, v128t, v128t], [v128t]),
+  relaxed_nmadd: i("f32x4.relaxed_nmadd", [v128t, v128t, v128t], [v128t]),
+  relaxed_min: i("f32x4.relaxed_min", [v128t, v128t], [v128t]),
+  relaxed_max: i("f32x4.relaxed_max", [v128t, v128t], [v128t]),
 };
 
 const f64x2Ops = {
@@ -406,6 +412,12 @@ const f64x2Ops = {
   convert_low_i32x4_s: i("f64x2.convert_low_i32x4_s", [v128t], [v128t]),
   convert_low_i32x4_u: i("f64x2.convert_low_i32x4_u", [v128t], [v128t]),
   promote_low_f32x4: i("f64x2.promote_low_f32x4", [v128t], [v128t]),
+
+  // relaxed
+  relaxed_madd: i("f64x2.relaxed_madd", [v128t, v128t, v128t], [v128t]),
+  relaxed_nmadd: i("f64x2.relaxed_nmadd", [v128t, v128t, v128t], [v128t]),
+  relaxed_min: i("f64x2.relaxed_min", [v128t, v128t], [v128t]),
+  relaxed_max: i("f64x2.relaxed_max", [v128t, v128t], [v128t]),
 };
 
 // helper
