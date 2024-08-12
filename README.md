@@ -40,6 +40,7 @@ $ node --loader=ts-node/esm example.ts
   In addition, wasmati supports the following extensions which are not part of the spec at the time of writing:
 
   - [threads and atomics](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)
+  - [relaxed simd](https://github.com/WebAssembly/relaxed-simd/blob/main/proposals/relaxed-simd/Overview.md)
 
 - **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
