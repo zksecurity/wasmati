@@ -168,12 +168,20 @@ let exportedFunc = func(
   }
 );
 
+const fma = func({ in: [f64, f64, f64], out: [f64] }, ([x, y, z]) => {
+  f64x2.splat(x);
+  f64x2.splat(y);
+  f64x2.splat(z);
+  f64x2.relaxed_madd();
+  f64x2.extract_lane(0);
+});
+
 let startFunc = importFunc({ in: [], out: [] }, () =>
   console.log("starting wasm")
 );
 
 let module = Module({
-  exports: { exportedFunc, importedGlobal, memory: mem },
+  exports: { exportedFunc, fma, importedGlobal, memory: mem },
   start: startFunc,
 });
 
@@ -235,5 +243,7 @@ function wabtFeatures() {
     bulk_memory: true,
     /** Reference types (externref). */
     reference_types: true,
+    /** Relaxed SIMD */
+    relaxed_simd: true,
   };
 }

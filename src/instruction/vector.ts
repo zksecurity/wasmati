@@ -181,6 +181,14 @@ const i8x16Ops = {
   max_s: i("i8x16.max_s", [v128t, v128t], [v128t]),
   max_u: i("i8x16.max_u", [v128t, v128t], [v128t]),
   avgr_u: i("i8x16.avgr_u", [v128t, v128t], [v128t]),
+
+  // relaxed
+  relaxed_i8x16_swizzle: i("i8x16.relaxed_swizzle", [v128t, v128t], [v128t]),
+  relaxed_laneselect: i(
+    "i8x16.relaxed_laneselect",
+    [v128t, v128t, v128t],
+    [v128t]
+  ),
 };
 
 const i16x8Ops = {
@@ -237,6 +245,19 @@ const i16x8Ops = {
   extmul_high_i8x16_s: i("i16x8.extmul_high_i8x16_s", [v128t, v128t], [v128t]),
   extmul_low_i8x16_u: i("i16x8.extmul_low_i8x16_u", [v128t, v128t], [v128t]),
   extmul_high_i8x16_u: i("i16x8.extmul_high_i8x16_u", [v128t, v128t], [v128t]),
+
+  // relaxed
+  relaxed_laneselect: i(
+    "i16x8.relaxed_laneselect",
+    [v128t, v128t, v128t],
+    [v128t]
+  ),
+  relaxed_q15mulr_s: i("i16x8.relaxed_q15mulr_s", [v128t, v128t], [v128t]),
+  relaxed_dot_i8x16_i7x16_s: i(
+    "i16x8.relaxed_dot_i8x16_i7x16_s",
+    [v128t, v128t],
+    [v128t]
+  ),
 };
 
 const i32x4Ops = {
@@ -291,6 +312,30 @@ const i32x4Ops = {
   trunc_sat_f32x4_u: i("i32x4.trunc_sat_f32x4_u", [v128t], [v128t]),
   trunc_sat_f64x2_s_zero: i("i32x4.trunc_sat_f64x2_s_zero", [v128t], [v128t]),
   trunc_sat_f64x2_u_zero: i("i32x4.trunc_sat_f64x2_u_zero", [v128t], [v128t]),
+
+  // relaxed
+  relaxed_trunc_f32x4_s: i("i32x4.relaxed_trunc_f32x4_s", [v128t], [v128t]),
+  relaxed_trunc_f32x4_u: i("i32x4.relaxed_trunc_f32x4_u", [v128t], [v128t]),
+  relaxed_trunc_f64x2_s_zero: i(
+    "i32x4.relaxed_trunc_f64x2_s_zero",
+    [v128t],
+    [v128t]
+  ),
+  relaxed_trunc_f64x2_u_zero: i(
+    "i32x4.relaxed_trunc_f64x2_u_zero",
+    [v128t],
+    [v128t]
+  ),
+  relaxed_laneselect: i(
+    "i32x4.relaxed_laneselect",
+    [v128t, v128t, v128t],
+    [v128t]
+  ),
+  relaxed_dot_i8x16_i7x16_add_s: i(
+    "i32x4.relaxed_dot_i8x16_i7x16_add_s",
+    [v128t, v128t, v128t],
+    [v128t]
+  ),
 };
 
 const i64x2Ops = {
@@ -328,6 +373,13 @@ const i64x2Ops = {
   extmul_high_i32x4_s: i("i64x2.extmul_high_i32x4_s", [v128t, v128t], [v128t]),
   extmul_low_i32x4_u: i("i64x2.extmul_low_i32x4_u", [v128t, v128t], [v128t]),
   extmul_high_i32x4_u: i("i64x2.extmul_high_i32x4_u", [v128t, v128t], [v128t]),
+
+  // relaxed
+  relaxed_laneselect: i(
+    "i64x2.relaxed_laneselect",
+    [v128t, v128t, v128t],
+    [v128t]
+  ),
 };
 
 const f32x4Ops = {
@@ -367,6 +419,12 @@ const f32x4Ops = {
   convert_i32x4_s: i("f32x4.convert_i32x4_s", [v128t], [v128t]),
   convert_i32x4_u: i("f32x4.convert_i32x4_u", [v128t], [v128t]),
   demote_f64x2_zero: i("f32x4.demote_f64x2_zero", [v128t], [v128t]),
+
+  // relaxed
+  relaxed_madd: i("f32x4.relaxed_madd", [v128t, v128t, v128t], [v128t]),
+  relaxed_nmadd: i("f32x4.relaxed_nmadd", [v128t, v128t, v128t], [v128t]),
+  relaxed_min: i("f32x4.relaxed_min", [v128t, v128t], [v128t]),
+  relaxed_max: i("f32x4.relaxed_max", [v128t, v128t], [v128t]),
 };
 
 const f64x2Ops = {
@@ -406,6 +464,12 @@ const f64x2Ops = {
   convert_low_i32x4_s: i("f64x2.convert_low_i32x4_s", [v128t], [v128t]),
   convert_low_i32x4_u: i("f64x2.convert_low_i32x4_u", [v128t], [v128t]),
   promote_low_f32x4: i("f64x2.promote_low_f32x4", [v128t], [v128t]),
+
+  // relaxed
+  relaxed_madd: i("f64x2.relaxed_madd", [v128t, v128t, v128t], [v128t]),
+  relaxed_nmadd: i("f64x2.relaxed_nmadd", [v128t, v128t, v128t], [v128t]),
+  relaxed_min: i("f64x2.relaxed_min", [v128t, v128t], [v128t]),
+  relaxed_max: i("f64x2.relaxed_max", [v128t, v128t], [v128t]),
 };
 
 // helper

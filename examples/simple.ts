@@ -1,4 +1,4 @@
-// run with `ts-node-esm examples/simple.ts`
+// run with `node --loader=ts-node/esm examples/simple.ts`
 import { i64, func, Module } from "../src/index.js";
 
 const myFunction = func({ in: [i64, i64], out: [i64] }, ([x, y]) => {

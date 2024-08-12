@@ -520,6 +520,29 @@ const opcodes = {
     253: "i32x4.trunc_sat_f64x2_u_zero",
     254: "f64x2.convert_low_i32x4_s",
     255: "f64x2.convert_low_i32x4_u",
+
+    // relaxed SIMD
+    // https://github.com/WebAssembly/relaxed-simd/blob/main/proposals/relaxed-simd/Overview.md
+    256: "i8x16.relaxed_swizzle",
+    257: "i32x4.relaxed_trunc_f32x4_s",
+    258: "i32x4.relaxed_trunc_f32x4_u",
+    259: "i32x4.relaxed_trunc_f64x2_s_zero",
+    260: "i32x4.relaxed_trunc_f64x2_u_zero",
+    261: "f32x4.relaxed_madd",
+    262: "f32x4.relaxed_nmadd",
+    263: "f64x2.relaxed_madd",
+    264: "f64x2.relaxed_nmadd",
+    265: "i8x16.relaxed_laneselect",
+    266: "i16x8.relaxed_laneselect",
+    267: "i32x4.relaxed_laneselect",
+    268: "i64x2.relaxed_laneselect",
+    269: "f32x4.relaxed_min",
+    270: "f32x4.relaxed_max",
+    271: "f64x2.relaxed_min",
+    272: "f64x2.relaxed_max",
+    273: "i16x8.relaxed_q15mulr_s",
+    274: "i16x8.relaxed_dot_i8x16_i7x16_s",
+    275: "i32x4.relaxed_dot_i8x16_i7x16_add_s",
   },
 
   // threads
