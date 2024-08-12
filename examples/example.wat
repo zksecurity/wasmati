@@ -5,7 +5,8 @@
   (type (;3;) (func (param f64)))
   (type (;4;) (func))
   (type (;5;) (func (param i32 i32) (result i32)))
-  (type (;6;) (func (param i32) (result i32)))
+  (type (;6;) (func (param f64 f64 f64) (result f64)))
+  (type (;7;) (func (param i32) (result i32)))
   (import "" "f0" (func (;0;) (type 0)))
   (import "" "f1" (func (;1;) (type 1)))
   (import "" "f2" (func (;2;) (type 2)))
@@ -109,10 +110,20 @@
       local.get 2
       drop
     end)
+  (func (;7;) (type 6) (param f64 f64 f64) (result f64)
+    local.get 0
+    f64x2.splat
+    local.get 1
+    f64x2.splat
+    local.get 2
+    f64x2.splat
+    f64x2.relaxed_madd
+    f64x2.extract_lane 0)
   (table (;0;) 4 funcref)
   (global (;1;) funcref (ref.func 6))
   (global (;2;) (mut f64) (f64.const 0x0p+0 (;=0;)))
   (export "exportedFunc" (func 5))
+  (export "fma" (func 7))
   (export "importedGlobal" (global 0))
   (export "memory" (memory 0))
   (start 4)

@@ -28,7 +28,7 @@ console.log({ result });
 ```
 
 ```
-$ ts-node-esm example.ts
+$ node --loader=ts-node/esm example.ts
 { result: 100n }
 ```
 
