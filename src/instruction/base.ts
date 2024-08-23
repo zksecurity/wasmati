@@ -21,7 +21,7 @@ import { Tuple } from "../util.js";
 import { InstructionName, nameToOpcode } from "./opcodes.js";
 
 export {
-  instructionWithArg,
+  baseInstructionWithArg,
   baseInstruction,
   BaseInstruction,
   ResolvedInstruction,
@@ -148,12 +148,12 @@ type Instruction_<Args, Results> = Results extends []
  * instruction of constant type without dependencies,
  * but with an immediate argument
  */
-function instructionWithArg<
+function baseInstructionWithArg<
   Args extends Tuple<ValueType>,
   Results extends Tuple<ValueType>,
   Immediate extends any
 >(
-  string: InstructionName,
+  name: InstructionName,
   immediate: Binable<Immediate> | undefined,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>
@@ -165,17 +165,17 @@ function instructionWithArg<
     out: valueTypeLiterals<Results>(results),
   };
   return baseInstruction<Immediate, CreateArgs, CreateArgs, Args, Results>(
-    string,
+    name,
     immediate,
     { create: () => instr }
   );
 }
 
 function resolveInstruction(
-  { string, deps, resolveArgs }: Dependency.Instruction,
+  { string: name, deps, resolveArgs }: Dependency.Instruction,
   depToIndex: Map<Dependency.t, number>
 ): ResolvedInstruction {
-  let instr = lookupInstruction(string);
+  let instr = lookupInstruction(name);
   let depIndices: number[] = [];
   for (let dep of deps) {
     let index = depToIndex.get(dep);
@@ -187,7 +187,7 @@ function resolveInstruction(
     depIndices.push(index);
   }
   let immediate = instr.resolve(depIndices, ...resolveArgs);
-  return { name: string, immediate };
+  return { name, immediate };
 }
 
 const noResolve = (_: number[], ...args: any) => args[0];

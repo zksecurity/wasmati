@@ -1,4 +1,4 @@
-import { Undefined } from "../binable.js";
+import { Binable, Undefined } from "../binable.js";
 import { AnyGlobal } from "../dependency.js";
 import { Dependency } from "../index.js";
 import { formatStack, pushStack } from "../local-context.js";
@@ -17,7 +17,14 @@ import { f32Const, f64Const, i32Const, i64Const } from "./const.js";
 import { InstructionName } from "./opcodes.js";
 import { globalGet, localGet } from "./variable-get.js";
 
-export { instruction, Input, Inputs, processStackArgs, insertInstruction };
+export {
+  instruction,
+  instructionWithArg,
+  Input,
+  Inputs,
+  processStackArgs,
+  insertInstruction,
+};
 
 type JSNumberValue<T extends ValueType> = T extends "i32"
   ? number
@@ -68,7 +75,7 @@ function instruction<
   Args extends Tuple<ValueType>,
   Results extends Tuple<ValueType>
 >(
-  string: InstructionName,
+  name: InstructionName,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>
 ): ((...args: [] | Args) => any) extends (...args: infer P) => any
@@ -84,7 +91,7 @@ function instruction<
     out: valueTypeLiterals<Results>(results),
   };
   let createInstr = baseInstruction<undefined, [], [], Args, Results>(
-    string,
+    name,
     Undefined,
     { create: () => instr }
   );
@@ -92,8 +99,52 @@ function instruction<
     ctx: LocalContext,
     ...actualArgs: Input<ValueType>[]
   ): Instruction_<Args, Results> {
-    processStackArgs(ctx, string, instr.in, actualArgs);
+    processStackArgs(ctx, name, instr.in, actualArgs);
     return createInstr(ctx);
+  }
+  return createInstr_ as any;
+}
+
+/**
+ * instruction of constant type without dependencies,
+ * but with an immediate argument
+ */
+function instructionWithArg<
+  Args extends Tuple<ValueType>,
+  Results extends Tuple<ValueType>,
+  Immediate extends any
+>(
+  name: InstructionName,
+  immediate: Binable<Immediate>,
+  args: ValueTypeObjects<Args>,
+  results: ValueTypeObjects<Results>
+): ((...args: [] | Args) => any) extends (...args: infer P) => any
+  ? (
+      ctx: LocalContext,
+      immediate: Immediate,
+      ...args: {
+        [i in keyof P]: Input<P[i] extends ValueType ? P[i] : never>;
+      }
+    ) => Instruction_<Args, Results>
+  : never {
+  let instr = {
+    in: valueTypeLiterals<Args>(args),
+    out: valueTypeLiterals<Results>(results),
+  };
+  let createInstr = baseInstruction<
+    Immediate,
+    [immediate: Immediate],
+    [immediate: Immediate],
+    Args,
+    Results
+  >(name, immediate, { create: () => instr });
+  function createInstr_(
+    ctx: LocalContext,
+    immediate: Immediate,
+    ...actualArgs: Input<ValueType>[]
+  ): Instruction_<Args, Results> {
+    processStackArgs(ctx, name, instr.in, actualArgs);
+    return createInstr(ctx, immediate);
   }
   return createInstr_ as any;
 }

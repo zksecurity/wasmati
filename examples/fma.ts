@@ -3,19 +3,13 @@ import assert from "assert";
 import { f64, f64x2, func, Module } from "../src/index.js";
 
 const fma = func({ in: [f64, f64, f64], out: [f64] }, ([x, y, z]) => {
-  f64x2.splat(x);
-  f64x2.splat(y);
-  f64x2.splat(z);
-  f64x2.relaxed_madd();
-  f64x2.extract_lane(0);
+  let r = f64x2.relaxed_madd(f64x2.splat(x), f64x2.splat(y), f64x2.splat(z));
+  f64x2.extract_lane(0, r);
 });
 
 const fnma = func({ in: [f64, f64, f64], out: [f64] }, ([x, y, z]) => {
-  f64x2.splat(x);
-  f64x2.splat(y);
-  f64x2.splat(z);
-  f64x2.relaxed_nmadd();
-  f64x2.extract_lane(0);
+  let r = f64x2.relaxed_nmadd(f64x2.splat(x), f64x2.splat(y), f64x2.splat(z));
+  f64x2.extract_lane(0, r);
 });
 
 let module = Module({ exports: { fma, fnma } });

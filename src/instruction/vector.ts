@@ -1,5 +1,5 @@
 import { F32, F64, U8 } from "../immediate.js";
-import { baseInstruction, instructionWithArg as iarg } from "./base.js";
+import { baseInstruction } from "./base.js";
 import { i32t, i64t, f32t, f64t, v128t } from "../types.js";
 import {
   memoryLaneInstruction as mli,
@@ -8,7 +8,7 @@ import {
 import { array, Byte } from "../binable.js";
 import { TupleN } from "../util.js";
 import { LocalContext } from "../local-context.js";
-import { instruction as i } from "./stack-args.js";
+import { instruction as i, instructionWithArg as iarg } from "./stack-args.js";
 
 export {
   v128Ops,

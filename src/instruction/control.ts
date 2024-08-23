@@ -23,7 +23,7 @@ import {
   createExpressionWithType,
   FunctionTypeInput,
   resolveExpression,
-  instructionWithArg,
+  baseInstructionWithArg,
   typeFromInput,
 } from "./base.js";
 import { Block, IfBlock } from "./binable.js";
@@ -33,7 +33,7 @@ export { control, bindControlOps, parametric };
 
 // control instructions
 
-const nop = instructionWithArg("nop", Undefined, [], []);
+const nop = baseInstructionWithArg("nop", Undefined, [], []);
 
 const unreachable = baseInstruction("unreachable", Undefined, {
   create(ctx) {
