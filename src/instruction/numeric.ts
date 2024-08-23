@@ -130,7 +130,7 @@ const i64Ops = {
   trunc_f32_u: instruction("i64.trunc_f32_u", [f32t], [i64t]),
   trunc_f64_s: instruction("i64.trunc_f64_s", [f64t], [i64t]),
   trunc_f64_u: instruction("i64.trunc_f64_u", [f64t], [i64t]),
-  reinterpret_f32: instruction("i64.reinterpret_f64", [f64t], [i64t]),
+  reinterpret_f64: instruction("i64.reinterpret_f64", [f64t], [i64t]),
   extend8_s: instruction("i64.extend8_s", [i64t], [i64t]),
   extend16_s: instruction("i64.extend16_s", [i64t], [i64t]),
   extend32_s: instruction("i64.extend32_s", [i64t], [i64t]),
