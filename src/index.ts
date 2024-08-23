@@ -247,8 +247,8 @@ function createInstructions(ctx: LocalContext) {
   const ref = removeContexts(ctx, refOps);
 
   const control1 = removeContexts(ctx, controlOps);
-  const cpntrol2 = bindControlOps(ctx);
-  const control = Object.assign(control1, cpntrol2);
+  const control2 = bindControlOps(ctx);
+  const control = Object.assign(control1, control2);
 
   const { drop, select_poly, select_t } = removeContexts(ctx, parametric);
 

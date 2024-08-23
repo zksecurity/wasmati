@@ -95,14 +95,13 @@ function instruction<
     Undefined,
     { create: () => instr }
   );
-  function createInstr_(
+  return function createInstr_(
     ctx: LocalContext,
     ...actualArgs: Input<ValueType>[]
   ): Instruction_<Args, Results> {
     processStackArgs(ctx, name, instr.in, actualArgs);
     return createInstr(ctx);
-  }
-  return createInstr_ as any;
+  };
 }
 
 /**
@@ -138,15 +137,14 @@ function instructionWithArg<
     Args,
     Results
   >(name, immediate, { create: () => instr });
-  function createInstr_(
+  return function createInstr_(
     ctx: LocalContext,
     immediate: Immediate,
     ...actualArgs: Input<ValueType>[]
   ): Instruction_<Args, Results> {
     processStackArgs(ctx, name, instr.in, actualArgs);
     return createInstr(ctx, immediate);
-  }
-  return createInstr_ as any;
+  };
 }
 
 function processStackArgs(

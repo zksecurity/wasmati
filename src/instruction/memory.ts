@@ -211,25 +211,23 @@ function memoryInstruction<
     Args,
     Results
   >(name, MemArg, {
-    create(_: LocalContext, memArg: { offset?: number; align?: number }) {
-      let memArg_ = memArgFromInput(name, bits, memArg);
+    create(_, memArg) {
       return {
         in: expectedArgs,
         out: valueTypeLiterals<Results>(results),
-        resolveArgs: [memArg_],
+        resolveArgs: [memArgFromInput(name, bits, memArg)],
         deps: [Dependency.hasMemory],
       };
     },
   });
-  function createInstr_(
+  return function createInstr_(
     ctx: LocalContext,
     memArgs: { offset?: number; align?: number },
     ...actualArgs: Input<ValueType>[]
   ): Instruction_<Args, Results> {
     processStackArgs(ctx, name, expectedArgs, actualArgs);
     return createInstr(ctx, memArgs);
-  }
-  return createInstr_ as any;
+  };
 }
 
 type MemArgAndLane = { memArg: MemArg; lane: U8 };
@@ -243,28 +241,40 @@ function memoryLaneInstruction<
   bits: number,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>
-) {
-  return baseInstruction<
+): ((...args: [] | Args) => any) extends (...args: infer P) => any
+  ? (
+      ctx: LocalContext,
+      memArg: { offset?: number; align?: number },
+      lane: number,
+      ...args: {
+        [i in keyof P]: Input<P[i] extends ValueType ? P[i] : never>;
+      }
+    ) => Instruction_<Args, Results>
+  : never {
+  let expectedArgs = valueTypeLiterals<Args>(args);
+  let createInstr = baseInstruction<
     MemArgAndLane,
     [memArg: { offset?: number; align?: number }, lane: number],
     [memArgAndLane: MemArgAndLane],
     Args,
     Results
   >(name, MemArgAndLane, {
-    create(
-      _: LocalContext,
-      memArg: { offset?: number; align?: number },
-      lane: number
-    ) {
-      let memArg_ = memArgFromInput(name, bits, memArg);
-      return {
-        in: valueTypeLiterals<Args>(args),
-        out: valueTypeLiterals<Results>(results),
-        resolveArgs: [{ memArg: memArg_, lane }],
-        deps: [Dependency.hasMemory],
-      };
-    },
+    create: (_, memArg, lane) => ({
+      in: expectedArgs,
+      out: valueTypeLiterals<Results>(results),
+      resolveArgs: [{ memArg: memArgFromInput(name, bits, memArg), lane }],
+      deps: [Dependency.hasMemory],
+    }),
   });
+  return function createInstr_(
+    ctx: LocalContext,
+    memArgs: { offset?: number; align?: number },
+    lane: number,
+    ...actualArgs: Input<ValueType>[]
+  ): Instruction_<Args, Results> {
+    processStackArgs(ctx, name, expectedArgs, actualArgs);
+    return createInstr(ctx, memArgs, lane);
+  };
 }
 
 function memArgFromInput(
