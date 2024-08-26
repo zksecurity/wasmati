@@ -10,17 +10,11 @@ import {
 } from "./binable.js";
 import { U32, vec } from "./immediate.js";
 import { ConstExpression, Expression } from "./instruction/binable.js";
-import {
-  FunctionIndex,
-  GlobalType,
-  RefType,
-  TableIndex,
-  ValueType,
-} from "./types.js";
+import { FunctionIndex, GlobalType, RefType, TableIndex } from "./types.js";
 
 export { Global, Data, Elem };
 
-type Global = { type: GlobalType<ValueType>; init: ConstExpression };
+type Global = { type: GlobalType; init: ConstExpression };
 const Global = record<Global>({ type: GlobalType, init: ConstExpression });
 
 type Data = {

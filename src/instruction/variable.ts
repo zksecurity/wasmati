@@ -76,7 +76,7 @@ function bindLocalOps(ctx: LocalContext) {
 const globalOps = {
   get: globalGet,
   set: baseInstruction("global.set", U32, {
-    create(_, global: Dependency.AnyGlobal<ValueType>) {
+    create(_, global: Dependency.AnyGlobal) {
       if (!global.type.mutable) {
         throw Error("global.set used on immutable global");
       }
@@ -95,7 +95,7 @@ function bindGlobalOps(ctx: LocalContext) {
     get: function <T extends ValueType>(x: Dependency.AnyGlobal<T>) {
       return globalOps.get(ctx, x) as StackVar<T>;
     },
-    set: function <G extends Dependency.AnyGlobal<ValueType>>(
+    set: function <G extends Dependency.AnyGlobal>(
       x: G,
       value?: Input<G["type"]["value"]>
     ) {

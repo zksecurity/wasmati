@@ -1,5 +1,5 @@
 /**
- * interfaces for declaring functions stand-alone (without reference to a module)
+ * interfaces for declaring functions/globals/etc stand-alone (without reference to a module)
  * that keep track of their dependencies. Declaring them as the exports of a module
  * should enable to automatically include all dependencies in that module and determine
  * indices for them.
@@ -45,20 +45,20 @@ export { hasRefTo, hasMemory, dependencyKinds, kindToExportKind };
 
 type anyDependency = { kind: string; deps: anyDependency[] };
 
-type Export = AnyFunc | AnyGlobal<ValueType> | AnyMemory | AnyTable;
+type Export = AnyFunc | AnyGlobal | AnyMemory | AnyTable;
 
 type t =
   | Type
   | Func
   | HasRefTo
-  | Global<ValueType>
+  | Global
   | Table
   | Memory
   | HasMemory
   | Data
   | Elem
   | ImportFunc
-  | ImportGlobal<ValueType>
+  | ImportGlobal
   | ImportTable
   | ImportMemory;
 
@@ -79,11 +79,11 @@ function hasRefTo(value: AnyFunc): HasRefTo {
   return { kind: "hasRefTo", value, deps: [] };
 }
 
-type Global<T extends ValueType> = {
+type Global<T extends ValueType = ValueType> = {
   kind: "global";
   type: GlobalType<T>;
   init: Const.t<T>;
-  deps: (AnyGlobal<ValueType> | AnyFunc)[];
+  deps: (AnyGlobal | AnyFunc)[];
 };
 
 type Table = {
@@ -103,7 +103,7 @@ type Data = {
   kind: "data";
   init: Byte[];
   mode: "passive" | { memory: 0; offset: Const.i32 | Const.globalGet<"i32"> };
-  deps: (HasMemory | AnyGlobal<ValueType> | AnyMemory)[];
+  deps: (HasMemory | AnyGlobal | AnyMemory)[];
 };
 
 type Elem = {
@@ -117,7 +117,7 @@ type Elem = {
         table: AnyTable;
         offset: Const.i32 | Const.globalGet<"i32">;
       };
-  deps: (AnyTable | AnyFunc | AnyGlobal<ValueType>)[];
+  deps: (AnyTable | AnyFunc | AnyGlobal)[];
 };
 
 type ImportPath = { module?: string; string?: string };
@@ -127,7 +127,7 @@ type ImportFunc = ImportPath & {
   value: Function;
   deps: [];
 };
-type ImportGlobal<T> = ImportPath & {
+type ImportGlobal<T = ValueType> = ImportPath & {
   kind: "importGlobal";
   type: GlobalType<T>;
   value: WebAssembly.Global;
@@ -147,14 +147,10 @@ type ImportMemory = ImportPath & {
 };
 
 type AnyFunc = Func | ImportFunc;
-type AnyGlobal<T extends ValueType> = Global<T> | ImportGlobal<T>;
+type AnyGlobal<T extends ValueType = ValueType> = Global<T> | ImportGlobal<T>;
 type AnyTable = Table | ImportTable;
 type AnyMemory = Memory | ImportMemory;
-type AnyImport =
-  | ImportFunc
-  | ImportGlobal<ValueType>
-  | ImportTable
-  | ImportMemory;
+type AnyImport = ImportFunc | ImportGlobal | ImportTable | ImportMemory;
 
 const dependencyKinds = [
   "function",
@@ -173,8 +169,8 @@ const dependencyKinds = [
 ] as const satisfies readonly t["kind"][];
 
 const kindToExportKind: Record<
-  (AnyFunc | AnyGlobal<ValueType> | AnyTable | AnyMemory)["kind"],
-  (Func | Global<ValueType> | Table | Memory)["kind"]
+  (AnyFunc | AnyGlobal | AnyTable | AnyMemory)["kind"],
+  (Func | Global | Table | Memory)["kind"]
 > = {
   function: "function",
   importFunction: "function",

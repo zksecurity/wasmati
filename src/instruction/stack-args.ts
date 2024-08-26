@@ -43,7 +43,7 @@ type Input<T extends ValueType | Unknown> =
 function isLocal(x: Input<any>): x is Local<ValueType> {
   return typeof x === "object" && x !== null && x.kind === "local";
 }
-function isGlobal(x: Input<any>): x is AnyGlobal<ValueType> {
+function isGlobal(x: Input<any>): x is AnyGlobal {
   return (
     typeof x === "object" &&
     x !== null &&

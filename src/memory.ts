@@ -1,11 +1,6 @@
 import { Const } from "./dependency.js";
 import * as Dependency from "./dependency.js";
-import {
-  RefType,
-  RefTypeObject,
-  ValueType,
-  valueTypeLiteral,
-} from "./types.js";
+import { RefType, RefTypeObject, valueTypeLiteral } from "./types.js";
 
 export {
   memoryConstructor,
@@ -52,7 +47,7 @@ function dataConstructor(
     return { kind: "data", init, mode, deps: [] };
   }
   let { memory, offset } = mode;
-  let deps = [...offset.deps] as Dependency.AnyGlobal<ValueType>[];
+  let deps = [...offset.deps] as Dependency.AnyGlobal[];
   let result: Dependency.Data = {
     kind: "data",
     init,

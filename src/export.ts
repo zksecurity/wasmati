@@ -24,7 +24,7 @@ type ExternType =
   | { kind: "function"; value: FunctionType }
   | { kind: "table"; value: TableType }
   | { kind: "memory"; value: MemoryType }
-  | { kind: "global"; value: GlobalType<ValueType> };
+  | { kind: "global"; value: GlobalType };
 
 type ExportDescription = {
   kind: "function" | "table" | "memory" | "global";
@@ -49,12 +49,12 @@ type ImportDescription =
   | { kind: "function"; value: TypeIndex }
   | { kind: "table"; value: TableType }
   | { kind: "memory"; value: MemoryType }
-  | { kind: "global"; value: GlobalType<ValueType> };
+  | { kind: "global"; value: GlobalType };
 const ImportDescription: Binable<ImportDescription> = byteEnum<{
   0x00: { kind: "function"; value: TypeIndex };
   0x01: { kind: "table"; value: TableType };
   0x02: { kind: "memory"; value: MemoryType };
-  0x03: { kind: "global"; value: GlobalType<ValueType> };
+  0x03: { kind: "global"; value: GlobalType };
 }>({
   0x00: { kind: "function", value: TypeIndex },
   0x01: { kind: "table", value: TableType },

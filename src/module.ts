@@ -11,7 +11,6 @@ import {
   Limits,
   MemoryType,
   TableType,
-  ValueType,
 } from "./types.js";
 import { memoryConstructor } from "./memory.js";
 
@@ -223,7 +222,7 @@ function createModule<Exports extends Record<string, Dependency.Export>>(
 type ModuleExport<Export extends Dependency.Export> =
   Export extends Dependency.AnyFunc
     ? JSFunction<Export>
-    : Export extends Dependency.AnyGlobal<ValueType>
+    : Export extends Dependency.AnyGlobal
     ? {
         value: JSValue<Export["type"]["value"]>;
         valueOf(): JSValue<Export["type"]["value"]>;

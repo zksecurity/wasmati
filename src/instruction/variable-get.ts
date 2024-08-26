@@ -18,7 +18,7 @@ const localGet = baseInstruction("local.get", U32, {
 });
 
 const globalGet = baseInstruction("global.get", U32, {
-  create(_, global: Dependency.AnyGlobal<ValueType>) {
+  create(_, global: Dependency.AnyGlobal) {
     return {
       in: [],
       out: [global.type.value],

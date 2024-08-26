@@ -91,7 +91,8 @@ const ValueType = Binable<ValueType>({
   readBytes(bytes, offset) {
     let code = bytes[offset++];
     let type = codeToValueType.get(code);
-    if (type === undefined) throw Error(`Invalid value type ${type}.`);
+    if (type === undefined)
+      throw Error(`Invalid value type code ${code.toString(16)}.`);
     return [type, offset];
   },
 });
@@ -109,11 +110,8 @@ const RefType = Binable<RefType>({
   },
 });
 
-type GlobalType<T> = { value: T; mutable: boolean };
-const GlobalType = record<GlobalType<ValueType>>({
-  value: ValueType,
-  mutable: Bool,
-});
+type GlobalType<T = ValueType> = { value: T; mutable: boolean };
+const GlobalType = record<GlobalType>({ value: ValueType, mutable: Bool });
 
 type Limits = { min: number; max?: number; shared: boolean };
 const Limits = Binable<Limits>({
