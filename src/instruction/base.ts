@@ -53,7 +53,7 @@ type BaseInstruction = {
 type ResolvedInstruction = { name: string; immediate: any };
 
 /**
- * most general function to create instructions
+ * Most general function to create instructions
  */
 function baseInstruction<
   Immediate,
@@ -111,6 +111,15 @@ function baseInstruction<
     return { string, deps, type: { args, results }, resolveArgs };
   }
 
+  /**
+   * "Calling" an instruction does two different things:
+   * - creates a `Dependency.Instruction` (that represents the instruction before resolving dependencies)
+   *   - how to this is defined by the input `create()` function
+   * - applies the instruction to the current stack/ctx, and validates stack types
+   *
+   * If you only want creation, use `instruction.create()` instead of `instruction()`
+   * (this is currently not exposed to the public API)
+   */
   return Object.assign(
     function instruction(ctx: LocalContext, ...createArgs: CreateArgs) {
       let instr = wrapCreate(ctx, ...createArgs);
@@ -135,7 +144,7 @@ function isInstruction(
 }
 
 type Instruction<Args, Results> = {
-  [i in keyof Results & number]: StackVar<Results[i]>;
+  [i in keyof Results]: StackVar<Results[i]>;
 } & { in?: Args };
 
 type Instruction_<Args, Results> = Results extends []

@@ -15,7 +15,6 @@ import {
   isVectorType,
   isSameType,
   LocalContext,
-  StackVars,
 } from "../local-context.js";
 import { ValueType, valueTypeLiteral, ValueTypeObject } from "../types.js";
 import {
@@ -25,6 +24,7 @@ import {
   resolveExpression,
   baseInstructionWithArg,
   typeFromInput,
+  Instruction_,
 } from "./base.js";
 import { Block, IfBlock } from "./binable.js";
 import { Input, Inputs, processStackArgs } from "./stack-args.js";
@@ -193,7 +193,7 @@ function bindControlOps(ctx: LocalContext) {
     call: <F extends AnyFunc<any, any>>(
       func: F,
       args?: Inputs<F["type"]["args"]>
-    ) => {
+    ): Instruction_<F["type"]["args"], F["type"]["results"]> => {
       if (args !== undefined) {
         processStackArgs(
           ctx,
@@ -202,7 +202,7 @@ function bindControlOps(ctx: LocalContext) {
           args as Input<ValueType>[]
         );
       }
-      return call(ctx, func) as StackVars<F["type"]["results"]>;
+      return call(ctx, func) as any;
     },
   };
 }

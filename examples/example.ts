@@ -29,6 +29,7 @@ import {
   $,
   importMemory,
   atomic,
+  StackVar,
 } from "../build/index.js";
 import assert from "node:assert";
 import Wabt from "wabt";
@@ -130,7 +131,7 @@ let exportedFunc = func(
     // drop();
     // local.get(x);
     local.set(y);
-    call(myFunc, [y, 5]);
+    let r1: StackVar<i32> = call(myFunc, [y, 5]);
     // unreachable();
 
     i32.const(10);
