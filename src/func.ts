@@ -56,7 +56,7 @@ function func<
   };
   let nArgs = argsArray.length;
   let argsInput = argsArray.map(
-    (type, index): Local<ValueType> => ({
+    (type, index): Local => ({
       kind: "local",
       type,
       index,
@@ -64,7 +64,7 @@ function func<
   ) as ToLocal<Args>;
   let { sortedLocals, localIndices } = sortLocals(localsArray, nArgs);
   let localsInput = localIndices.map(
-    (index, j): Local<ValueType> => ({
+    (index, j): Local => ({
       kind: "local",
       type: localsArray[j],
       index,

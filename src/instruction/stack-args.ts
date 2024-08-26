@@ -40,7 +40,7 @@ type Input<T extends ValueType | Unknown> =
   | StackVar<T>
   | (T extends ValueType ? Local<T> | AnyGlobal<T> | JSNumberValue<T> : never);
 
-function isLocal(x: Input<any>): x is Local<ValueType> {
+function isLocal(x: Input<any>): x is Local {
   return typeof x === "object" && x !== null && x.kind === "local";
 }
 function isGlobal(x: Input<any>): x is AnyGlobal {

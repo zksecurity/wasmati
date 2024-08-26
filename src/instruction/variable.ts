@@ -23,27 +23,25 @@ export {
   refOps,
 };
 
-type AnyLocal = Local<ValueType>;
-
 const localOps = {
   get: localGet,
   set: baseInstruction("local.set", U32, {
-    create({ locals }, x: AnyLocal) {
+    create({ locals }, x: Local) {
       let local = locals[x.index];
       if (local === undefined)
         throw Error(`local with index ${x.index} not available`);
       return { in: [local], out: [] };
     },
-    resolve: (_, x: AnyLocal) => x.index,
+    resolve: (_, x: Local) => x.index,
   }),
   tee: baseInstruction("local.tee", U32, {
-    create({ locals }, x: AnyLocal) {
+    create({ locals }, x: Local) {
       let type = locals[x.index];
       if (type === undefined)
         throw Error(`local with index ${x.index} not available`);
       return { in: [type], out: [type] };
     },
-    resolve: (_, x: AnyLocal) => x.index,
+    resolve: (_, x: Local) => x.index,
   }),
 };
 
@@ -52,7 +50,7 @@ function bindLocalOps(ctx: LocalContext) {
     get: function <T extends ValueType>(x: Local<T>) {
       return localOps.get(ctx, x) as StackVar<T>;
     },
-    set: function <L extends Local<ValueType>>(x: L, value?: Input<L["type"]>) {
+    set: function <L extends Local>(x: L, value?: Input<L["type"]>) {
       processStackArgs(
         ctx,
         "local.set",
@@ -61,7 +59,7 @@ function bindLocalOps(ctx: LocalContext) {
       );
       return localOps.set(ctx, x);
     },
-    tee: function <L extends Local<ValueType>>(x: L, value?: Input<L["type"]>) {
+    tee: function <L extends Local>(x: L, value?: Input<L["type"]>) {
       processStackArgs(
         ctx,
         "local.tee",
