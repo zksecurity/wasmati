@@ -28,7 +28,7 @@ console.log({ result });
 ```
 
 ```
-$ node --loader=ts-node/esm example.ts
+$ node --experimental-strip-types example.ts
 { result: 100n }
 ```
 
