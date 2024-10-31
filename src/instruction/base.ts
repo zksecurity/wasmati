@@ -21,7 +21,7 @@ import { Tuple } from "../util.js";
 import { InstructionName, nameToOpcode } from "./opcodes.js";
 
 export {
-  baseInstructionWithArg,
+  baseInstructionWithImmediate,
   baseInstruction,
   BaseInstruction,
   ResolvedInstruction,
@@ -154,10 +154,12 @@ type Instruction_<Args, Results> = Results extends []
   : Instruction<Args, Results>;
 
 /**
- * instruction of constant type without dependencies,
- * but with an immediate argument
+ * Instruction of constant type without dependencies,
+ * but with an immediate argument.
+ *
+ * Allows passing a validation callback for the immediate value.
  */
-function baseInstructionWithArg<
+function baseInstructionWithImmediate<
   Args extends Tuple<ValueType>,
   Results extends Tuple<ValueType>,
   Immediate extends any
@@ -165,7 +167,8 @@ function baseInstructionWithArg<
   name: InstructionName,
   immediate: Binable<Immediate> | undefined,
   args: ValueTypeObjects<Args>,
-  results: ValueTypeObjects<Results>
+  results: ValueTypeObjects<Results>,
+  validateImmediate?: (immediate: Immediate) => void
 ) {
   immediate = immediate === Undefined ? undefined : immediate;
   type CreateArgs = Immediate extends undefined ? [] : [immediate: Immediate];
@@ -173,10 +176,20 @@ function baseInstructionWithArg<
     in: valueTypeLiterals<Args>(args),
     out: valueTypeLiterals<Results>(results),
   };
+
   return baseInstruction<Immediate, CreateArgs, CreateArgs, Args, Results>(
     name,
     immediate,
-    { create: () => instr }
+    {
+      create:
+        // validate immediate if we have a validation callback
+        validateImmediate && immediate !== undefined
+          ? (_ctx, ...args) => {
+              validateImmediate(args[0] as Immediate);
+              return instr;
+            }
+          : () => instr,
+    }
   );
 }
 
