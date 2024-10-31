@@ -22,7 +22,7 @@ import {
   createExpressionWithType,
   FunctionTypeInput,
   resolveExpression,
-  baseInstructionWithArg,
+  baseInstructionWithImmediate,
   typeFromInput,
   Instruction_,
 } from "./base.js";
@@ -33,7 +33,7 @@ export { control, bindControlOps, parametric };
 
 // control instructions
 
-const nop = baseInstructionWithArg("nop", Undefined, [], []);
+const nop = baseInstructionWithImmediate("nop", Undefined, [], []);
 
 const unreachable = baseInstruction("unreachable", Undefined, {
   create(ctx) {
