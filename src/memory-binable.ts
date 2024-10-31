@@ -22,7 +22,7 @@ type Data = {
   mode: "passive" | { memory: U32; offset: ConstExpression };
 };
 
-const Offset0 = record({ memory: constant<0>(0), offset: ConstExpression });
+const Offset0 = record({ memory: constant(0), offset: ConstExpression });
 const Offset = record({ memory: U32, offset: ConstExpression });
 
 type ActiveData = {

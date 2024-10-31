@@ -201,7 +201,7 @@ function iso<T, S>(
   });
 }
 
-function constant<C>(c: C) {
+function constant<const C>(c: C) {
   return Binable<C>({
     toBytes() {
       return [];

@@ -95,7 +95,7 @@ const IfExpression = Binable<IfExpression>({
 type ConstExpression = Expression;
 const ConstExpression = Expression;
 
-const Empty = withByteCode(0x40, constant<"empty">("empty"));
+const Empty = withByteCode(0x40, constant("empty"));
 
 type BlockType = "empty" | ValueType | U32;
 const BlockType = or([Empty, S33, ValueType], (t) =>
