@@ -1,6 +1,6 @@
 {
   "extends": "../tsconfig.json",
-  "include": ["example.ts", "simple.ts", "fma.ts"],
+  "include": ["example.ts", "example.decompiled.ts", "decompile.ts", "simple.ts", "fma.ts"],
   "compilerOptions": {
     "tsBuildInfoFile": "../build/examples.tsbuildinfo",
     "rootDir": "..",
