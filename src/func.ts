@@ -26,7 +26,7 @@ import type { LocalDeclaration, NamedLocals } from "./locals.ts";
 import type { Func } from "./func-types.ts";
 
 // external
-export { func, type Local };
+export { func, declareFunc, type Local };
 // internal
 export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple };
 
@@ -132,6 +132,48 @@ function func<
     locals: sortedLocals,
   } satisfies Dependency.Func;
   return func;
+}
+
+/**
+ * Declare a function before its body, allowing forward calls and mutual recursion.
+ * define() builds the body with the same typed parameters/locals as func(), preserving identity.
+ * Every declaration must be defined exactly once before constructing its Module.
+ */
+function declareFunc<
+  const Args extends readonly ParameterEntry[] = [],
+  const Results extends Tuple<ValueType> = [],
+  const Locals extends Record<string, LocalDeclaration> = {},
+>(
+  ctx: LocalContext,
+  signature: {
+    name?: string;
+    in: Parameters<Args>;
+    locals?: Locals;
+    out: ToTypeTuple<Results>;
+  },
+) {
+  const declaration: Func<Parameters<Args>, Results> & { defined: boolean } = {
+    kind: "function",
+    params: signature.in,
+    type: { args: signature.in.types, results: valueTypeLiterals<Results>(signature.out) },
+    name: signature.name,
+    locals: [],
+    body: [],
+    deps: [],
+    defined: false,
+  };
+  return Object.assign(declaration, {
+    define(
+      run: (
+        args: ToLocal<ParameterValues<Args>>,
+        locals: NamedLocals<Locals>,
+        ctx: LocalContext,
+      ) => void,
+    ) {
+      if (declaration.defined) throw Error("declareFunc: function is already defined");
+      Object.assign(declaration, func(ctx, signature, run), { defined: true });
+    },
+  });
 }
 
 // Ordered parameter tuples retain native argument types and arity.

@@ -182,7 +182,7 @@ const ParsedModule = withValidation(
     if (memorySection.length > 1) {
       throw Error("multiple memories are not allowed");
     }
-    if (dataSection.length !== (dataCountSection ?? 0))
+    if (dataCountSection !== undefined && dataSection.length !== dataCountSection)
       throw Error("data section length does not match data count section");
   },
 );

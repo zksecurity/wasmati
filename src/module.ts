@@ -27,6 +27,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   name,
   names,
   customSections,
+  dependencies: inputDependencies = [],
 }: {
   exports: Exports;
   memory?: Limits | Dependency.AnyMemory;
@@ -34,9 +35,12 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   name?: string;
   names?: NameSection;
   customSections?: CustomSection[];
+  /** Include declarations even when exports and the start function do not reference them. */
+  dependencies?: Dependency.t[];
 }) {
   // collect all dependencies (by kind)
   let dependencies = new Set<Dependency.t>();
+  for (const dep of inputDependencies) pushDependency(dependencies, dep);
   for (let name in inputExports) {
     pushDependency(dependencies, inputExports[name]);
   }
@@ -90,6 +94,8 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   let funcs0: (Dependency.Func & { typeIdx: number; funcIdx: number })[] = [];
   let nImportFuncs = dependencyByKind.importFunction.length;
   for (let func of dependencyByKind.function) {
+    if (func.defined === false)
+      throw Error(`Module: function ${func.name ?? "<unnamed>"} is not defined`);
     let typeIdx = pushType(types, func.type);
     let funcIdx = nImportFuncs + funcs0.length;
     funcs0.push({ ...func, typeIdx, funcIdx });
