@@ -135,10 +135,7 @@ async function runWast(source: string): Promise<Result> {
           break;
         }
         case "assert_trap":
-          await rejects(
-            perform(command.action),
-            (error) => error instanceof WebAssembly.RuntimeError,
-          );
+          await rejects(perform(command.action), (error) => traps(error, command.message));
           break;
         case "assert_exhaustion":
           await rejects(perform(command.action), (error) => error instanceof RangeError);
@@ -148,9 +145,8 @@ async function runWast(source: string): Promise<Result> {
           break;
         case "assert_trap_module": {
           const factory = await loadModule(command.module);
-          await rejects(
-            instantiate(factory, command.module.name),
-            (error) => error instanceof WebAssembly.RuntimeError,
+          await rejects(instantiate(factory, command.module.name), (error) =>
+            traps(error, command.message),
           );
           break;
         }
@@ -169,9 +165,9 @@ async function runWast(source: string): Promise<Result> {
           await rejects(
             (async () => {
               const factory = await loadTextFactory(module);
-              await WebAssembly.compile(factory(registered).toBytes());
+              await WebAssembly.compile(factory(placeholders(module, registered)).toBytes());
             })(),
-            (error) => !unsupported(error),
+            (error) => !unsupported(error) && !(error instanceof WebAssembly.LinkError),
           );
           break;
         }
@@ -200,6 +196,65 @@ async function runWast(source: string): Promise<Result> {
 
 async function loadModule(command: ModuleCommand): Promise<Factory> {
   return loadTextFactory(readModule(command.source));
+}
+
+/** V8's messages for the traps of the spec suite, keyed by the start of the spec's message. */
+const trapMessages: [string, RegExp][] = [
+  ["unreachable", /unreachable/],
+  ["integer divide by zero", /(divide|remainder) by zero/],
+  ["integer overflow", /divide result unrepresentable|float unrepresentable in integer range/],
+  ["invalid conversion to integer", /float unrepresentable in integer range/],
+  ["out of bounds memory access", /memory access out of bounds|data segment \d+ is out of bounds/],
+  ["out of bounds table access", /table index is out of bounds|element segment out of bounds/],
+  ["undefined element", /table index is out of bounds/],
+  ["uninitialized element", /null function/],
+  ["indirect call type mismatch", /function signature mismatch/],
+];
+
+/** A trap matches if V8 reports the same kind of trap as the spec message. */
+function traps(error: unknown, message: string): boolean {
+  if (!(error instanceof WebAssembly.RuntimeError)) return false;
+  const expected = trapMessages.find(([prefix]) => message.startsWith(prefix));
+  if (expected === undefined) throw Error(`unknown trap message "${message}"`);
+  if (!expected[1].test(error.message))
+    throw Error(`expected trap "${message}", got "${error.message}"`);
+  return true;
+}
+
+/**
+ * Imports for compiling a module that is expected to be invalid: missing imports get placeholders,
+ * so that a link error cannot stand in for invalidity.
+ */
+function placeholders(module: ModuleValue, imports: WebAssembly.Imports): WebAssembly.Imports {
+  const result: Record<string, Record<string, unknown>> = {};
+  for (const { module: from, name, description } of module.imports) {
+    const fields = (result[from] ??= {});
+    const provided = imports[from];
+    if (name in fields || (provided !== undefined && name in provided)) {
+      fields[name] ??= provided?.[name];
+      continue;
+    }
+    const { kind, value } = description;
+    if (kind === "function") fields[name] = () => {};
+    else if (kind === "memory")
+      fields[name] = new WebAssembly.Memory({
+        initial: value.limits.min,
+        maximum: value.limits.max,
+      });
+    else if (kind === "table")
+      fields[name] = new WebAssembly.Table({
+        initial: value.limits.min,
+        maximum: value.limits.max,
+        element: value.type === "funcref" ? "anyfunc" : "externref",
+      });
+    else if (value.value === "v128") throw Error("v128 global placeholders are not supported");
+    else {
+      const type = value.value === "funcref" ? "anyfunc" : value.value;
+      const initial = type === "i64" ? 0n : type === "anyfunc" || type === "externref" ? null : 0;
+      fields[name] = new WebAssembly.Global({ value: type, mutable: value.mutable }, initial);
+    }
+  }
+  return result as WebAssembly.Imports;
 }
 
 function unsupported(error: unknown): boolean {
