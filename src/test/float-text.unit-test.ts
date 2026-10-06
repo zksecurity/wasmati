@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { F32, F64 } from "../text/float.ts";
-import { UnsupportedTextError } from "../text/lexer.ts";
 
 test("finite float text rounds decimal and hex exactly once", () => {
   assert.equal(F32.fromText("1.000000059604644775390625"), 1);
@@ -31,8 +30,23 @@ test("subnormal values, signed zero, infinities and overflow obey the target wid
     assert.equal(codec.fromText("-inf"), -Infinity);
     assert.throws(() => codec.fromText("1e9999999999999999999999"), /overflows/);
     for (const source of ["i_nf", "0x1__0", "1e_2"]) assert.throws(() => codec.fromText(source));
-    assert.throws(() => codec.fromText("nan:0x1"), UnsupportedTextError);
   }
   assert.throws(() => F32.fromText("0x1.ffffffp127"), /overflows/);
   assert.throws(() => F64.fromText("0x1.fffffffffffff8p1023"), /overflows/);
+});
+
+test("NaN literals keep exact sign and payload bits, including signaling NaNs", () => {
+  assert.deepEqual(F32.fromText("nan"), { bits: 0x7fc00000 });
+  assert.deepEqual(F32.fromText("-nan:0x20_0000"), { bits: 0xffa00000 });
+  assert.deepEqual(F32.fromText("+nan:0x1"), { bits: 0x7f800001 });
+  assert.deepEqual(F64.fromText("nan:0x4000000000001"), { bits: 0x7ff4000000000001n });
+  assert.deepEqual(F64.fromText("-nan"), { bits: 0xfff8000000000000n });
+  for (const source of ["nan:0x0", "nan:0x800000", "nan:1", "nan:0x"])
+    assert.throws(() => F32.fromText(source), /NaN/);
+  assert.throws(() => F64.fromText("nan:0x10000000000000"), /NaN/);
+  for (const source of ["nan", "-nan", "nan:0x200000", "-nan:0x1"])
+    assert.equal(F32.toText(F32.fromText(source)), source);
+  assert.equal(F64.toText({ bits: 0x7ff4000000000001n }), "nan:0x4000000000001");
+  assert.equal(F32.toText(NaN), "nan");
+  assert.equal(F32.toText({ bits: 0x3fc00000 }), "1.5");
 });

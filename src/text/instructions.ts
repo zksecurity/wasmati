@@ -20,6 +20,7 @@ import {
   isIndex,
 } from "./grammar.ts";
 import type { ValueType as Type } from "../types.ts";
+import type { F32 as F32Value, F64 as F64Value } from "../immediate.ts";
 
 export { Instructions, TypeUse, LocalGroup, label };
 export type { Instruction, TypeUse as TypeUseValue, LocalGroup as LocalGroupValue };
@@ -87,8 +88,10 @@ const Instructions: C.Codec<Instruction[], Expression> = {
       if (indexOps.has(name)) immediate = Index.encode(instruction.immediate as IndexValue);
       else if (name === "i32.const") immediate = token(I32).encode(instruction.immediate as number);
       else if (name === "i64.const") immediate = token(I64).encode(instruction.immediate as bigint);
-      else if (name === "f32.const") immediate = token(F32).encode(instruction.immediate as number);
-      else if (name === "f64.const") immediate = token(F64).encode(instruction.immediate as number);
+      else if (name === "f32.const")
+        immediate = token(F32).encode(instruction.immediate as F32Value);
+      else if (name === "f64.const")
+        immediate = token(F64).encode(instruction.immediate as F64Value);
       else if (name === "call_indirect") {
         const value = instruction.immediate as { table?: IndexValue; type: TypeUse };
         immediate = [...Index.encode(value.table ?? 0), ...TypeUse.encode(value.type)];

@@ -1,4 +1,3 @@
-import { write, read } from "ieee754";
 import { Binable } from "./binable.ts";
 
 export { vec, withByteLength, Name, U8, U32, I32, I64, S33, F32, F64 };
@@ -7,8 +6,12 @@ type U8 = number;
 type U32 = number;
 type I32 = number;
 type I64 = bigint;
-type F32 = number;
-type F64 = number;
+/**
+ * Floats are numbers, or exact bits for NaNs. Engines set the quiet bit of signaling NaNs whenever
+ * they pass through a JS number, so decoding returns NaNs as bits; encoding accepts both forms.
+ */
+type F32 = number | { bits: number };
+type F64 = number | { bits: bigint };
 
 function vec<T>(Element: Binable<T>) {
   return Binable<T[]>({
@@ -173,33 +176,32 @@ function fromSLEB128(bytes: number[], offset: number) {
 
 // float
 
-const f32Mantissa = 23;
-const f64Mantissa = 52;
+const floatView = new DataView(new ArrayBuffer(8));
 
 const F32 = Binable<F32>({
-  toBytes(t) {
-    let bytes = new Uint8Array(4);
-    write(bytes, t, 0, true, f32Mantissa, 4);
-    return [...bytes];
+  toBytes(value) {
+    if (typeof value === "number") floatView.setFloat32(0, value, true);
+    else floatView.setUint32(0, value.bits, true);
+    return [...new Uint8Array(floatView.buffer, 0, 4)];
   },
   readBytes(bytes, offset) {
-    let size = 4;
-    let f32Bytes = Uint8Array.from(bytes.slice(offset, offset + size));
-    let value = read(f32Bytes, 0, true, f32Mantissa, size);
-    return [value, offset + size];
+    if (offset + 4 > bytes.length) throw Error("f32: unexpected end of input");
+    for (let i = 0; i < 4; i++) floatView.setUint8(i, bytes[offset + i]);
+    const value = floatView.getFloat32(0, true);
+    return [Number.isNaN(value) ? { bits: floatView.getUint32(0, true) } : value, offset + 4];
   },
 });
 
 const F64 = Binable<F64>({
-  toBytes(t) {
-    let bytes = new Uint8Array(8);
-    write(bytes, t, 0, true, f64Mantissa, 8);
-    return [...bytes];
+  toBytes(value) {
+    if (typeof value === "number") floatView.setFloat64(0, value, true);
+    else floatView.setBigUint64(0, value.bits, true);
+    return [...new Uint8Array(floatView.buffer, 0, 8)];
   },
   readBytes(bytes, offset) {
-    let size = 8;
-    let f32Bytes = Uint8Array.from(bytes.slice(offset, offset + size));
-    let value = read(f32Bytes, 0, true, f64Mantissa, size);
-    return [value, offset + size];
+    if (offset + 8 > bytes.length) throw Error("f64: unexpected end of input");
+    for (let i = 0; i < 8; i++) floatView.setUint8(i, bytes[offset + i]);
+    const value = floatView.getFloat64(0, true);
+    return [Number.isNaN(value) ? { bits: floatView.getBigUint64(0, true) } : value, offset + 8];
   },
 });

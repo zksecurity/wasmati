@@ -144,3 +144,14 @@ test("present but malformed fields, duplicate names and unresolved labels reject
     UnsupportedTextError,
   );
 });
+
+test("NaN constants keep exact bits through generated builder code", async () => {
+  const { parsed, instance } = await instantiate(`(module
+    (func (export "f32") (result i32) (i32.reinterpret_f32 (f32.const -nan:0x200001)))
+    (func (export "f64") (result i64) (i64.reinterpret_f64 (f64.const nan:0x4000000000001))))`);
+  assert.equal((instance.exports.f32 as Function)(), 0xffa00001 | 0);
+  assert.equal((instance.exports.f64 as Function)(), 0x7ff4000000000001n);
+  assert.match(decompileModule(parsed), /f32\.const\(\{ bits: 0xffa00001 \}\)/);
+  assert.match(Wat.toText(parsed), /f32\.const -nan:0x200001 /);
+  assert.deepEqual(Wat.fromText(Wat.toText(parsed)), parsed);
+});

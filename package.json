@@ -41,9 +41,6 @@
     "type": "git",
     "url": "https://github.com/zksecurity/wasmati"
   },
-  "dependencies": {
-    "ieee754": "^1.2.1"
-  },
   "devDependencies": {
     "@types/node": "^26.6.4",
     "husky": "^9.1.7",

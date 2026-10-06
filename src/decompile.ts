@@ -2,6 +2,7 @@ import * as api from "./index.ts";
 import type { Module as DecodedModule } from "./module-binable.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 import type { FunctionType, ValueType } from "./types.ts";
+import type { F32, F64 } from "./immediate.ts";
 
 export { decompile, decompileModule };
 
@@ -309,9 +310,10 @@ class Source {
     switch (name) {
       case "i32.const":
       case "i64.const":
+        return `${this.use("Const")}.${name.slice(0, 3)}(${literal(immediate)})`;
       case "f32.const":
       case "f64.const":
-        return `${this.use("Const")}.${name.slice(0, 3)}(${literal(immediate)})`;
+        return `${this.use("Const")}.${name.slice(0, 3)}(${floatLiteral(immediate)})`;
       case "ref.func":
         return `${this.use("Const")}.refFunc(${this.reference(this.functions, immediate)})`;
       case "ref.null":
@@ -414,6 +416,10 @@ class Source {
           break;
         case "atomic.fence":
           break;
+        case "f32.const":
+        case "f64.const":
+          args = [floatLiteral(imm)];
+          break;
         default:
           if (imm !== undefined) {
             if (typeof imm === "object" && imm !== null && "memArg" in imm)
@@ -458,6 +464,12 @@ function literal(value: unknown): string {
       .join(", ")} }`;
   }
   return JSON.stringify(value);
+}
+
+/** NaNs keep their exact bits, written in hex so sign and payload stay readable. */
+function floatLiteral(value: F32 | F64): string {
+  if (typeof value === "number") return literal(value);
+  return `{ bits: 0x${value.bits.toString(16)}${typeof value.bits === "bigint" ? "n" : ""} }`;
 }
 
 function jsSignature(type: FunctionType): string {
