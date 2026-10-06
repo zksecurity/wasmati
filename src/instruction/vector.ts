@@ -322,7 +322,7 @@ const i64x2Ops = {
   abs: i("i64x2.abs", [v128t], [v128t]),
   neg: i("i64x2.neg", [v128t], [v128t]),
   all_true: i("i64x2.all_true", [v128t], [i32t]),
-  bitmask: i("i64x2.bitmask", [v128t], [i64t]),
+  bitmask: i("i64x2.bitmask", [v128t], [i32t]),
   extend_low_i32x4_s: i("i64x2.extend_low_i32x4_s", [v128t], [v128t]),
   extend_high_i32x4_s: i("i64x2.extend_high_i32x4_s", [v128t], [v128t]),
   extend_low_i32x4_u: i("i64x2.extend_low_i32x4_u", [v128t], [v128t]),

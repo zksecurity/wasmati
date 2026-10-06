@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { func, i32, i64, f32, f64, Module } from "../index.ts";
+import { func, i32, i64, f32, f64, v128, i64x2, Module } from "../index.ts";
 import { F32, F64 } from "../immediate.ts";
 
 test("signed and unsigned greater-than use distinct instructions for i32 and i64", async () => {
@@ -44,4 +44,10 @@ test("float immediates preserve every NaN bit pattern, which JS numbers cannot c
   const { instance } = await Module({ exports: { bits32, bits64 } }).instantiate();
   assert.equal(instance.exports.bits32(), 0xffa00001 | 0);
   assert.equal(instance.exports.bits64(), 0x7ff4000000000001n);
+});
+
+test("i64x2.bitmask returns an i32", async () => {
+  const bitmask = func({ in: [{ x: v128 }], out: [i32] }, ({ x }) => i64x2.bitmask(x));
+  const module = Module({ exports: { bitmask } });
+  assert.ok(WebAssembly.validate(module.toBytes()));
 });

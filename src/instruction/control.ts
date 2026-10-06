@@ -8,6 +8,7 @@ import {
   labelTypes,
   popStack,
   popUnknown,
+  Unknown,
   pushStack,
   type RandomLabel,
   setUnreachable,
@@ -252,12 +253,10 @@ const select_poly = baseInstruction("select", Undefined, {
     if (!isSameType(t1, t2)) {
       throw Error(`select: types must be equal, got ${t1} and ${t2}.`);
     }
-    let t: ValueType;
-    if (t1 !== "unknown") t = t1;
-    else if (t2 !== "unknown") t = t2;
-    else throw Error("polymorphic select with two unknown types is not implemented.");
-    // TODO represent "unknown" in possible input types and remove this hack
-    return { in: [] as any as ["i32", ValueType], out: [t] };
+    // In unreachable code both operands may be unknown, and so is the result.
+    let t = t1 !== Unknown ? t1 : t2;
+    // The operands were popped above.
+    return { in: [] as any as ["i32", ValueType], out: [t as ValueType] };
   },
   resolve: () => undefined,
 });

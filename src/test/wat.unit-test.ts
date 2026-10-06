@@ -231,3 +231,20 @@ test("malformed text is distinguished from invalid modules", () => {
   ])
     assert.throws(() => parseWat(source), TextSyntaxError, source);
 });
+
+test("unreachable code has unknown operand types, which still constrain known ones", async () => {
+  const { instance } = await instantiate(`(module
+    (func (export "select") (result i32) unreachable select drop i32.const 1)
+    (func (export "meet") (result i32)
+      (block (result f64)
+        (block (result f32) (unreachable) (br_table 0 1 1 (i32.const 1)))
+        (drop) (f64.const 0))
+      (drop) (i32.const 2))
+    (func (export "is_null") (result i32) unreachable ref.is_null))`);
+  assert.throws(() => (instance.exports.select as Function)(), WebAssembly.RuntimeError);
+  for (const source of [
+    "(module (func unreachable i64.const 0 select i32.eqz drop))",
+    "(module (func unreachable i32.const 0 ref.is_null drop))",
+  ])
+    await assert.rejects(buildTextModule(parseWat(source)), /expected|reference/, source);
+});
