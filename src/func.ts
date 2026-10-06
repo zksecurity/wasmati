@@ -122,7 +122,6 @@ function func<
   );
   const name = signature.name ?? (run.name || undefined);
   let func = {
-    defined: true,
     kind: "function",
     params: args,
     ...(name === undefined ? {} : { name }),
@@ -131,6 +130,7 @@ function func<
     body,
     deps,
     locals: sortedLocals,
+    defined: true,
   } satisfies Dependency.Func;
   return func;
 }

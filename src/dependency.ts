@@ -63,7 +63,6 @@ function type(type: FunctionType): Type {
 }
 
 type Func = {
-  defined: boolean;
   kind: "function";
   params: Parameters;
   name?: string;
@@ -72,6 +71,7 @@ type Func = {
   locals: ValueType[];
   body: Instruction[];
   deps: t[];
+  defined: boolean;
 };
 type HasRefTo = { kind: "hasRefTo"; value: AnyFunc; deps: [] };
 function hasRefTo(value: AnyFunc): HasRefTo {
