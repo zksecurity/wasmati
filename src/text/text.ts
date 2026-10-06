@@ -179,8 +179,8 @@ function integer(bits: number, signed: boolean): C.Codec<bigint, Token> {
   });
 }
 
-const U32 = Text(C.iso(integer(32, false), { to: BigInt, from: Number }));
-const I32 = Text(C.iso(integer(32, true), { to: BigInt, from: Number }));
+const U32 = Text(C.iso(integer(32, false), { to: (value: number) => BigInt(value), from: Number }));
+const I32 = Text(C.iso(integer(32, true), { to: (value: number) => BigInt(value), from: Number }));
 const I64 = Text(integer(64, true));
 
 /** Syntax-only tree: numeric spellings (including NaN payloads) remain exact until grammar decoding. */

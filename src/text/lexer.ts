@@ -1,4 +1,4 @@
-export { tokenize, printTokens, TextSyntaxError };
+export { tokenize, printTokens, TextSyntaxError, UnsupportedTextError };
 export type { Token };
 
 /** Source offsets use JavaScript string indices. Generated tokens have no source offset. */
@@ -17,6 +17,9 @@ class TextSyntaxError extends SyntaxError {
     this.offset = offset;
   }
 }
+
+/** A valid feature whose text grammar or shared representation is not implemented yet. */
+class UnsupportedTextError extends Error {}
 
 const idchar = /^[0-9A-Za-z!#$%&'*+\-./:<=>?@\\^_`|~]$/;
 const digits = "[0-9](?:_?[0-9])*";
