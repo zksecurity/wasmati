@@ -1,5 +1,4 @@
 import type { Tuple } from "./util.ts";
-import * as C from "./codec.ts";
 
 export {
   Binable,
@@ -31,8 +30,6 @@ type Binable<T> = {
   toBytes(value: T): number[];
   readBytes(bytes: number[], offset: number): [value: T, offset: number];
   fromBytes(bytes: number[] | Uint8Array): T;
-  encode(value: T): number[];
-  decode(bytes: number[], offset: number): [value: T, offset: number];
 };
 
 function Binable<T>({
@@ -51,8 +48,6 @@ function Binable<T>({
       if (offset < bytes.length) throw Error("fromBytes: input bytes left over");
       return value;
     },
-    encode: toBytes,
-    decode: readBytes,
   };
 }
 
@@ -83,7 +78,21 @@ const RemainingBytes = Binable<number[]>({
  * Wrap in withByteLength to delimit the sequence when it appears before other fields in a record.
  */
 function sequence<T>(element: Binable<T>): Binable<T[]> {
-  return binary(C.sequence(element));
+  return Binable({
+    toBytes(values) {
+      return values.flatMap((value) => element.toBytes(value));
+    },
+    readBytes(bytes, offset) {
+      const values: T[] = [];
+      while (offset < bytes.length) {
+        const [value, end] = element.readBytes(bytes, offset);
+        if (end <= offset || end > bytes.length) throw Error("invalid sequence element length");
+        values.push(value);
+        offset = end;
+      }
+      return [values, offset];
+    },
+  });
 }
 
 type Bool = boolean;
@@ -128,41 +137,109 @@ function withPreamble<T>(preamble: number[], binable: Binable<T>): Binable<T> {
 }
 
 function withValidation<T>(binable: Binable<T>, validate: (t: T) => void) {
-  return binary(C.withValidation(binable, validate));
+  return Binable<T>({
+    toBytes(t) {
+      validate(t);
+      return binable.toBytes(t);
+    },
+    readBytes(bytes, offset) {
+      let [t, end] = binable.readBytes(bytes, offset);
+      validate(t);
+      return [t, end];
+    },
+  });
 }
 
 type Union<T extends Tuple<any>> = T[number];
 
 function record<Types extends Record<string, any>>(binables: {
-  [K in keyof Types]-?: Binable<Types[K]>;
+  [i in keyof Types]-?: Binable<Types[i]>;
 }): Binable<Types> {
-  return binary(C.record(binables));
+  let keys = Object.keys(binables);
+  let binablesTuple = keys.map((key) => binables[key]) as Tuple<Binable<any>>;
+  let tupleBinable = tuple<Tuple<any>>(binablesTuple);
+  return Binable({
+    toBytes(t) {
+      let array = keys.map((key) => t[key]) as Tuple<any>;
+      return tupleBinable.toBytes(array);
+    },
+    readBytes(bytes, start) {
+      let [tupleValue, end] = tupleBinable.readBytes(bytes, start);
+      let value = Object.fromEntries(keys.map((key, i) => [key, tupleValue[i]])) as any;
+      return [value, end];
+    },
+  });
 }
 
 function tuple<Types extends Tuple<any>>(binables: {
-  [K in keyof Types]: Binable<Types[K]>;
+  [i in keyof Types]: Binable<Types[i]>;
 }): Binable<Types> {
-  return binary(C.tuple(binables));
+  let n = (binables as any[]).length;
+  return Binable({
+    toBytes(t) {
+      let bytes: number[] = [];
+      for (let i = 0; i < n; i++) {
+        let subBytes = binables[i].toBytes(t[i]);
+        bytes = bytes.concat(subBytes);
+      }
+      return bytes;
+    },
+    readBytes(bytes, offset) {
+      let values: Types[number] = [];
+      for (let i = 0; i < n; i++) {
+        let [value, newOffset] = binables[i].readBytes(bytes, offset);
+        offset = newOffset;
+        values.push(value);
+      }
+      return [values as Types, offset];
+    },
+  });
 }
 
 function array<T>(binable: Binable<T>, size: number): Binable<T[]> {
-  return binary(C.array(binable, size));
+  return Binable({
+    toBytes(ts) {
+      if (ts.length !== size) throw Error("array length mismatch");
+      let bytes: number[] = [];
+      for (let i = 0; i < size; i++) {
+        let subBytes = binable.toBytes(ts[i]);
+        bytes.push(...subBytes);
+      }
+      return bytes;
+    },
+    readBytes(bytes, offset) {
+      let values: T[] = [];
+      for (let i = 0; i < size; i++) {
+        let [value, newOffset] = binable.readBytes(bytes, offset);
+        offset = newOffset;
+        values.push(value);
+      }
+      return [values, offset];
+    },
+  });
 }
 
-function iso<T, S>(
-  binable: Binable<T>,
-  mapping: { to(value: S): T; from(value: T): S },
-): Binable<S> {
-  return binary(C.iso(binable, mapping));
+function iso<T, S>(binable: Binable<T>, { to, from }: { to(s: S): T; from(t: T): S }): Binable<S> {
+  return Binable({
+    toBytes(s: S) {
+      return binable.toBytes(to(s));
+    },
+    readBytes(bytes, offset) {
+      let [value, end] = binable.readBytes(bytes, offset);
+      return [from(value), end];
+    },
+  });
 }
 
-function constant<const C>(value: C) {
-  return binary(C.constant<C, number>(value));
-}
-
-// A byte codec exposes both the shared sequence operations and the concrete binary entry points.
-function binary<T>(codec: C.Codec<T, number>): Binable<T> {
-  return Binable({ toBytes: codec.encode, readBytes: codec.decode });
+function constant<const C>(c: C) {
+  return Binable<C>({
+    toBytes() {
+      return [];
+    },
+    readBytes(_bytes, offset) {
+      return [c, offset];
+    },
+  });
 }
 
 type Zero = never;
@@ -182,16 +259,39 @@ const Undefined = One;
 const and = tuple;
 
 function or<Types extends Tuple<any>>(
-  binables: { [K in keyof Types]: Binable<Types[K]> },
-  distinguish: (
-    t: Union<Types>,
-  ) => { [K in keyof Types]: Binable<Types[K]> }[number] | number | undefined,
+  binables: {
+    [i in keyof Types]: Binable<Types[i]>;
+  },
+  distinguish: (t: Union<Types>) =>
+    | {
+        [i in keyof Types]: Binable<Types[i]>;
+      }[number]
+    | number
+    | undefined,
 ): Binable<Union<Types>> {
-  return binary(C.or(binables, distinguish));
+  return Binable({
+    toBytes(value) {
+      let result = distinguish(value);
+      if (result === undefined) throw Error("or: input matches no allowed type");
+      let binable = typeof result === "number" ? binables[result] : result;
+      return binable.toBytes(value);
+    },
+    readBytes(bytes, offset) {
+      let n = (binables as any[]).length;
+      for (let i = 0; i < n; i++) {
+        try {
+          let [value, end] = binables[i].readBytes(bytes, offset);
+          let selected = distinguish(value);
+          if (selected === binables[i] || selected === i) return [value, end];
+        } catch {}
+      }
+      throw Error("or: could not parse any of the possible types");
+    },
+  });
 }
 
 function orUndefined<T>(binable: Binable<T>): Binable<T | undefined> {
-  return binary(C.orUndefined(binable));
+  return or([binable, One], (value) => (value === undefined ? One : binable));
 }
 
 function orDefault<T>(
@@ -199,7 +299,10 @@ function orDefault<T>(
   defaultValue: T,
   isDefault: (t: T) => boolean,
 ): Binable<T> {
-  return binary(C.orDefault(binable, defaultValue, isDefault));
+  return iso(orUndefined(binable), {
+    to: (t: T) => (isDefault(t) ? undefined : t),
+    from: (t: T | undefined) => t ?? defaultValue,
+  });
 }
 
 function byteEnum<Enum extends Record<number, { kind: string; value: any }>>(binables: {

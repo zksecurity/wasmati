@@ -5,9 +5,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { decompileModule } from "../decompile.ts";
 import { Module as BinaryModule, type Module as ModuleValue } from "../module-binable.ts";
 import type { Module } from "../index.ts";
-import { TextSyntaxError, type List, type Node } from "../text/lexer.ts";
-import type { Expression } from "../text/text.ts";
-import { ModuleSyntax, Wat } from "../text/module.ts";
+import assert from "node:assert/strict";
+import { TextSyntaxError } from "../text/lexer.ts";
+import { parseModule, parseWat } from "../text/wat.ts";
+import { printWat } from "../text/print.ts";
 import type { ModuleSource } from "../text/wast.ts";
 
 /** Exercise generated wasmati builders, rather than feeding the parsed module straight to its binary codec. */
@@ -36,9 +37,13 @@ export async function loadTextFactory(
   }
 }
 
-/** Decode a script module: text through the WAT parser, binary through wasmati's binary decoder. */
+/**
+ * Decode a script module: text through the WAT parser, binary through wasmati's binary decoder.
+ * Text modules must also print as WAT that parses back to the same module.
+ */
 export function readModule(source: ModuleSource): ModuleValue {
   if (source.kind === "binary") return BinaryModule.fromBytes(source.bytes);
+  let module: ModuleValue;
   if (source.kind === "quote") {
     let text: string;
     try {
@@ -46,11 +51,8 @@ export function readModule(source: ModuleSource): ModuleValue {
     } catch {
       throw new TextSyntaxError("malformed UTF-8 encoding");
     }
-    return Wat.fromText(text);
-  }
-  return ModuleSyntax.decode([expression(source.list)], 0)[0];
-}
-
-function expression(node: Node): Expression {
-  return node.kind === "list" ? (node as List).items.map(expression) : node;
+    module = parseWat(text);
+  } else module = parseModule(source.list);
+  assert.deepEqual(parseWat(printWat(module)), module, "printed WAT parses to a different module");
+  return module;
 }

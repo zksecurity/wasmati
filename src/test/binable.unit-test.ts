@@ -12,6 +12,8 @@ import {
   withByteCode,
 } from "../binable.ts";
 import { withByteLength } from "../immediate.ts";
+import "../index.ts";
+import { Elem } from "../memory-binable.ts";
 
 test("alternatives accept numeric selectors for both encoding and decoding", () => {
   const codec = or([withByteCode(1, Byte), withByteCode(2, Byte)], (value) => (value < 10 ? 0 : 1));
@@ -66,4 +68,34 @@ test("interleaved records preserve extra entries around optional fields", () => 
     codec.toBytes({ ...value, extras: [{ after: "optional", value: 19 }] }),
     [1, 10, 0, 19, 3, 30],
   );
+});
+
+test("active element segments encode a non-default table or element type explicitly", () => {
+  const offset = [{ name: "i32.const", immediate: 0 }];
+  const ref = (immediate: number) => [{ name: "ref.func", immediate }];
+  const cases: [Elem, number][] = [
+    [{ type: "funcref", init: [ref(1)], mode: { table: 0, offset } }, 0],
+    [{ type: "funcref", init: [ref(1)], mode: { table: 1, offset } }, 2],
+    [
+      {
+        type: "externref",
+        init: [[{ name: "ref.null", immediate: "externref" }]],
+        mode: { table: 0, offset },
+      },
+      6,
+    ],
+    [
+      {
+        type: "externref",
+        init: [[{ name: "ref.null", immediate: "externref" }]],
+        mode: { table: 1, offset },
+      },
+      6,
+    ],
+  ];
+  for (const [elem, flags] of cases) {
+    const bytes = Elem.toBytes(elem);
+    assert.equal(bytes[0], flags);
+    assert.deepEqual(Elem.fromBytes(bytes), elem);
+  }
 });

@@ -1,271 +1,397 @@
 import "../index.ts";
-import * as C from "../codec.ts";
-import { Undefined } from "../binable.ts";
-import { lookupInstruction } from "../instruction/base.ts";
+import { Byte, Undefined } from "../binable.ts";
+import { F32, F64, I32, I64, U8 } from "../immediate.ts";
+import { lookupInstruction, type ResolvedInstruction } from "../instruction/base.ts";
+import { Block, IfBlock } from "../instruction/binable.ts";
+import { RefType, type IndexSpace, type ValueType } from "../types.ts";
+import { Cursor } from "./cursor.ts";
 import { TextSyntaxError, UnsupportedTextError } from "./lexer.ts";
-import { F32, F64 } from "./float.ts";
-import { Atom, I32, I64, U32, type Expression } from "./text.ts";
-import {
-  form,
-  head,
-  Index,
-  optional,
-  position,
-  repeated,
-  token,
-  ValueType,
-  word,
-  type IndexValue,
-  record,
-  isIndex,
-} from "./grammar.ts";
-import type { ValueType as Type } from "../types.ts";
-import type { F32 as F32Value, F64 as F64Value } from "../immediate.ts";
+import { parseFloat, parseInteger, parseU32, parseUnsigned, printFloat } from "./numbers.ts";
 
-export { Instructions, TypeUse, LocalGroup, label };
-export type { Instruction, TypeUse as TypeUseValue, LocalGroup as LocalGroupValue };
+export { parseInstructions, printInstructions, parseValueType, printString };
+export type { Scope, Names, BlockType };
 
-type LocalGroup = { name: string | undefined; types: Type[] };
-import { Identifier } from "./text.ts";
-const label = optional(
-  token(Identifier),
-  (node) => !Array.isArray(node) && node?.kind === "identifier",
-);
-const LocalGroup = C.withValidation(
-  record({ name: label, types: C.sequence(ValueType) }),
-  (group) => {
-    if (group.name !== undefined && group.types.length !== 1) {
-      throw new TextSyntaxError("a named parameter or local requires exactly one type");
-    }
-  },
-);
-type TypeUse = { index: IndexValue | undefined; params: LocalGroup[]; results: Type[][] };
-const TypeUse = record({
-  index: optional(form("type", Index), (node) => head(node) === "type"),
-  params: repeated(form("param", LocalGroup), "param"),
-  results: repeated(form("result", C.sequence(ValueType)), "result"),
-});
+type BlockType = "empty" | ValueType | number;
 
-type Instruction = {
-  name: string;
-  immediate?: unknown;
-  label?: string;
-  type?: TypeUse;
-  body?: Instruction[];
-  else?: Instruction[];
+/** What instruction parsing needs from its module and function: name resolution and type uses. */
+type Scope = {
+  /** Read an index of a module space or of locals, resolving identifiers. */
+  index(c: Cursor, space: Exclude<IndexSpace, "label">): number;
+  /** Read `(type x)? (param ...)* (result ...)*` and return its type index. */
+  typeUse(c: Cursor): number;
+  /** Read a block type: a type use, abbreviated to a value type or nothing where possible. */
+  blockType(c: Cursor): BlockType;
+  /** Enclosing block labels, innermost first. */
+  labels: (string | undefined)[];
 };
 
-const indexOps = new Set([
-  "local.get",
-  "local.set",
-  "local.tee",
-  "global.get",
-  "global.set",
-  "call",
-  "ref.func",
-  "br",
-  "br_if",
-]);
+/** What printing needs: identifiers by index space, if an index has one. */
+type Names = { id(space: IndexSpace, index: number): string | undefined };
 
-/** Decode both flat and folded instructions into one stack-style instruction sequence. */
-const Instructions: C.Codec<Instruction[], Expression> = {
-  encode(instructions) {
-    return instructions.flatMap((instruction) => {
-      const { name } = instruction;
-      if (name === "block" || name === "loop" || name === "if") {
-        return [
-          ...token(Atom).encode(name),
-          ...label.encode(instruction.label),
-          ...TypeUse.encode(instruction.type!),
-          ...Instructions.encode(instruction.body!),
-          ...(instruction.else === undefined
-            ? []
-            : [...token(Atom).encode("else"), ...Instructions.encode(instruction.else)]),
-          ...token(Atom).encode("end"),
-        ];
-      }
-      let immediate: Expression[] = [];
-      if (indexOps.has(name)) immediate = Index.encode(instruction.immediate as IndexValue);
-      else if (name === "i32.const") immediate = token(I32).encode(instruction.immediate as number);
-      else if (name === "i64.const") immediate = token(I64).encode(instruction.immediate as bigint);
-      else if (name === "f32.const")
-        immediate = token(F32).encode(instruction.immediate as F32Value);
-      else if (name === "f64.const")
-        immediate = token(F64).encode(instruction.immediate as F64Value);
-      else if (name === "call_indirect") {
-        const value = instruction.immediate as { table?: IndexValue; type: TypeUse };
-        immediate = [...Index.encode(value.table ?? 0), ...TypeUse.encode(value.type)];
-      } else if (name === "memory.size" || name === "memory.grow" || name === "memory.fill") {
-        immediate = Index.encode(instruction.immediate as IndexValue);
-      } else if (/^[if](32|64)\.(load|store)/.test(name)) {
-        const { align, offset } = instruction.immediate as { align: number; offset: number };
-        immediate = [
-          ...token(Atom).encode(`offset=${offset}`),
-          ...token(Atom).encode(`align=${2 ** align}`),
-        ];
-      } else if (name === "br_table")
-        immediate = C.sequence(Index).encode(instruction.immediate as IndexValue[]);
-      else if (name === "ref.null")
-        immediate = token(Atom).encode(instruction.immediate === "funcref" ? "func" : "extern");
-      else if (name === "select_t")
-        immediate = form("result", C.sequence(ValueType)).encode(instruction.immediate as Type[]);
-      else if (instruction.immediate !== undefined) {
-        throw new UnsupportedTextError(`text printing of ${name} is not implemented`);
-      }
-      return [...token(Atom).encode(name === "select_t" ? "select" : name), ...immediate];
-    });
-  },
-  decode(input, start) {
-    let offset = start;
-    const instructions: Instruction[] = [];
-    const take = <T>(codec: C.Codec<T, Expression>): T => {
-      const [value, end] = codec.decode(input, offset);
-      offset = end;
-      return value;
-    };
-    const optionalLabel = () => take(label);
-    while (offset < input.length && !["end", "else"].includes(word(input[offset]) ?? "")) {
-      const node = input[offset];
-      if (Array.isArray(node)) {
-        // Folded operands execute left-to-right before their enclosing instruction.
-        const folded = decodeFolded(node);
-        instructions.push(...folded);
-        offset++;
-        continue;
-      }
-      const name = take(token(Atom));
-      if (name === "block" || name === "loop" || name === "if") {
-        const nameLabel = optionalLabel();
-        const type = take(TypeUse);
-        const body = take(Instructions);
-        let elseBody: Instruction[] | undefined;
-        if (name === "if" && word(input[offset]) === "else") {
-          offset++;
-          const elseLabel = optionalLabel();
-          if (elseLabel !== undefined && elseLabel !== nameLabel)
-            throw new TextSyntaxError("mismatched else label");
-          elseBody = take(Instructions);
-        }
-        if (word(input[offset]) !== "end")
-          throw new TextSyntaxError(`expected end for ${name}`, position(input[offset]));
-        offset++;
-        const endLabel = optionalLabel();
-        if (endLabel !== undefined && endLabel !== nameLabel)
-          throw new TextSyntaxError("mismatched end label");
-        instructions.push({ name, label: nameLabel, type, body, else: elseBody });
-      } else {
-        instructions.push(readPlain(name, take, () => input[offset]));
-      }
-    }
-    return [instructions, offset];
-  },
-};
+const blocks = new Set(["block", "loop", "if"]);
+const valueTypes = new Set<string>(["i32", "i64", "f32", "f64", "v128", "funcref", "externref"]);
+// Valid instructions of features that wasmati's module representation does not support yet.
+const unsupported =
+  /^(return_call|call_ref|throw|try_table|rethrow|struct\.|array\.|ref\.(i31|test|cast|as_non_null|eq)$|i31\.|any\.|extern\.|br_on_|[a-z0-9]+\.relaxed_)/;
 
-function readPlain(
-  name: string,
-  take: <T>(codec: C.Codec<T, Expression>) => T,
-  peek: () => Expression | undefined,
-): Instruction {
-  if (indexOps.has(name)) return { name, immediate: take(Index) };
-  if (name === "i32.const") return { name, immediate: take(token(I32)) };
-  if (name === "i64.const") return { name, immediate: take(token(I64)) };
-  if (name === "f32.const") return { name, immediate: take(token(F32)) };
-  if (name === "f64.const") return { name, immediate: take(token(F64)) };
-  if (name === "call_indirect") {
-    return { name, immediate: take(record({ table: optional(Index, isIndex), type: TypeUse })) };
-  }
-  if (name === "memory.size" || name === "memory.grow" || name === "memory.fill") {
-    return { name, immediate: take(optional(Index, isIndex)) ?? 0 };
-  }
-  if (/^[if](32|64)\.(load|store)/.test(name)) {
-    const match = name.match(/^[if](32|64)\.(?:load|store)(8|16|32)?/)!;
-    let align = Math.log2(Number(match[2] ?? match[1]) / 8);
-    let offset = 0;
-    let sawAlign = false;
-    let sawOffset = false;
-    while (/^(offset|align)=/.test(word(peek()) ?? "")) {
-      const field = take(token(Atom));
-      const [key, literal] = field.split("=");
-      const value = U32.fromText(literal);
-      if (key === "offset") {
-        if (sawOffset || sawAlign)
-          throw new TextSyntaxError("offset must appear once, before align");
-        sawOffset = true;
-        offset = value;
-      } else {
-        if (sawAlign || value === 0 || !Number.isInteger(Math.log2(value)))
-          throw new TextSyntaxError("invalid memory alignment");
-        sawAlign = true;
-        align = Math.log2(value);
-      }
-    }
-    return { name, immediate: { align, offset } };
-  }
-  if (name === "br_table") {
-    const indices = take(
-      C.repeatWhile(Index, (input, offset) => {
-        const node = input[offset];
-        return (
-          !Array.isArray(node) &&
-          node !== undefined &&
-          (node.kind === "identifier" || /^[0-9]/.test(node.text))
-        );
-      }),
-    );
-    if (indices.length === 0) throw new TextSyntaxError("br_table requires a default label");
-    return { name, immediate: indices };
-  }
-  if (name === "ref.null") {
-    const type = take(token(Atom));
-    if (type !== "func" && type !== "extern")
-      throw new UnsupportedTextError(`unsupported heap type ${type}`);
-    return { name, immediate: type === "func" ? "funcref" : "externref" };
-  }
-  if (name === "select" && head(peek()) === "result") {
-    return { name: "select_t", immediate: take(form("result", C.sequence(ValueType))) };
-  }
-  const instruction = lookupInstruction(name);
-  if (instruction.immediate !== undefined && instruction.immediate !== Undefined)
-    throw new UnsupportedTextError(`text immediate for ${name} is not implemented`);
-  return { name };
+function parseValueType(c: Cursor): ValueType {
+  if (c.peekHead() === "ref") throw new UnsupportedTextError("typed references are not supported");
+  const node = c.peek();
+  const type = c.atom();
+  if (valueTypes.has(type)) return type as ValueType;
+  if (/^(any|eq|i31|struct|array|none|nofunc|noextern|exn|noexn|null\w*)ref$/.test(type))
+    throw new UnsupportedTextError(`value type ${type} is not supported`);
+  return c.fail(`unknown value type ${type}`, node);
 }
 
-function decodeFolded(node: Expression[]): Instruction[] {
+/** Read instructions, flat or folded, until the list ends or a block delimiter follows. */
+function parseInstructions(c: Cursor, scope: Scope): ResolvedInstruction[] {
+  const body: ResolvedInstruction[] = [];
+  while (!c.done && c.peekAtom() !== "end" && c.peekAtom() !== "else") instruction(c, scope, body);
+  return body;
+}
+
+function instruction(c: Cursor, scope: Scope, body: ResolvedInstruction[]) {
+  if (c.peek()?.kind === "list") {
+    const list = c.list();
+    folded(list, scope, body);
+    list.end();
+    return;
+  }
+  const name = c.atom();
+  if (!blocks.has(name)) {
+    body.push(plain(name, c, scope));
+    return;
+  }
+  const label = c.identifier();
+  const blockType = scope.blockType(c);
+  const nested = { ...scope, labels: [label, ...scope.labels] };
+  const instructions = parseInstructions(c, nested);
+  let otherwise: ResolvedInstruction[] | undefined;
+  if (name === "if" && c.maybeKeyword("else")) {
+    endLabel(c, label);
+    otherwise = parseInstructions(c, nested);
+  }
+  c.keyword("end");
+  endLabel(c, label);
+  body.push(block(name, blockType, instructions, otherwise));
+}
+
+/** A folded instruction runs its operands, left to right, before itself. */
+function folded(c: Cursor, scope: Scope, body: ResolvedInstruction[]) {
+  const name = c.atom();
+  if (!blocks.has(name)) {
+    const instruction = plain(name, c, scope);
+    while (!c.done) {
+      const operand = c.list();
+      folded(operand, scope, body);
+      operand.end();
+    }
+    body.push(instruction);
+    return;
+  }
+  const label = c.identifier();
+  const blockType = scope.blockType(c);
+  const nested = { ...scope, labels: [label, ...scope.labels] };
+  if (name !== "if") {
+    body.push(block(name, blockType, parseInstructions(c, nested)));
+    return;
+  }
+  // The condition is outside the block, so it cannot branch to the if's label.
+  while (c.peekHead() !== "then") {
+    const operand = c.list();
+    folded(operand, scope, body);
+    operand.end();
+  }
+  const then = c.list("then");
+  const instructions = parseInstructions(then, nested);
+  then.end();
+  const otherwise = c.maybeList("else");
+  const elseBody = otherwise && parseInstructions(otherwise, nested);
+  otherwise?.end();
+  body.push(block(name, blockType, instructions, elseBody));
+}
+
+function endLabel(c: Cursor, label: string | undefined) {
+  const node = c.peek();
+  const end = c.identifier();
+  if (end !== undefined && end !== label) c.fail("mismatching label", node);
+}
+
+function block(
+  name: string,
+  blockType: BlockType,
+  instructions: ResolvedInstruction[],
+  otherwise?: ResolvedInstruction[],
+): ResolvedInstruction {
+  return name === "if"
+    ? { name, immediate: { blockType, instructions: { if: instructions, else: otherwise } } }
+    : { name, immediate: { blockType, instructions } };
+}
+
+function definition(name: string, c: Cursor) {
+  try {
+    return lookupInstruction(name === "select" && c.peekHead() === "result" ? "select_t" : name);
+  } catch {
+    if (unsupported.test(name))
+      throw new UnsupportedTextError(`instruction ${name} is not supported`);
+    return c.fail(`unknown operator ${name}`);
+  }
+}
+
+/** An instruction without a body. `select` with result types is the typed `select_t`. */
+function plain(name: string, c: Cursor, scope: Scope): ResolvedInstruction {
+  const instruction = definition(name, c);
+  return { name: instruction.string, immediate: immediate(instruction, c, scope) };
+}
+
+/** Immediates follow from the instruction's binary immediate, which records index spaces and alignment. */
+function immediate(
+  { string, immediate }: ReturnType<typeof lookupInstruction>,
+  c: Cursor,
+  scope: Scope,
+): unknown {
+  if (immediate === undefined || immediate === Undefined) return undefined;
+  if ("space" in immediate) {
+    const space = immediate.space as IndexSpace;
+    // Table and memory indices default to 0.
+    if ((space === "table" || space === "memory") && !c.peekIndex()) return 0;
+    return space === "label" ? label(c, scope) : scope.index(c, space);
+  }
+  if ("naturalAlign" in immediate) {
+    const natural = immediate.naturalAlign as number;
+    if (string.endsWith("_lane")) {
+      // A leading index followed by another index or memarg is a memory index.
+      const memoryIndex =
+        c.peekIndex() && (c.peekIndex(1) || /^(offset|align)=/.test(c.peekAtom(1) ?? ""));
+      if (memoryIndex) memory(c, scope);
+      return { memArg: memArg(c, natural), lane: lane(c) };
+    }
+    if (c.peekIndex()) memory(c, scope);
+    return memArg(c, natural);
+  }
+  switch (immediate) {
+    case I32:
+      return Number(c.parse((text) => parseInteger(text, 32)));
+    case I64:
+      return c.parse((text) => parseInteger(text, 64));
+    case F32:
+      return c.parse((text) => parseFloat(text, 32));
+    case F64:
+      return c.parse((text) => parseFloat(text, 64));
+    case U8:
+      return lane(c);
+    case Byte:
+      return 0;
+    case RefType: {
+      const type = c.atom();
+      if (type === "func" || type === "extern") return `${type}ref`;
+      throw new UnsupportedTextError(`heap type ${type} is not supported`);
+    }
+    case Block:
+    case IfBlock:
+      throw Error("unreachable");
+  }
+  switch (string) {
+    case "br_table": {
+      const indices: number[] = [];
+      do indices.push(label(c, scope));
+      while (c.peekIndex());
+      return { indices: indices.slice(0, -1), defaultIndex: indices.at(-1)! };
+    }
+    case "call_indirect": {
+      const table = c.peekIndex() ? scope.index(c, "table") : 0;
+      return [scope.typeUse(c), table];
+    }
+    case "select_t":
+      return c.lists("result", (result) => result.until(parseValueType)).flat();
+    case "memory.init":
+    case "table.init": {
+      // An optional memory or table index precedes the segment index.
+      const [segment, target] =
+        string === "memory.init" ? (["data", "memory"] as const) : (["elem", "table"] as const);
+      const index = c.peekIndex(1) ? scope.index(c, target) : 0;
+      return [scope.index(c, segment), index];
+    }
+    case "memory.copy":
+    case "table.copy": {
+      const space = string === "memory.copy" ? "memory" : "table";
+      if (!c.peekIndex()) return [0, 0];
+      return [scope.index(c, space), scope.index(c, space)];
+    }
+    case "v128.const":
+      return v128(c);
+    case "i8x16.shuffle":
+      return Array.from({ length: 16 }, () => lane(c));
+  }
+  throw new UnsupportedTextError(`text immediate of ${string} is not implemented`);
+}
+
+/** wasmati supports a single memory, so a memory index must refer to it. */
+function memory(c: Cursor, scope: Scope) {
+  if (scope.index(c, "memory") !== 0)
+    throw new UnsupportedTextError("multiple memories are not supported");
+}
+
+/** Labels are relative: a label's index is the number of blocks between it and the branch. */
+function label(c: Cursor, scope: Scope): number {
+  const node = c.peek();
+  const index = c.index();
+  if (typeof index === "number") return index;
+  const depth = scope.labels.indexOf(index);
+  if (depth === -1) c.fail(`unknown label $${index}`, node);
+  return depth;
+}
+
+function memArg(c: Cursor, natural: number) {
   let offset = 0;
-  const take = <T>(codec: C.Codec<T, Expression>): T => {
-    const [value, end] = codec.decode(node, offset);
-    offset = end;
+  let align = natural;
+  if (c.peekAtom()?.startsWith("offset="))
+    offset = c.parse((text) => parseUnsigned(text.slice(7), 64));
+  if (c.peekAtom()?.startsWith("align=")) {
+    align = c.parse((text) => {
+      const exponent = Math.log2(parseU32(text.slice(6)));
+      if (!Number.isInteger(exponent))
+        throw new TextSyntaxError("alignment must be a power of two");
+      return exponent;
+    });
+  }
+  return { offset, align };
+}
+
+function lane(c: Cursor): number {
+  return c.parse((text) => {
+    const value = parseU32(text);
+    if (value > 255) throw new TextSyntaxError("malformed lane index");
     return value;
-  };
-  const name = take(token(Atom));
-  if (name === "block" || name === "loop" || name === "if") {
-    const nameLabel = take(label);
-    const type = take(TypeUse);
-    if (name !== "if") {
-      const body = take(Instructions);
-      if (offset !== node.length)
-        throw new TextSyntaxError(`unexpected field in folded ${name}`, position(node[offset]));
-      return [{ name, label: nameLabel, type, body }];
+  });
+}
+
+const shapes: Record<string, { float: boolean; width: number }> = {
+  i8x16: { float: false, width: 8 },
+  i16x8: { float: false, width: 16 },
+  i32x4: { float: false, width: 32 },
+  i64x2: { float: false, width: 64 },
+  f32x4: { float: true, width: 32 },
+  f64x2: { float: true, width: 64 },
+};
+
+/** A vector constant as 16 little-endian bytes. */
+function v128(c: Cursor): number[] {
+  const shape = shapes[c.atom()];
+  if (shape === undefined) c.fail("unknown vector shape");
+  const { float, width } = shape;
+  return Array.from({ length: 128 / width }, () => {
+    if (float) {
+      const value = c.parse((text) => parseFloat(text, width as 32 | 64));
+      return width === 32 ? F32.toBytes(value as F32) : F64.toBytes(value as F64);
     }
-    const operands: Instruction[] = [];
-    while (head(node[offset]) !== "then" && offset < node.length) {
-      if (!Array.isArray(node[offset]))
-        throw new TextSyntaxError("expected folded if operand", position(node[offset]));
-      operands.push(...decodeFolded(node[offset++] as Expression[]));
+    const value = BigInt.asUintN(
+      width,
+      c.parse((text) => parseInteger(text, width)),
+    );
+    return Array.from({ length: width / 8 }, (_, i) => Number((value >> BigInt(8 * i)) & 0xffn));
+  }).flat();
+}
+
+/** Print stack-style instructions, one per line, indenting block bodies. */
+function printInstructions(body: ResolvedInstruction[], names: Names, indent = ""): string[] {
+  return body.flatMap(({ name, immediate }) => {
+    if (blocks.has(name)) {
+      const head = [name, ...blockType(immediate.blockType)].join(" ");
+      const bodies = name === "if" ? immediate.instructions : { if: immediate.instructions };
+      return [
+        indent + head,
+        ...printInstructions(bodies.if, names, indent + "  "),
+        ...(bodies.else === undefined
+          ? []
+          : [indent + "else", ...printInstructions(bodies.else, names, indent + "  ")]),
+        indent + "end",
+      ];
     }
-    const body = take(form("then", Instructions));
-    const elseBody = take(optional(form("else", Instructions), (node) => head(node) === "else"));
-    if (offset !== node.length)
-      throw new TextSyntaxError("unexpected field in folded if", position(node[offset]));
-    return [...operands, { name, label: nameLabel, type, body, else: elseBody }];
+    const text = name === "select_t" ? "select" : name;
+    return [indent + [text, ...printImmediate(name, immediate, names)].join(" ")];
+  });
+}
+
+function blockType(type: BlockType): string[] {
+  if (type === "empty") return [];
+  return typeof type === "number" ? [`(type ${type})`] : [`(result ${type})`];
+}
+
+function printImmediate(name: string, value: any, names: Names): string[] {
+  const { immediate } = lookupInstruction(name);
+  if (immediate === undefined || immediate === Undefined || immediate === Byte) return [];
+  const id = (space: IndexSpace, index: number) => names.id(space, index) ?? String(index);
+  if ("space" in immediate) {
+    const space = immediate.space as IndexSpace;
+    if ((space === "table" || space === "memory") && value === 0) return [];
+    return [id(space, value)];
   }
-  const instruction = readPlain(name, take, () => node[offset]);
-  const operands: Instruction[] = [];
-  while (offset < node.length) {
-    const operand = node[offset++];
-    if (!Array.isArray(operand))
-      throw new TextSyntaxError("expected folded operand", position(operand));
-    operands.push(...decodeFolded(operand));
+  if ("naturalAlign" in immediate) {
+    const natural = immediate.naturalAlign as number;
+    if (name.endsWith("_lane")) return [...memArgText(value.memArg, natural), String(value.lane)];
+    return memArgText(value, natural);
   }
-  return [...operands, instruction];
+  switch (immediate) {
+    case I32:
+    case I64:
+    case U8:
+      return [String(value)];
+    case F32:
+      return [printFloat(value, 32)];
+    case F64:
+      return [printFloat(value, 64)];
+    case RefType:
+      return [value === "funcref" ? "func" : "extern"];
+  }
+  switch (name) {
+    case "br_table":
+      return [...value.indices, value.defaultIndex].map(String);
+    case "call_indirect":
+      return [...(value[1] === 0 ? [] : [id("table", value[1])]), `(type ${value[0]})`];
+    case "select_t":
+      return [`(result ${value.join(" ")})`];
+    case "memory.init":
+    case "table.init": {
+      const [space, target] =
+        name === "memory.init" ? (["data", "memory"] as const) : (["elem", "table"] as const);
+      return [...(value[1] === 0 ? [] : [id(target, value[1])]), id(space, value[0])];
+    }
+    case "memory.copy":
+    case "table.copy": {
+      const space = name === "memory.copy" ? "memory" : "table";
+      return value[0] === 0 && value[1] === 0 ? [] : [id(space, value[0]), id(space, value[1])];
+    }
+    case "v128.const": {
+      const lanes = Array.from({ length: 4 }, (_, i) =>
+        value
+          .slice(4 * i, 4 * i + 4)
+          .reduceRight((word: number, byte: number) => word * 256 + byte, 0),
+      );
+      return ["i32x4", ...lanes.map((lane) => "0x" + lane.toString(16).padStart(8, "0"))];
+    }
+    case "i8x16.shuffle":
+      return value.map(String);
+  }
+  throw new UnsupportedTextError(`text immediate of ${name} is not implemented`);
+}
+
+function memArgText({ offset, align }: { offset: number; align: number }, natural: number) {
+  return [
+    ...(offset === 0 ? [] : [`offset=${offset}`]),
+    ...(align === natural ? [] : [`align=${2 ** align}`]),
+  ];
+}
+
+/** A string literal; printable ASCII stays readable and other bytes are escaped. */
+function printString(bytes: number[] | Uint8Array): string {
+  let text = '"';
+  for (const byte of bytes) {
+    text +=
+      byte >= 0x20 && byte < 0x7f && byte !== 0x22 && byte !== 0x5c
+        ? String.fromCharCode(byte)
+        : "\\" + byte.toString(16).padStart(2, "0");
+  }
+  return text + '"';
 }

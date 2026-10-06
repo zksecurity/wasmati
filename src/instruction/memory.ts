@@ -2,7 +2,7 @@ import { type Instruction_, baseInstruction } from "./base.ts";
 import * as Dependency from "../dependency.ts";
 import type { LocalContext } from "../local-context.ts";
 import { U32, U8 } from "../immediate.ts";
-import { record, tuple } from "../binable.ts";
+import { type Binable, record, tuple } from "../binable.ts";
 import {
   DataIndex,
   ElemIndex,
@@ -175,6 +175,12 @@ const elemOps = {
 type MemArg = { align: U32; offset: U32 };
 const MemArg = record({ align: U32, offset: U32 });
 
+/** A memory argument immediate that records the access's natural alignment exponent, the default. */
+type MemArgImmediate<T> = Binable<T> & { naturalAlign: number };
+function withNaturalAlign<T>(binable: Binable<T>, bits: number): MemArgImmediate<T> {
+  return { ...binable, naturalAlign: Math.log2(bits / 8) };
+}
+
 function memoryInstruction<
   const Args extends Tuple<ValueType>,
   const Results extends Tuple<ValueType>,
@@ -199,7 +205,7 @@ function memoryInstruction<
     [memArg: MemArg],
     Args,
     Results
-  >(name, MemArg, {
+  >(name, withNaturalAlign(MemArg, bits), {
     create(_, memArg) {
       return {
         in: expectedArgs,
@@ -244,7 +250,7 @@ function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tu
     [memArgAndLane: MemArgAndLane],
     Args,
     Results
-  >(name, MemArgAndLane, {
+  >(name, withNaturalAlign(MemArgAndLane, bits), {
     create: (_, memArg, lane) => ({
       in: expectedArgs,
       out: valueTypeLiterals<Results>(results),

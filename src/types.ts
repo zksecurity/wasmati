@@ -4,6 +4,7 @@ import type { Tuple } from "./util.ts";
 
 export { i32t, i64t, f32t, f64t, v128t, funcref, externref };
 export { TypeIndex, FunctionIndex, MemoryIndex, TableIndex, ElemIndex, DataIndex };
+export { GlobalIndex, LocalIndex, LabelIndex, type Index, type IndexSpace };
 export {
   type ValueTypeObject,
   type RefTypeObject,
@@ -139,18 +140,32 @@ const FunctionType = withByteCode(
   record<FunctionType>({ args: ResultType, results: ResultType }),
 );
 
+type IndexSpace =
+  "type" | "function" | "table" | "memory" | "global" | "elem" | "data" | "local" | "label";
+/** Indices are u32 in binary. Each index space has its own immediate, which records the space. */
+type Index = Binable<U32> & { space: IndexSpace };
+function index(space: IndexSpace): Index {
+  return { ...U32, space };
+}
+
 type TypeIndex = U32;
-const TypeIndex = U32;
+const TypeIndex = index("type");
 type FunctionIndex = U32;
-const FunctionIndex = U32;
+const FunctionIndex = index("function");
 type TableIndex = U32;
-const TableIndex = U32;
+const TableIndex = index("table");
 type MemoryIndex = U32;
-const MemoryIndex = U32;
+const MemoryIndex = index("memory");
 type ElemIndex = U32;
-const ElemIndex = U32;
+const ElemIndex = index("elem");
 type DataIndex = U32;
-const DataIndex = U32;
+const DataIndex = index("data");
+type GlobalIndex = U32;
+const GlobalIndex = index("global");
+type LocalIndex = U32;
+const LocalIndex = index("local");
+type LabelIndex = U32;
+const LabelIndex = index("label");
 
 function invertRecord<K extends string, V>(record: Record<K, V>): Map<V, K> {
   let map = new Map<V, K>();

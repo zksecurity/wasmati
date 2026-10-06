@@ -40,13 +40,13 @@ class Cursor {
     return node?.kind === "list" && node.items[0]?.kind === "atom" ? node.items[0].text : undefined;
   }
 
-  peekIdentifier(): boolean {
-    return this.peek()?.kind === "identifier";
+  peekIdentifier(ahead = 0): boolean {
+    return this.peek(ahead)?.kind === "identifier";
   }
 
   /** True if the next item is an index: a numeric literal or an identifier. */
-  peekIndex(): boolean {
-    return this.peekIdentifier() || /^[0-9]/.test(this.peekAtom() ?? "");
+  peekIndex(ahead = 0): boolean {
+    return this.peekIdentifier(ahead) || /^[0-9]/.test(this.peekAtom(ahead) ?? "");
   }
 
   fail(message: string, node: Node | undefined = this.peek()): never {

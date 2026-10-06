@@ -17,7 +17,7 @@ import {
 } from "../index.ts";
 import type { Module as ModuleValue } from "../module-binable.ts";
 import type { FunctionType, ValueType } from "../types.ts";
-import { TextSyntaxError } from "../text/lexer.ts";
+import { TextSyntaxError, UnsupportedTextError } from "../text/lexer.ts";
 import {
   parseCommand,
   readScript,
@@ -163,11 +163,15 @@ async function runWast(source: string): Promise<Result> {
           break;
         }
         case "assert_invalid": {
-          // Parsing, emission and loading must succeed: failing those is not evidence of invalidity.
-          const factory = await loadModule(command.module);
+          // The module must parse: an invalid module is well-formed. Any later stage may reject it,
+          // but not merely because a feature is unsupported.
+          const module = readModule(command.module.source);
           await rejects(
-            (async () => WebAssembly.compile(factory(registered).toBytes()))(),
-            (error) => !/not (yet )?(supported|implemented)/i.test(String(error)),
+            (async () => {
+              const factory = await loadTextFactory(module);
+              await WebAssembly.compile(factory(registered).toBytes());
+            })(),
+            (error) => !unsupported(error),
           );
           break;
         }
@@ -196,6 +200,13 @@ async function runWast(source: string): Promise<Result> {
 
 async function loadModule(command: ModuleCommand): Promise<Factory> {
   return loadTextFactory(readModule(command.source));
+}
+
+function unsupported(error: unknown): boolean {
+  return (
+    error instanceof UnsupportedTextError ||
+    /not (yet )?(supported|implemented)/i.test(String(error))
+  );
 }
 
 async function rejects(promise: Promise<unknown>, expected: (error: unknown) => boolean) {

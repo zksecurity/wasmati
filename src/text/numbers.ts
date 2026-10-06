@@ -1,22 +1,27 @@
 import type { F32, F64 } from "../immediate.ts";
 import { TextSyntaxError } from "./lexer.ts";
 
-export { parseU32, parseInteger, parseFloat, printFloat, isNumber };
+export { parseU32, parseUnsigned, parseInteger, parseFloat, printFloat };
 
 const digits = "[0-9](?:_?[0-9])*";
 const hexDigits = "[0-9a-fA-F](?:_?[0-9a-fA-F])*";
 const unsigned = new RegExp(`^(?:${digits}|0x${hexDigits})$`);
 const signed = new RegExp(`^[+-]?(?:${digits}|0x${hexDigits})$`);
 
-function isNumber(text: string): boolean {
-  return /^[+-]?[0-9]/.test(text) || /^[+-]?(inf|nan)/.test(text);
+/** Unsigned 32-bit literal, used for indices, lanes and alignment. */
+function parseU32(text: string): number {
+  return parseUnsigned(text, 32);
 }
 
-/** Unsigned 32-bit literal, used for indices, alignment, offsets and limits. */
-function parseU32(text: string): number {
+/**
+ * Unsigned literal of up to `bits` bits. Offsets and limits are u64 in text: whether a value fits
+ * a 32-bit memory or table is a matter of validation.
+ */
+function parseUnsigned(text: string, bits: 32 | 64): number {
   if (!unsigned.test(text)) throw new TextSyntaxError(`expected unsigned integer, got ${text}`);
   const value = BigInt(text.replaceAll("_", ""));
-  if (value >= 1n << 32n) throw new TextSyntaxError(`integer ${text} outside u32 range`);
+  if (value >= 1n << BigInt(bits))
+    throw new TextSyntaxError(`integer ${text} outside u${bits} range`);
   return Number(value);
 }
 
@@ -150,8 +155,17 @@ function printFloat(value: F32 | F64, bits: 32 | 64): string {
   if (bits === 32) {
     for (let digits = 1; digits < 9; digits++) {
       const text = Number(value.toPrecision(digits)).toString();
-      if (parseFloat(text, 32) === value) return text;
+      if (Math.fround(Number(text)) === value && roundsTo(text, value)) return text;
     }
   }
   return value.toString();
+}
+
+/** Shorter decimal candidates may round differently, or even overflow, at f32 precision. */
+function roundsTo(text: string, value: number): boolean {
+  try {
+    return parseFloat(text, 32) === value;
+  } catch {
+    return false;
+  }
 }

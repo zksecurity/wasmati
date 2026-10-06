@@ -1,7 +1,7 @@
 import { record, tuple, Undefined } from "../binable.ts";
 import * as Dependency from "../dependency.ts";
 import type { AnyFunc } from "../func-types.ts";
-import { U32, vec } from "../immediate.ts";
+import { vec } from "../immediate.ts";
 import {
   getFrameFromLabel,
   type Label,
@@ -16,7 +16,15 @@ import {
   isSameType,
   type LocalContext,
 } from "../local-context.ts";
-import { ValueType, valueTypeLiteral, type ValueTypeObject } from "../types.ts";
+import {
+  FunctionIndex,
+  LabelIndex,
+  TableIndex,
+  TypeIndex,
+  ValueType,
+  valueTypeLiteral,
+  type ValueTypeObject,
+} from "../types.ts";
 import {
   baseInstruction,
   createExpressionWithType,
@@ -115,7 +123,7 @@ const if_ = baseInstruction("if", IfBlock, {
   },
 });
 
-const br = baseInstruction("br", U32, {
+const br = baseInstruction("br", LabelIndex, {
   create(ctx, label: Label | number) {
     let [i, frame] = getFrameFromLabel(ctx, label);
     let types = labelTypes(frame);
@@ -125,7 +133,7 @@ const br = baseInstruction("br", U32, {
   },
 });
 
-const br_if = baseInstruction("br_if", U32, {
+const br_if = baseInstruction("br_if", LabelIndex, {
   create(ctx, label: Label | number) {
     let [i, frame] = getFrameFromLabel(ctx, label);
     let types = labelTypes(frame);
@@ -133,7 +141,7 @@ const br_if = baseInstruction("br_if", U32, {
   },
 });
 
-const LabelTable = record({ indices: vec(U32), defaultIndex: U32 });
+const LabelTable = record({ indices: vec(LabelIndex), defaultIndex: LabelIndex });
 const br_table = baseInstruction("br_table", LabelTable, {
   create(ctx, labels: (Label | number)[], defaultLabel: Label | number) {
     popStack(ctx, ["i32"]);
@@ -168,14 +176,14 @@ const return_ = baseInstruction("return", Undefined, {
   resolve: () => undefined,
 });
 
-const call = baseInstruction("call", U32, {
+const call = baseInstruction("call", FunctionIndex, {
   create(_, func: Dependency.AnyFunc) {
     return { in: func.type.args, out: func.type.results, deps: [func] };
   },
   resolve: ([funcIndex]) => funcIndex,
 });
 
-const call_indirect = baseInstruction("call_indirect", tuple([U32, U32]), {
+const call_indirect = baseInstruction("call_indirect", tuple([TypeIndex, TableIndex]), {
   create(_, table: Dependency.AnyTable, type: FunctionTypeInput) {
     let t = typeFromInput(type);
     return {

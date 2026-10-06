@@ -1,7 +1,7 @@
 import * as api from "./index.ts";
 import type { Module as DecodedModule } from "./module-binable.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
-import type { FunctionType, ValueType } from "./types.ts";
+import { functionTypeEquals, type FunctionType, type GlobalType, type ValueType } from "./types.ts";
 import type { F32, F64 } from "./immediate.ts";
 
 export { decompile, decompileModule };
@@ -195,12 +195,19 @@ class Source {
       this.dependencies.push(variable);
     }
     for (const f of this.module.funcs) {
+      // Builders derive type indices from signatures, so a mismatching index would silently be repaired.
+      const declared = this.module.types[f.typeIdx];
+      if (declared === undefined || !functionTypeEquals(declared, f.type))
+        throw Error(`decompile: function ${f.funcIdx} does not have type ${f.typeIdx}`);
       this.line(
         `const ${this.functions[f.funcIdx]} = ${this.use("declareFunc")}(${this.signature(f.funcIdx, f.type, f.locals)});`,
       );
       this.dependencies.push(this.functions[f.funcIdx]);
     }
     for (const g of this.module.globals) {
+      // Builders derive a global's type from its initializer.
+      if (this.constantType(g.init) !== g.type.value)
+        throw Error(`decompile: global initializer does not have type ${g.type.value}`);
       const variable = this.globals[nextIndex.global++];
       this.line(
         `const ${variable} = ${this.use("global")}(${this.constant(g.init)}, { mutable: ${g.type.mutable} });`,
@@ -301,6 +308,20 @@ class Source {
           : { args: [], results: [blockType] };
     if (!type) throw Error(`decompile: missing block type ${blockType}`);
     return `{ in: [${type.args.map((t) => this.use(t)).join(", ")}], out: [${type.results.map((t) => this.use(t)).join(", ")}] }`;
+  }
+
+  private constantType(expression: ResolvedInstruction[]): ValueType | undefined {
+    if (expression.length === 0) return undefined;
+    const [{ name, immediate }] = expression;
+    if (name === "ref.null") return immediate;
+    if (name === "ref.func") return "funcref";
+    if (name !== "global.get") return name.slice(0, name.indexOf(".")) as ValueType;
+    const imported = this.module.imports.filter((i) => i.description.kind === "global");
+    const global =
+      immediate < imported.length
+        ? (imported[immediate].description.value as GlobalType)
+        : this.module.globals[immediate - imported.length]?.type;
+    return global?.value;
   }
 
   private constant(expression: ResolvedInstruction[]): string {

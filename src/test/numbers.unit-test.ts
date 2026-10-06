@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { F32, F64 } from "../text/float.ts";
+import { parseFloat, parseInteger, parseU32, printFloat } from "../text/numbers.ts";
+
+const F32 = {
+  fromText: (text: string) => parseFloat(text, 32),
+  toText: (value: Parameters<typeof printFloat>[0]) => printFloat(value, 32),
+};
+const F64 = {
+  fromText: (text: string) => parseFloat(text, 64),
+  toText: (value: Parameters<typeof printFloat>[0]) => printFloat(value, 64),
+};
 
 test("finite float text rounds decimal and hex exactly once", () => {
   assert.equal(F32.fromText("1.000000059604644775390625"), 1);
@@ -49,4 +58,31 @@ test("NaN literals keep exact sign and payload bits, including signaling NaNs", 
   assert.equal(F64.toText({ bits: 0x7ff4000000000001n }), "nan:0x4000000000001");
   assert.equal(F32.toText(NaN), "nan");
   assert.equal(F32.toText({ bits: 0x3fc00000 }), "1.5");
+});
+
+test("f32 values print as the shortest decimal that parses back to them", () => {
+  for (const [value, text] of [
+    [0.1, "0.1"],
+    [Math.fround(0.1), "0.1"],
+    [Math.fround(3.4028234663852886e38), "3.4028235e+38"],
+    [2 ** -149, "1e-45"],
+    [-1.5, "-1.5"],
+  ] as const) {
+    const f32 = Math.fround(value);
+    assert.equal(F32.toText(f32), text);
+    assert.equal(F32.fromText(F32.toText(f32)), f32);
+  }
+  assert.equal(F64.toText(0.1), "0.1");
+});
+
+test("integer literals check signs, separators and ranges", () => {
+  assert.equal(parseU32("0xff_ff"), 65535);
+  assert.equal(parseInteger("0xffffffff", 32), -1n);
+  assert.equal(parseInteger("-0x8000_0000", 32), -2147483648n);
+  assert.equal(parseInteger("18446744073709551615", 64), -1n);
+  assert.equal(parseInteger("-9223372036854775808", 64), -9223372036854775808n);
+  for (const source of ["4294967296", "+2147483648", "-2147483649", "1.0", "1e2", "1__0", "_1"])
+    assert.throws(() => parseInteger(source, 32), source);
+  for (const source of ["-1", "+1", "4294967296"]) assert.throws(() => parseU32(source), source);
+  assert.throws(() => parseInteger("18446744073709551616", 64));
 });
