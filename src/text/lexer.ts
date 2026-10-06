@@ -1,5 +1,5 @@
-export { tokenize, printTokens, TextSyntaxError, UnsupportedTextError };
-export type { Token };
+export { tokenize, printTokens, readTree, withLocation, TextSyntaxError, UnsupportedTextError };
+export type { Token, Leaf, List, Node };
 
 /** Source offsets use JavaScript string indices. Generated tokens have no source offset. */
 type Token = {
@@ -20,6 +20,42 @@ class TextSyntaxError extends SyntaxError {
 
 /** A valid feature whose text grammar or shared representation is not implemented yet. */
 class UnsupportedTextError extends Error {}
+
+/** Source text as a tree of parenthesized lists. List offsets point at the opening parenthesis. */
+type Leaf = Token & { kind: "atom" | "string" | "identifier" };
+type List = { kind: "list"; items: Node[]; offset?: number };
+type Node = Leaf | List;
+
+function readTree(source: string): Node[] {
+  const stack: List[] = [{ kind: "list", items: [] }];
+  for (const token of tokenize(source)) {
+    if (token.kind === "(") {
+      const list: List = { kind: "list", items: [], offset: token.offset };
+      stack.at(-1)!.items.push(list);
+      stack.push(list);
+    } else if (token.kind === ")") {
+      if (stack.length === 1)
+        throw new TextSyntaxError("unexpected closing parenthesis", token.offset);
+      stack.pop();
+    } else stack.at(-1)!.items.push(token as Leaf);
+  }
+  if (stack.length > 1) throw new TextSyntaxError("unclosed parenthesis", stack.at(-1)!.offset);
+  return stack[0].items;
+}
+
+/** Report syntax errors with a line:column position in the source. */
+function withLocation<T>(source: string, parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    if (error instanceof TextSyntaxError && error.offset !== undefined) {
+      const lines = source.slice(0, error.offset).split(/\r\n|[\r\n]/);
+      error.message += ` at ${lines.length}:${lines.at(-1)!.length + 1}`;
+      error.offset = undefined;
+    }
+    throw error;
+  }
+}
 
 const idchar = /^[0-9A-Za-z!#$%&'*+\-./:<=>?@\\^_`|~]$/;
 const digits = "[0-9](?:_?[0-9])*";
