@@ -41,6 +41,7 @@ $ node --experimental-strip-types example.ts
 
   - [threads and atomics](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)
   - [relaxed simd](https://github.com/WebAssembly/relaxed-simd/blob/main/proposals/relaxed-simd/Overview.md)
+  - [wide arithmetic](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md) (experimental; requires runtime support)
 
 - **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
@@ -124,6 +125,38 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
   - Internal representation of modules / funcs / etc is a readable JSON object
     - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
+
+### Wide arithmetic
+
+The experimental [wide arithmetic proposal](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md) adds four instructions:
+
+| API | Inputs | Results |
+| --- | --- | --- |
+| `i64.add128(aLo, aHi, bLo, bHi)` | Two 128-bit integers | Sum modulo 2¹²⁸, `[lo, hi]` |
+| `i64.sub128(aLo, aHi, bLo, bHi)` | Two 128-bit integers | Difference modulo 2¹²⁸, `[lo, hi]` |
+| `i64.mul_wide_s(a, b)` | Two signed 64-bit integers | Exact 128-bit product, `[lo, hi]` |
+| `i64.mul_wide_u(a, b)` | Two unsigned 64-bit integers | Exact 128-bit product, `[lo, hi]` |
+
+Every input and result is an `i64`. As with other instructions, operands can be locals, globals, constants, or stack values; omit all arguments to consume operands directly from the stack. The low result is pushed first, so the high result is on top of the stack. The returned pair contains two `StackVar<i64>` values. When calling an exported function from JavaScript, both result halves are signed bigints, including for `mul_wide_u`; use `BigInt.asUintN(64, half)` to interpret their bits as unsigned.
+
+```ts
+const multiplyAdd = func(
+  { in: [i64, i64], locals: [i64, i64], out: [i64, i64] },
+  ([a, b], [lo, hi]) => {
+    i64.mul_wide_u(a, b);
+    local.set(hi); // consume the high half first
+    local.set(lo);
+    i64.add128(lo, hi, 1n, 0n); // a * b + 1, modulo 2^128
+  }
+);
+```
+
+Instantiation requires an engine that implements the proposal. Verified with Node `v27.0.0-nightly20261006fcfb7ecc0b` using `--wasm-wide-arithmetic`. Modules that do not use these instructions retain their existing runtime requirements.
+
+```sh
+npm run build
+npm run test:wide-arithmetic
+```
 
 ### Features that aren't implemented yet
 
