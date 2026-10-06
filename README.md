@@ -125,6 +125,8 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
     - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
 
+- **Name and custom sections.** Read and write module, function, parameter and local names with `module.module.names`, or supply them as `Module({ exports, names })`. Name maps use Wasm indices (including imports); local indices include parameters. Other custom sections are preserved in `module.module.customSections` and can be supplied as `Module({ exports, customSections })`.
+
 ### Features that aren't implemented yet
 
 _PRs welcome!_
@@ -143,8 +145,6 @@ import { myFunction } from "./example.wasm.js"; // example.wasm.js does not depe
 ```
 
 - **Experimental Wasm opcodes.** We want to support opcodes from recently standardized or in-progress feature proposals ([like this one](https://github.com/WebAssembly/gc/blob/main/proposals/gc/Overview.md)) which haven't yet made it to the spec. The eventual goal is to support proposals as soon as they are implemented in at least one JS engine.
-
-- **Custom module sections.** We want to support creation and parsing of "custom sections" like the [name section](https://webassembly.github.io/spec/core/appendix/custom.html#name-section)
 
 ### Some ideas that are a bit further out:
 

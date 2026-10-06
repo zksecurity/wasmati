@@ -1,4 +1,6 @@
 export { Module } from "./module.ts";
+export { NameSection, type NameMap, type IndirectNameMap } from "./name-section.ts";
+export type { CustomSection } from "./module-binable.ts";
 import {
   globalConstructor,
   refOps,

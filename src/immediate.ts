@@ -32,7 +32,8 @@ function vec<T>(Element: Binable<T>) {
 
 const Name = Binable<string>({
   toBytes(string: string) {
-    return [...U32.toBytes(string.length), ...new TextEncoder().encode(string)];
+    let bytes = new TextEncoder().encode(string);
+    return [...U32.toBytes(bytes.length), ...bytes];
   },
   readBytes(bytes, start) {
     let [length, offset] = U32.readBytes(bytes, start);
@@ -51,8 +52,10 @@ function withByteLength<T>(binable: Binable<T>): Binable<T> {
     },
     readBytes(bytes, offset) {
       let [length, start] = U32.readBytes(bytes, offset);
-      let [value, end] = binable.readBytes(bytes, start);
-      if (end !== start + length) throw Error("invalid length encoding");
+      let end = start + length;
+      if (end > bytes.length) throw Error("invalid length encoding");
+      let [value, consumed] = binable.readBytes(bytes.slice(start, end), 0);
+      if (consumed !== length) throw Error("invalid length encoding");
       return [value, end];
     },
   });

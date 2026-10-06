@@ -20,6 +20,9 @@ export {
   orUndefined,
   orDefault,
   byteEnum,
+  RemainingBytes,
+  sequence,
+  interleavedRecord,
   Zero as TODO,
 };
 
@@ -59,6 +62,39 @@ const Byte = Binable<number>({
     return [byte, offset + 1];
   },
 });
+
+/** Read or write raw bytes without a length prefix. Decoding consumes all remaining input; wrap in withByteLength when followed by other fields. */
+const RemainingBytes = Binable<number[]>({
+  toBytes(bytes) {
+    return bytes;
+  },
+  readBytes(bytes, offset) {
+    return [bytes.slice(offset), bytes.length];
+  },
+});
+
+/**
+ * Encode an array by concatenating element encodings, without the count prefix used by vec. Decoding repeats the element codec until the input ends; each element must consume at least one byte.
+ *
+ * Wrap in withByteLength to delimit the sequence when it appears before other fields in a record.
+ */
+function sequence<T>(element: Binable<T>): Binable<T[]> {
+  return Binable({
+    toBytes(values) {
+      return values.flatMap((value) => element.toBytes(value));
+    },
+    readBytes(bytes, offset) {
+      const values: T[] = [];
+      while (offset < bytes.length) {
+        const [value, end] = element.readBytes(bytes, offset);
+        if (end <= offset || end > bytes.length) throw Error("invalid sequence element length");
+        values.push(value);
+        offset = end;
+      }
+      return [values, offset];
+    },
+  });
+}
 
 type Bool = boolean;
 const Bool = Binable<boolean>({
@@ -147,7 +183,7 @@ function tuple<Types extends Tuple<any>>(binables: {
       let bytes: number[] = [];
       for (let i = 0; i < n; i++) {
         let subBytes = binables[i].toBytes(t[i]);
-        bytes.push(...subBytes);
+        bytes = bytes.concat(subBytes);
       }
       return bytes;
     },
@@ -300,6 +336,60 @@ function byteEnum<
       let { kind, value: binable } = entry;
       let [value, end] = binable.readBytes(bytes, offset);
       return [{ kind, value }, end];
+    },
+  });
+}
+
+/**
+ * Compose an ordered record with extra entries at field boundaries. The result is { value: recordFields, extras: [{ after, value: extraEntry }] }; matches selects the extra codec before each field and after the last field.
+ *
+ * On encoding, after: undefined places an entry before the first field, a field key places it after that field (even when omitted), and null appends it after all fields. Entries at the same position retain their array order.
+ *
+ * On decoding, after identifies the last field that consumed bytes, or undefined before the first field. Optional fields use their existing codecs and do not claim a position when absent. This allows custom Wasm sections to interleave with standard sections while retaining their placement.
+ */
+function interleavedRecord<Types extends Record<string, any>, Extra>(
+  binables: { [K in keyof Types]: Binable<Types[K]> },
+  extra: { codec: Binable<Extra>; matches(bytes: number[], offset: number): boolean }
+): Binable<{
+  value: Types;
+  extras: { after?: keyof Types | null; value: Extra }[];
+}> {
+  const keys = Object.keys(binables) as (keyof Types)[];
+  return Binable({
+    toBytes({ value, extras }) {
+      for (const entry of extras) {
+        if (entry.after !== undefined && entry.after !== null && !keys.includes(entry.after)) {
+          throw Error(`invalid interleaved record position ${String(entry.after)}`);
+        }
+      }
+      const at = (after: keyof Types | null | undefined) => extras
+        .filter((entry) => entry.after === after)
+        .flatMap((entry) => extra.codec.toBytes(entry.value));
+      return [at(undefined), ...keys.map((key) => [
+        binables[key].toBytes(value[key]), at(key),
+      ].flat()), at(null)].flat();
+    },
+    readBytes(bytes, offset) {
+      const value = {} as Types;
+      const extras: { after?: keyof Types | null; value: Extra }[] = [];
+      let after: keyof Types | undefined;
+      const readExtras = () => {
+        while (offset < bytes.length && extra.matches(bytes, offset)) {
+          const [value, end] = extra.codec.readBytes(bytes, offset);
+          if (end <= offset || end > bytes.length) throw Error("invalid interleaved entry length");
+          extras.push({ after, value });
+          offset = end;
+        }
+      };
+      for (const key of keys) {
+        readExtras();
+        const [field, end] = binables[key].readBytes(bytes, offset);
+        value[key] = field;
+        if (end > offset) after = key;
+        offset = end;
+      }
+      readExtras();
+      return [{ value, extras }, offset];
     },
   });
 }

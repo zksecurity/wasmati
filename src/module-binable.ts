@@ -1,16 +1,19 @@
 import {
-  Binable,
+  type Binable,
   Byte,
+  RemainingBytes,
   iso,
   orDefault,
   orUndefined,
   record,
+  interleavedRecord,
   tuple,
   withByteCode,
   withPreamble,
   withValidation,
 } from "./binable.ts";
-import { U32, vec, withByteLength } from "./immediate.ts";
+import { Name, U32, vec, withByteLength } from "./immediate.ts";
+import { NameSection } from "./name-section.ts";
 import {
   FunctionIndex,
   FunctionType,
@@ -23,7 +26,16 @@ import { Export, Import } from "./export.ts";
 import { Data, Elem, Global } from "./memory-binable.ts";
 import { Code, type FinalizedFunc } from "./func.ts";
 
-export { Module };
+export { Module, type CustomSection };
+
+type CustomSection = {
+  name: string;
+  data: number[];
+  // Position after a standard section id; 0 means before the first section.
+  // If that section is empty/absent, use its position in the section order.
+  // Omit to append after all standard sections.
+  after?: number;
+};
 
 type Module = {
   types: FunctionType[];
@@ -36,12 +48,16 @@ type Module = {
   start?: FunctionIndex;
   imports: Import[];
   exports: Export[];
+  names?: NameSection;
+  customSections?: CustomSection[];
 };
 
 function section<T>(code: number, b: Binable<T>) {
   return withByteCode(code, withByteLength(b));
 }
 // 0: CustomSection
+const CustomPayload = record({ name: Name, data: RemainingBytes });
+const CustomSection = section(0, CustomPayload);
 
 // 1: TypeSection
 type TypeSection = FunctionType[];
@@ -103,8 +119,7 @@ const Version = iso(tuple([Byte, Byte, Byte, Byte]), {
 
 const isEmpty = (arr: unknown[]) => arr.length === 0;
 
-type ParsedModule = {
-  version: number;
+type Sections = {
   typeSection: TypeSection;
   importSection: ImportSection;
   funcSection: FuncSection;
@@ -119,34 +134,40 @@ type ParsedModule = {
   dataSection: DataSection;
 };
 
-let ParsedModule = withPreamble(
-  [0x00, 0x61, 0x73, 0x6d],
-  record<ParsedModule>({
-    version: Version,
-    typeSection: orDefault(TypeSection, [], isEmpty),
-    importSection: orDefault(ImportSection, [], isEmpty),
-    funcSection: orDefault(FuncSection, [], isEmpty),
-    tableSection: orDefault(TableSection, [], isEmpty),
-    memorySection: orDefault(MemorySection, [], isEmpty),
-    globalSection: orDefault(GlobalSection, [], isEmpty),
-    exportSection: orDefault(ExportSection, [], isEmpty),
-    startSection: orUndefined(StartSection),
-    elemSection: orDefault(ElemSection, [], isEmpty),
-    dataCountSection: orUndefined(DataCountSection),
-    codeSection: orDefault(CodeSection, [], isEmpty),
-    dataSection: orDefault(DataSection, [], isEmpty),
-  })
-);
+const sectionIds = {
+  typeSection: 1, importSection: 2, funcSection: 3, tableSection: 4,
+  memorySection: 5, globalSection: 6, exportSection: 7, startSection: 8,
+  elemSection: 9, dataCountSection: 12, codeSection: 10, dataSection: 11,
+} as const;
 
-ParsedModule = withValidation(
-  ParsedModule,
+const Sections = interleavedRecord<Sections, { name: string; data: number[] }>({
+  typeSection: orDefault(TypeSection, [], isEmpty),
+  importSection: orDefault(ImportSection, [], isEmpty),
+  funcSection: orDefault(FuncSection, [], isEmpty),
+  tableSection: orDefault(TableSection, [], isEmpty),
+  memorySection: orDefault(MemorySection, [], isEmpty),
+  globalSection: orDefault(GlobalSection, [], isEmpty),
+  exportSection: orDefault(ExportSection, [], isEmpty),
+  startSection: orUndefined(StartSection),
+  elemSection: orDefault(ElemSection, [], isEmpty),
+  dataCountSection: orUndefined(DataCountSection),
+  codeSection: orDefault(CodeSection, [], isEmpty),
+  dataSection: orDefault(DataSection, [], isEmpty),
+}, { codec: CustomSection, matches: (bytes, offset) => bytes[offset] === 0 });
+
+const ParsedModule = withValidation(withPreamble(
+  [0x00, 0x61, 0x73, 0x6d],
+  record({ version: Version, sections: Sections })
+),
   ({
     version,
-    funcSection,
-    codeSection,
-    memorySection,
-    dataSection,
-    dataCountSection,
+    sections: { value: {
+      funcSection,
+      codeSection,
+      memorySection,
+      dataSection,
+      dataCountSection,
+    } },
   }) => {
     if (version !== 1) throw Error("unsupported version");
     if (funcSection.length !== codeSection.length) {
@@ -160,7 +181,7 @@ ParsedModule = withValidation(
   }
 );
 
-const Module = iso<ParsedModule, Module>(ParsedModule, {
+const Module = iso(ParsedModule, {
   to({
     types,
     imports,
@@ -172,28 +193,45 @@ const Module = iso<ParsedModule, Module>(ParsedModule, {
     start,
     datas,
     elems,
-  }) {
+    names,
+    customSections,
+  }: Module) {
+    const extras = (customSections ?? []).map(({ after, ...value }) => {
+      const key = Object.entries(sectionIds).find(([, id]) => id === after)?.[0] as keyof Sections | undefined;
+      if (after !== undefined && after !== 0 && key === undefined) {
+        throw Error(`invalid custom section position ${after}`);
+      }
+      return { after: after === undefined ? null : key, value };
+    });
+    if (names !== undefined) {
+      extras.push({ after: null, value: { name: "name", data: NameSection.toBytes(names) } });
+    }
     let funcSection = funcs.map((f) => f.typeIdx);
     let memorySection = memory ? [memory] : [];
     let codeSection = funcs.map(({ locals, body }) => ({ locals, body }));
     let exportSection: Export[] = exports;
     return {
       version: 1,
-      typeSection: types,
-      importSection: imports,
-      funcSection,
-      tableSection: tables,
-      memorySection,
-      globalSection: globals,
-      exportSection,
-      startSection: start,
-      codeSection,
-      dataSection: datas,
-      dataCountSection: datas.length,
-      elemSection: elems,
+      sections: {
+        extras,
+        value: {
+          typeSection: types,
+          importSection: imports,
+          funcSection,
+          tableSection: tables,
+          memorySection,
+          globalSection: globals,
+          exportSection,
+          startSection: start,
+          codeSection,
+          dataSection: datas,
+          dataCountSection: datas.length,
+          elemSection: elems,
+        },
+      },
     };
   },
-  from({
+  from({ sections: { extras, value: {
     typeSection,
     importSection,
     funcSection,
@@ -205,7 +243,21 @@ const Module = iso<ParsedModule, Module>(ParsedModule, {
     codeSection,
     dataSection,
     elemSection,
-  }): Module {
+  } } }): Module {
+    const customSections = extras.map(({ after, value }) => ({
+      ...value, after: after === undefined || after === null ? 0 : sectionIds[after],
+    }));
+    let names: NameSection | undefined;
+    const nameSections = customSections.filter(({ name }) => name === "name");
+    if (nameSections.length === 1) {
+      const section = nameSections[0];
+      try {
+        names = NameSection.fromBytes(section.data);
+        customSections.splice(customSections.indexOf(section), 1);
+      } catch {
+        // Invalid optional metadata remains an opaque custom section.
+      }
+    }
     let importedFunctionsLength = importSection.filter(
       (i) => i.description.kind === "function"
     ).length;
@@ -233,6 +285,8 @@ const Module = iso<ParsedModule, Module>(ParsedModule, {
       start: startSection,
       datas: dataSection,
       elems: elemSection,
+      ...(names === undefined ? {} : { names }),
+      ...(customSections.length === 0 ? {} : { customSections }),
     };
   },
 });
