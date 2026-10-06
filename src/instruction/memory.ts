@@ -2,7 +2,7 @@ import { type Instruction_, baseInstruction } from "./base.ts";
 import * as Dependency from "../dependency.ts";
 import type { LocalContext } from "../local-context.ts";
 import { U32, U64, U8 } from "../immediate.ts";
-import { type Binable, record, tuple, withValidation } from "../binable.ts";
+import { Binable, record, tuple } from "../binable.ts";
 import {
   type AddressType,
   addressType,
@@ -39,14 +39,16 @@ const memoryOps = {
   size: baseInstruction("memory.size", MemoryIndex, {
     create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
       const { address, deps } = memoryUse(memory);
-      return { in: [], out: [address], deps, resolveArgs: [0] };
+      return { in: [], out: [address], deps };
     },
+    resolve: ([memoryIdx]) => memoryIdx,
   }),
   grow: baseInstruction("memory.grow", MemoryIndex, {
     create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
       const { address, deps } = memoryUse(memory);
-      return { in: [address], out: [address], deps, resolveArgs: [0] };
+      return { in: [address], out: [address], deps };
     },
+    resolve: ([memoryIdx]) => memoryIdx,
   }),
   init: baseInstruction("memory.init", tuple([DataIndex, MemoryIndex]), {
     create(
@@ -57,9 +59,7 @@ const memoryOps = {
       const { address, deps } = memoryUse(memory);
       return { in: [address, "i32", "i32"], out: [], deps: [data, ...deps] };
     },
-    resolve([dataIdx]: number[]): [number, number] {
-      return [dataIdx, 0];
-    },
+    resolve: ([dataIdx, memoryIdx]) => [dataIdx, memoryIdx],
   }),
   copy: baseInstruction("memory.copy", tuple([MemoryIndex, MemoryIndex]), {
     create(
@@ -76,15 +76,16 @@ const memoryOps = {
         in: [target.address, origin.address, length],
         out: [],
         deps: [...target.deps, ...origin.deps],
-        resolveArgs: [[0, 0]],
       };
     },
+    resolve: ([destinationIdx, sourceIdx]) => [destinationIdx, sourceIdx],
   }),
   fill: baseInstruction("memory.fill", MemoryIndex, {
     create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
       const { address, deps } = memoryUse(memory);
-      return { in: [address, "i32", address], out: [], deps, resolveArgs: [0] };
+      return { in: [address, "i32", address], out: [], deps };
     },
+    resolve: ([memoryIdx]) => memoryIdx,
   }),
 };
 
@@ -164,11 +165,32 @@ const elemOps = {
   }),
 };
 
-type MemArg = { align: U32; offset: number };
-// Alignment flags from 64 select a memory index, which wasmati does not support; from 128 they are malformed.
-const MemArg = withValidation(record({ align: U32, offset: U64 }), ({ align }) => {
-  if (align >= 64) throw Error(`unsupported memory alignment flags ${align}`);
+/** Alignment exponent, offset, and a memory index unless the access is to memory 0. */
+type MemArg = { align: U32; offset: number; memory?: number };
+// Flags from 64 announce a memory index, which precedes the offset; flags from 128 are malformed.
+const MemArg = Binable<MemArg>({
+  toBytes({ align, offset, memory }) {
+    if (memory === undefined || memory === 0)
+      return [...U32.toBytes(align), ...U64.toBytes(offset)];
+    return [...U32.toBytes(align | 64), ...U32.toBytes(memory), ...U64.toBytes(offset)];
+  },
+  readBytes(bytes, start) {
+    let [flags, offset] = U32.readBytes(bytes, start);
+    if (flags >= 128) throw Error(`malformed memory alignment flags ${flags}`);
+    let memory = 0;
+    if (flags & 64) [memory, offset] = U32.readBytes(bytes, offset);
+    let memoryOffset: number;
+    [memoryOffset, offset] = U64.readBytes(bytes, offset);
+    const memArg: MemArg = { align: flags & 63, offset: memoryOffset };
+    if (memory !== 0) memArg.memory = memory;
+    return [memArg, offset];
+  },
 });
+
+/** Record the memory of an access in its memory argument, omitting memory 0. */
+function withMemory(memArg: MemArg, memory: number): MemArg {
+  return memory === 0 ? memArg : { ...memArg, memory };
+}
 
 /** A memory argument immediate that records the access's natural alignment exponent, the default. */
 type MemArgImmediate<T> = Binable<T> & { naturalAlign: number };
@@ -211,6 +233,7 @@ function memoryInstruction<
           deps,
         };
       },
+      resolve: ([memoryIdx], memArg) => withMemory(memArg, memoryIdx),
     },
   );
   return function createInstr_(ctx, memArg, ...actualArgs) {
@@ -251,6 +274,7 @@ function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tu
         deps,
       };
     },
+    resolve: ([memoryIdx], { memArg, lane }) => ({ memArg: withMemory(memArg, memoryIdx), lane }),
   });
   return function createInstr_(ctx, memArg, lane, ...actualArgs) {
     const { address } = memoryUse(memArg.memory);

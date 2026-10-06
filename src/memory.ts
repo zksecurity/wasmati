@@ -98,7 +98,7 @@ function dataConstructor(
   let result: Dependency.Data = {
     kind: "data",
     init,
-    mode: { memory: 0, offset },
+    mode: { memory, offset },
     deps,
   };
   if (memory !== undefined) {

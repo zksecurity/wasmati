@@ -151,7 +151,7 @@ class Source {
           ? this.module.globals.length
           : kind === "table"
             ? this.module.tables.length
-            : Number(this.module.memory !== undefined));
+            : this.module.memories.length);
       const map = { global: "globals", table: "tables", memory: "memories" } as const;
       for (let i = 0; i < count; i++) refs.push(this.names.take(this.name(map[kind], i)));
     }
@@ -221,11 +221,9 @@ class Source {
       );
       this.dependencies.push(variable);
     }
-    if (this.module.memory) {
+    for (const m of this.module.memories) {
       const variable = this.memories[nextIndex.memory++];
-      this.line(
-        `const ${variable} = ${this.use("memory")}(${literal(this.module.memory.limits)});`,
-      );
+      this.line(`const ${variable} = ${this.use("memory")}(${literal(m.limits)});`);
       this.dependencies.push(variable);
     }
     for (const [index, d] of this.module.datas.entries()) {
@@ -305,12 +303,17 @@ class Source {
     return `import { ${[...this.usedApi].sort().join(", ")} } from ${literal(this.importPath)};\n\nexport default function createModule(imports: WebAssembly.Imports = {}) {\n${this.lines.join("\n")}\n}\n`;
   }
 
-  /** Memory instructions name a 64-bit memory; otherwise they use the default memory. */
-  private memoryArgument(): string[] {
-    const imported = this.module.imports.find((i) => i.description.kind === "memory");
-    const type = imported?.description.value ?? this.module.memory;
-    const limits = (type as { limits: { address?: string } } | undefined)?.limits;
-    return limits?.address === "i64" ? [this.reference(this.memories, 0)] : [];
+  /**
+   * The memory argument of an instruction: none if the module has a single memory with 32-bit
+   * addresses, which instructions use when they do not name a memory.
+   */
+  private memoryArgument(index = 0): string[] {
+    const imported = this.module.imports.flatMap((i) =>
+      i.description.kind === "memory" ? [i.description.value] : [],
+    );
+    const memories = [...imported, ...this.module.memories];
+    if (memories.length === 1 && memories[0].limits.address !== "i64") return [];
+    return [this.reference(this.memories, index)];
   }
 
   private reference(references: string[], index: number): string {
@@ -428,17 +431,18 @@ class Source {
         case "memory.size":
         case "memory.grow":
         case "memory.fill":
-          if (imm !== 0) throw Error("decompile: multiple memories are not supported");
-          args = this.memoryArgument();
+          args = this.memoryArgument(imm);
           break;
-        case "memory.copy":
-          if (imm.some((i: number) => i !== 0))
-            throw Error("decompile: multiple memories are not supported");
-          args = this.memoryArgument();
+        case "memory.copy": {
+          const [destination, source] = imm.map((i: number) => this.memoryArgument(i));
+          args =
+            destination.length === 0 && source.length === 0
+              ? []
+              : imm.map((i: number) => this.reference(this.memories, i));
           break;
+        }
         case "memory.init":
-          if (imm[1] !== 0) throw Error("decompile: multiple memories are not supported");
-          args = [this.reference(this.datas, imm[0]), ...this.memoryArgument()];
+          args = [this.reference(this.datas, imm[0]), ...this.memoryArgument(imm[1])];
           break;
         case "data.drop":
           args = [this.reference(this.datas, imm)];
@@ -467,12 +471,13 @@ class Source {
           break;
         default:
           if (imm !== undefined) {
-            const [memory] = this.memoryArgument();
-            if (typeof imm === "object" && imm !== null && "memArg" in imm)
+            if (typeof imm === "object" && imm !== null && "memArg" in imm) {
+              const [memory] = this.memoryArgument(imm.memArg.memory);
               args = [memarg(imm.memArg, memory), literal(imm.lane)];
-            else if (typeof imm === "object" && imm !== null && "align" in imm)
+            } else if (typeof imm === "object" && imm !== null && "align" in imm) {
+              const [memory] = this.memoryArgument(imm.memory);
               args = [memarg(imm, memory)];
-            else args = [literal(imm)];
+            } else args = [literal(imm)];
           }
       }
       // Most instruction names are already public API paths. Check instead of emitting broken source.

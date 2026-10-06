@@ -141,7 +141,7 @@ test("present but malformed fields, duplicate names and unresolved labels reject
   ])
     assert.throws(() => parseWat(source), source);
   for (const source of [
-    "(module (memory 1) (memory 1))",
+    "(module (type (struct)))",
     "(module (func return_call 0))",
     "(module (tag))",
   ])

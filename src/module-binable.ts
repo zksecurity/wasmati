@@ -40,7 +40,7 @@ type Module = {
   types: FunctionType[];
   funcs: FinalizedFunc[];
   tables: TableType[];
-  memory?: MemoryType;
+  memories: MemoryType[];
   globals: Global[];
   elems: Elem[];
   datas: Data[];
@@ -179,15 +179,12 @@ const ParsedModule = withValidation(
   ({
     version,
     sections: {
-      value: { funcSection, codeSection, memorySection, dataSection, dataCountSection },
+      value: { funcSection, codeSection, dataSection, dataCountSection },
     },
   }) => {
     if (version !== 1) throw Error("unsupported version");
     if (funcSection.length !== codeSection.length) {
       throw Error("length of function and code sections do not match.");
-    }
-    if (memorySection.length > 1) {
-      throw Error("multiple memories are not allowed");
     }
     if (dataCountSection !== undefined && dataSection.length !== dataCountSection)
       throw Error("data section length does not match data count section");
@@ -215,7 +212,7 @@ const Module = iso(ParsedModule, {
     imports,
     funcs,
     tables,
-    memory,
+    memories,
     globals,
     exports,
     start,
@@ -236,7 +233,6 @@ const Module = iso(ParsedModule, {
       extras.push({ after: null, value: { name: "name", data: NameSection.toBytes(names) } });
     }
     let funcSection = funcs.map((f) => f.typeIdx);
-    let memorySection = memory ? [memory] : [];
     let codeSection = funcs.map(({ locals, body }) => ({ locals, body }));
     let exportSection: Export[] = exports;
     return {
@@ -248,7 +244,7 @@ const Module = iso(ParsedModule, {
           importSection: imports,
           funcSection,
           tableSection: tables,
-          memorySection,
+          memorySection: memories,
           globalSection: globals,
           exportSection,
           startSection: start,
@@ -307,14 +303,13 @@ const Module = iso(ParsedModule, {
         body,
       };
     });
-    let [memory] = memorySection;
     let exports: Export[] = exportSection;
     return {
       types: typeSection,
       imports: importSection,
       funcs,
       tables: tableSection,
-      memory,
+      memories: memorySection,
       globals: globalSection,
       exports,
       start: startSection,

@@ -169,13 +169,13 @@ function immediate(
     const natural = immediate.naturalAlign as number;
     if (string.endsWith("_lane")) {
       // A leading index followed by another index or memarg is a memory index.
-      const memoryIndex =
+      const named =
         c.peekIndex() && (c.peekIndex(1) || /^(offset|align)=/.test(c.peekAtom(1) ?? ""));
-      if (memoryIndex) memory(c, scope);
-      return { memArg: memArg(c, natural), lane: lane(c) };
+      const memory = named ? scope.index(c, "memory") : 0;
+      return { memArg: memArg(c, natural, memory), lane: lane(c) };
     }
-    if (c.peekIndex()) memory(c, scope);
-    return memArg(c, natural);
+    const memory = c.peekIndex() ? scope.index(c, "memory") : 0;
+    return memArg(c, natural, memory);
   }
   switch (immediate) {
     case I32:
@@ -234,12 +234,6 @@ function immediate(
   throw new UnsupportedTextError(`text immediate of ${string} is not implemented`);
 }
 
-/** wasmati supports a single memory, so a memory index must refer to it. */
-function memory(c: Cursor, scope: Scope) {
-  if (scope.index(c, "memory") !== 0)
-    throw new UnsupportedTextError("multiple memories are not supported");
-}
-
 /** Labels are relative: a label's index is the number of blocks between it and the branch. */
 function label(c: Cursor, scope: Scope): number {
   const node = c.peek();
@@ -250,7 +244,8 @@ function label(c: Cursor, scope: Scope): number {
   return depth;
 }
 
-function memArg(c: Cursor, natural: number) {
+/** `offset=`, then `align=`; the memory, if not memory 0, is recorded as in decoded modules. */
+function memArg(c: Cursor, natural: number, memory: number) {
   let offset = 0;
   let align = natural;
   if (c.peekAtom()?.startsWith("offset=")) offset = c.parse((text) => parseU64(text.slice(7)));
@@ -262,7 +257,7 @@ function memArg(c: Cursor, natural: number) {
       return bytes.toString(2).length - 1;
     });
   }
-  return { offset, align };
+  return memory === 0 ? { offset, align } : { offset, align, memory };
 }
 
 function lane(c: Cursor): number {
@@ -336,8 +331,9 @@ function printImmediate(name: string, value: any, names: Names): string[] {
   }
   if ("naturalAlign" in immediate) {
     const natural = immediate.naturalAlign as number;
-    if (name.endsWith("_lane")) return [...memArgText(value.memArg, natural), String(value.lane)];
-    return memArgText(value, natural);
+    if (name.endsWith("_lane"))
+      return [...memArgText(value.memArg, natural, id), String(value.lane)];
+    return memArgText(value, natural, id);
   }
   switch (immediate) {
     case I32:
@@ -383,8 +379,13 @@ function printImmediate(name: string, value: any, names: Names): string[] {
   throw new UnsupportedTextError(`text immediate of ${name} is not implemented`);
 }
 
-function memArgText({ offset, align }: { offset: number; align: number }, natural: number) {
+function memArgText(
+  { offset, align, memory = 0 }: { offset: number; align: number; memory?: number },
+  natural: number,
+  id: (space: IndexSpace, index: number) => string,
+) {
   return [
+    ...(memory === 0 ? [] : [id("memory", memory)]),
     ...(offset === 0 ? [] : [`offset=${offset}`]),
     ...(align === natural ? [] : [`align=${2n ** BigInt(align)}`]),
   ];

@@ -55,6 +55,7 @@ class ModuleParser {
     types: [],
     funcs: [],
     tables: [],
+    memories: [],
     globals: [],
     elems: [],
     datas: [],
@@ -154,8 +155,6 @@ class ModuleParser {
   private entity(kind: EntityKind, c: Cursor, path?: Path) {
     const space = spaceOf[kind];
     const index = this.allocate(c, space);
-    if (space === "memory" && index > 0)
-      throw new UnsupportedTextError("multiple memories are not supported");
     const exports = path === undefined ? c.lists("export", (e) => e.name()) : [];
     const inline = path === undefined ? c.maybeList("import") : undefined;
     if (inline !== undefined) {
@@ -239,7 +238,7 @@ class ModuleParser {
 
   private memory(c: Cursor, index: number, segment: number | undefined) {
     if (segment === undefined) {
-      this.module.memory = this.memoryType(c);
+      this.module.memories.push(this.memoryType(c));
       return;
     }
     const address = this.address(c);
@@ -247,7 +246,7 @@ class ModuleParser {
     const init = data.until((d) => d.bytes()).flat();
     data.end();
     const pages = Math.ceil(init.length / 65536);
-    this.module.memory = { limits: limits(pages, pages, false, address) };
+    this.module.memories.push({ limits: limits(pages, pages, false, address) });
     this.module.datas[segment] = { init, mode: { memory: index, offset: zero(address) } };
   }
 
