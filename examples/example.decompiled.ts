@@ -35,43 +35,34 @@ import {
 
 export default function createModule(imports: WebAssembly.Imports = {}) {
   const consoleLog64 = importFunc(
-    { name: "consoleLog64", in: params({ value: i64 }), out: [] },
+    { module: "", field: "f0", name: "consoleLog64", in: params({ value: i64 }), out: [] },
     imports[""]?.["f0"] as (arg0: bigint) => void,
   );
-  consoleLog64.module = "";
-  consoleLog64.string = "f0";
   const consoleLog = importFunc(
-    { name: "consoleLog", in: params({ value: i32 }), out: [] },
+    { module: "", field: "f1", name: "consoleLog", in: params({ value: i32 }), out: [] },
     imports[""]?.["f1"] as (arg0: number) => void,
   );
-  consoleLog.module = "";
-  consoleLog.string = "f1";
   const consoleLogFunc = importFunc(
-    { name: "consoleLogFunc", in: params({ value: funcref }), out: [] },
+    { module: "", field: "f2", name: "consoleLogFunc", in: params({ value: funcref }), out: [] },
     imports[""]?.["f2"] as (arg0: Function | null) => void,
   );
-  consoleLogFunc.module = "";
-  consoleLogFunc.string = "f2";
   const consoleLogF64 = importFunc(
-    { name: "consoleLogF64", in: params({ value: f64 }), out: [] },
+    { module: "", field: "f3", name: "consoleLogF64", in: params({ value: f64 }), out: [] },
     imports[""]?.["f3"] as (arg0: number) => void,
   );
-  consoleLogF64.module = "";
-  consoleLogF64.string = "f3";
-  const f4 = importFunc({ name: "f4", in: params(), out: [] }, imports[""]?.["f4"] as () => void);
-  f4.module = "";
-  f4.string = "f4";
+  const f4 = importFunc(
+    { module: "", field: "f4", name: "f4", in: params(), out: [] },
+    imports[""]?.["f4"] as () => void,
+  );
   const importedGlobal = importGlobal(i64, imports[""]?.["g0"] as WebAssembly.Global, {
     mutable: false,
+    module: "",
+    field: "g0",
   });
-  importedGlobal.module = "";
-  importedGlobal.string = "g0";
   const memory_1 = importMemory(
-    { min: 1, max: 65536, shared: true },
+    { min: 1, max: 65536, shared: true, module: "", field: "m0" },
     imports[""]?.["m0"] as WebAssembly.Memory,
   );
-  memory_1.module = "";
-  memory_1.string = "m0";
   const exportedFunc = declareFunc({
     name: "exportedFunc",
     in: params({ x: i32 }, { doLog: i32 }),

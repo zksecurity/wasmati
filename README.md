@@ -120,6 +120,8 @@ const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x
 });
 ```
 
+Import module and field names are assigned automatically; declarations accept optional `module` and `field` overrides when a specific Wasm import path is needed.
+
 - Great composability and IO
   - Internal representation of modules / funcs / etc is a readable JSON object
     - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)

@@ -107,7 +107,12 @@ class Source {
     });
   }
 
-  private signature(index: number, type: FunctionType, locals: ValueType[] = []): string {
+  private signature(
+    index: number,
+    type: FunctionType,
+    locals: ValueType[] = [],
+    path?: { module: string; field: string },
+  ): string {
     const bindings = this.bindings(index, [...type.args, ...locals]);
     const parameters = (this.parameters[index] = bindings.slice(0, type.args.length));
     this.locals[index] = bindings.slice(type.args.length);
@@ -118,7 +123,7 @@ class Source {
       .map((b, i) => `${property(b.key)}: ${this.use(locals[i])}`)
       .join(", ");
     const name = this.module.names?.functions?.[index];
-    return `{ ${name === undefined ? "" : `name: ${literal(name)}, `}in: ${this.use("params")}(${input}), ${locals.length ? `locals: { ${localEntries} }, ` : ""}out: [${type.results.map((t) => this.use(t)).join(", ")}] }`;
+    return `{ ${path === undefined ? "" : `module: ${literal(path.module)}, field: ${literal(path.field)}, `}${name === undefined ? "" : `name: ${literal(name)}, `}in: ${this.use("params")}(${input}), ${locals.length ? `locals: { ${localEntries} }, ` : ""}out: [${type.results.map((t) => this.use(t)).join(", ")}] }`;
   }
 
   emit(): string {
@@ -150,6 +155,7 @@ class Source {
     for (const imp of this.module.imports) {
       const { kind, value } = imp.description;
       const index = nextIndex[kind]++;
+      const path = { module: imp.module, field: imp.name };
       const imported = `imports[${literal(imp.module)}]?.[${literal(imp.name)}]`;
       let variable: string;
       let expression: string;
@@ -157,31 +163,29 @@ class Source {
         case "function": {
           variable = this.functions[index];
           const type = this.module.types[value as number];
-          expression = `${this.use("importFunc")}(${this.signature(index, type)}, ${imported} as ${jsSignature(type)})`;
+          expression = `${this.use("importFunc")}(${this.signature(index, type, [], path)}, ${imported} as ${jsSignature(type)})`;
           break;
         }
         case "global": {
           variable = this.globals[index];
           const type = value as Extract<typeof imp.description, { kind: "global" }>["value"];
-          expression = `${this.use("importGlobal")}(${this.use(type.value)}, ${imported} as WebAssembly.Global, { mutable: ${type.mutable} })`;
+          expression = `${this.use("importGlobal")}(${this.use(type.value)}, ${imported} as WebAssembly.Global, ${literal({ mutable: type.mutable, ...path })})`;
           break;
         }
         case "memory": {
           variable = this.memories[index];
           const type = value as Extract<typeof imp.description, { kind: "memory" }>["value"];
-          expression = `${this.use("importMemory")}(${literal(type.limits)}, ${imported} as WebAssembly.Memory)`;
+          expression = `${this.use("importMemory")}(${literal({ ...type.limits, ...path })}, ${imported} as WebAssembly.Memory)`;
           break;
         }
         case "table": {
           variable = this.tables[index];
           const type = value as Extract<typeof imp.description, { kind: "table" }>["value"];
-          expression = `${this.use("importTable")}({ type: ${this.use(type.type)}, ...${literal(type.limits)} }, ${imported} as WebAssembly.Table)`;
+          expression = `${this.use("importTable")}({ type: ${this.use(type.type)}, ...${literal({ ...type.limits, ...path })} }, ${imported} as WebAssembly.Table)`;
           break;
         }
       }
       this.line(`const ${variable} = ${expression};`);
-      this.line(`${variable}.module = ${literal(imp.module)};`);
-      this.line(`${variable}.string = ${literal(imp.name)};`);
       this.dependencies.push(variable);
     }
     for (const f of this.module.funcs) {

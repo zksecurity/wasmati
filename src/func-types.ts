@@ -16,9 +16,10 @@ type Func<Args extends Parameters, Results extends readonly ValueType[]> = {
   type: { args: Args["types"]; results: Results };
 };
 
-type ImportFunc<Args extends Parameters, Results extends readonly ValueType[]> = {
-  module?: string;
-  string?: string;
+type ImportFunc<
+  Args extends Parameters,
+  Results extends readonly ValueType[],
+> = Dependency.ImportPath & {
   kind: "importFunction";
   name?: string;
   params: Args;

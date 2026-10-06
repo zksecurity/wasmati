@@ -1,5 +1,6 @@
 import {
   declareFunc,
+  importFunc,
   params,
   i32,
   i64,
@@ -12,6 +13,15 @@ import {
 
 // Compile-only assertions: deferred construction keeps the same strict types as func().
 async function checkDeclarations() {
+  const imported = importFunc(
+    { module: "env", field: "identity", in: params({ value: i64 }), out: [i64] },
+    (value) => value,
+  );
+  imported.field satisfies string | undefined;
+  // @ts-expect-error the old import-path property has been removed
+  imported.string = "identity";
+  // @ts-expect-error path overrides do not weaken callback result types
+  importFunc({ field: "f", in: params(), out: [i64] }, () => 1);
   const f = declareFunc({
     in: params({ x: i32 }, { y: i64 }, { z: i32 }),
     locals: { limbs: localArray(i64, 2) },

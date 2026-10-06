@@ -32,6 +32,7 @@ export {
   type AnyMemory,
   type AnyTable,
   type AnyImport,
+  type ImportPath,
   type Instruction,
   Const,
 };
@@ -118,7 +119,8 @@ type Elem = {
   deps: (AnyTable | AnyFunc | AnyGlobal)[];
 };
 
-type ImportPath = { module?: string; string?: string };
+/** Optional Wasm import path overrides; omitted paths use the generated module/field names. */
+type ImportPath = { module?: string; field?: string };
 type ImportFunc = ImportPath & {
   kind: "importFunction";
   name?: string;
