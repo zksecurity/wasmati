@@ -52,7 +52,7 @@ function func<
     locals: NamedLocals<Locals>,
     ctx: LocalContext,
   ) => void,
-): Func<Parameters<Args>, Results> {
+): Func<Args, Results> {
   let { in: args, locals = {} as Locals, out: results } = signature;
   ctx.stack = [];
   const { names: argNames, types: argsArray } = args;
@@ -153,7 +153,7 @@ function declareFunc<
     out: ToTypeTuple<Results>;
   },
 ) {
-  const declaration: Func<Parameters<Args>, Results> = {
+  const declaration: Func<Args, Results> = {
     kind: "function",
     params: signature.in,
     type: { args: signature.in.types, results: valueTypeLiterals<Results>(signature.out) },

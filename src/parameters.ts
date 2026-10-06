@@ -2,7 +2,8 @@ import { type Type, type ValueType, valueTypeLiteral } from "./types.ts";
 
 export { params, type Parameters, type ParameterEntry, type ParameterTypes, type ParameterValues };
 
-type ParameterEntry = Record<string, Type<ValueType>>;
+type ParameterEntry = Record<string, ValueType>;
+type ParameterInput = Record<string, Type<ValueType>>;
 type IsUnion<T, Whole = T> = T extends Whole ? ([Whole] extends [T] ? false : true) : never;
 type OneKey<E> = keyof E extends never
   ? never
@@ -12,28 +13,27 @@ type OneKey<E> = keyof E extends never
       : E
     : never;
 type TextKeys<E> = `${Extract<keyof E, string | number>}`;
-type Unique<P extends readonly ParameterEntry[], Seen = never> = P extends readonly [
-  infer H extends ParameterEntry,
-  ...infer R extends readonly ParameterEntry[],
+type Unique<P extends readonly ParameterInput[], Seen = never> = P extends readonly [
+  infer H extends ParameterInput,
+  ...infer R extends readonly ParameterInput[],
 ]
   ? Extract<TextKeys<H>, Seen> extends never
     ? Unique<R, Seen | TextKeys<H>>
     : never
   : unknown;
 type ParameterTypes<P extends readonly ParameterEntry[]> = {
-  -readonly [K in keyof P]: P[K][keyof P[K]]["kind"];
+  -readonly [K in keyof P]: P[K][keyof P[K]];
 };
 type ParameterValues<P extends readonly ParameterEntry[]> = {
-  [E in P[number] as keyof E]: E[keyof E]["kind"];
+  [E in P[number] as keyof E]: E[keyof E];
 };
 // Keep only names and value types, rather than carrying entire instruction APIs in inferred signatures.
-type ParameterSchema<P extends readonly ParameterEntry[]> = {
+type ParameterSchema<P extends readonly ParameterInput[]> = {
   [K in keyof P]: {
-    [Name in keyof P[K] as Name extends string | number ? `${Name}` : never]: Type<
-      P[K][Name]["kind"]
-    >;
+    [Name in keyof P[K] as Name extends string | number ? `${Name}` : never]: P[K][Name]["kind"];
   };
 };
+/** Parameter metadata for an ordered schema such as [{ x: "i32" }, { y: "i64" }]. */
 type Parameters<P extends readonly ParameterEntry[] = readonly ParameterEntry[]> = {
   names: string[];
   types: ParameterTypes<P>;
@@ -45,7 +45,7 @@ type Parameters<P extends readonly ParameterEntry[] = readonly ParameterEntry[]>
  * The ordered tuple retains native JS argument types and arity; names supply callback keys and Wasm metadata.
  * Empty/multi-key entries and duplicate names are rejected. params() declares an empty signature.
  */
-function params<const P extends readonly ParameterEntry[]>(
+function params<const P extends readonly ParameterInput[]>(
   ...entries: P & { [K in keyof P]: OneKey<P[K]> } & Unique<P>
 ): Parameters<ParameterSchema<P>> {
   const names: string[] = [];
