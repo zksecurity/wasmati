@@ -36,7 +36,7 @@ $ node example.ts
 
 - Works in all modern browsers, `node` and `deno`
 
-- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of the [WebAssembly 2.0 spec](https://webassembly.github.io/spec/versions/core/WebAssembly-2.0.pdf) are supported. In addition, wasmati supports the following features:
+- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of the [WebAssembly 2.0 spec](https://webassembly.github.io/spec/versions/core/WebAssembly-2.0.pdf) are supported. In addition, wasmati supports the following extensions which are not part of that spec:
 
   - [threads and atomics](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)
   - [relaxed simd](https://github.com/WebAssembly/relaxed-simd/blob/main/proposals/relaxed-simd/Overview.md)
