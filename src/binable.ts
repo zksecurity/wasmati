@@ -63,7 +63,7 @@ const Byte = Binable<number>({
   },
 });
 
-// Unframed bytes; use withByteLength to delimit a payload.
+/** Read or write raw bytes without a length prefix. Decoding consumes all remaining input; wrap in withByteLength when followed by other fields. */
 const Bytes = Binable<number[]>({
   toBytes(bytes) {
     return bytes;
@@ -73,7 +73,11 @@ const Bytes = Binable<number[]>({
   },
 });
 
-// Unlike vec, a sequence has no element count and ends at the payload boundary.
+/**
+ * Encode an array by concatenating element encodings, without the count prefix used by vec. Decoding repeats the element codec until the input ends; each element must consume at least one byte.
+ *
+ * Wrap in withByteLength to delimit the sequence when it appears before other fields in a record.
+ */
 function sequence<T>(element: Binable<T>): Binable<T[]> {
   return Binable({
     toBytes(values) {
@@ -170,9 +174,13 @@ function record<Types extends Record<string, any>>(binables: {
   });
 }
 
-// A record whose field boundaries may contain extra entries. Optional fields
-// still use their normal codecs; extras remember the last field that consumed
-// input, so omitted fields do not change their placement on a round-trip.
+/**
+ * Compose an ordered record with extra entries at field boundaries. The result is { value: recordFields, extras: [{ after, value: extraEntry }] }; matches selects the extra codec before each field and after the last field.
+ *
+ * On encoding, after: undefined places an entry before the first field, a field key places it after that field (even when omitted), and null appends it after all fields. Entries at the same position retain their array order.
+ *
+ * On decoding, after identifies the last field that consumed bytes, or undefined before the first field. Optional fields use their existing codecs and do not claim a position when absent. This allows custom Wasm sections to interleave with standard sections while retaining their placement.
+ */
 function interleavedRecord<Types extends Record<string, any>, Extra>(
   binables: { [K in keyof Types]: Binable<Types[K]> },
   extra: { codec: Binable<Extra>; matches(bytes: number[], offset: number): boolean }

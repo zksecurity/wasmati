@@ -32,6 +32,11 @@ function indices(map: Record<number, unknown>) {
   return indices;
 }
 
+/**
+ * Encode a numeric-keyed record as a Wasm vector of { index: u32, value } entries. Encoding sorts the keys; decoding requires unique, increasing indices.
+ *
+ * For example, indexed(Name) maps { 2: "add" } to [{ index: 2, value: "add" }]. Nesting it as indexed(indexed(Name)) represents local names grouped by function index.
+ */
 function indexed<T>(value: Binable<T>): Binable<Record<number, T>> {
   const entries = withValidation(vec(record({ index: U32, value })), (entries) => {
     let previous = -1;
