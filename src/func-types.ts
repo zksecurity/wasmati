@@ -16,10 +16,9 @@ type Func<Args extends Parameters, Results extends readonly ValueType[]> = {
   defined: boolean;
 };
 
-type ImportFunc<
-  Args extends Parameters,
-  Results extends readonly ValueType[],
-> = Dependency.ImportPath & {
+type ImportFunc<Args extends Parameters, Results extends readonly ValueType[]> = {
+  module?: string;
+  field?: string;
   kind: "importFunction";
   name?: string;
   params: Args;
