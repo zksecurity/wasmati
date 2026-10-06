@@ -88,7 +88,21 @@ test("custom sections survive before, between and after standard sections", asyn
   assert.deepEqual(recovered.toBytes(), module.toBytes());
   const { instance } = await recovered.instantiate();
   assert.equal(instance.exports.add(20, 22), 42);
-  assert.throws(() => Module({ exports: {}, customSections: [{ name: "x", data: [], after: 5 }] }).toBytes(), /position/);
+  assert.throws(() => Module({ exports: {}, customSections: [{ name: "x", data: [], after: 255 }] }).toBytes(), /position/);
+});
+
+test("preserves custom metadata when an empty preceding standard section is omitted", () => {
+  const payload = [...Name.toBytes("x"), 42];
+  const bytes = Uint8Array.from([
+    0, 97, 115, 109, 1, 0, 0, 0,
+    1, 1, 0, // empty type section
+    0, ...U32.toBytes(payload.length), ...payload,
+  ]);
+  assert.equal(WebAssembly.validate(bytes), true);
+  const module = Module.fromBytes(bytes);
+  assert.deepEqual(module.module.customSections, [{ name: "x", data: [42], after: 1 }]);
+  const rewritten = new WebAssembly.Module(module.toBytes());
+  assert.deepEqual([...new Uint8Array(WebAssembly.Module.customSections(rewritten, "x")[0])], [42]);
 });
 
 test("opaque custom sections can be large or repeated", () => {

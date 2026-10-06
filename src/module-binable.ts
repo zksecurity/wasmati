@@ -29,7 +29,8 @@ export { Module, type CustomSection };
 type CustomSection = {
   name: string;
   data: number[];
-  // The preceding standard section id; 0 means before the first section.
+  // Position after a standard section id; 0 means before the first section.
+  // If that section is empty/absent, use its position in the section order.
   // Omit to append after all standard sections.
   after?: number;
 };
@@ -158,25 +159,29 @@ let ParsedModule = Binable<ParsedModule>({
     const standard = StandardModule.toBytes(value);
     const customs = value.customSections ?? [];
     if (customs.length === 0 && value.names === undefined) return standard;
+    const standardSections = [...sections(standard, 8)];
+    const order = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 10, 11];
+    const placed = customs.map((section) => {
+      if (section.after === undefined) return section;
+      const rank = order.indexOf(section.after);
+      if (rank < 0) throw Error(`invalid custom section position ${section.after}`);
+      // Encoding omits empty standard sections. Preserve custom metadata at
+      // the same boundary even when its preceding empty section disappears.
+      const preceding = standardSections.filter(({ id }) => order.indexOf(id) <= rank);
+      return { ...section, after: preceding.at(-1)?.id ?? 0 };
+    });
     let bytes = standard.slice(0, 8);
-    const positions = new Set([0]);
     const append = (after: number | undefined) => {
-      for (const section of customs) {
+      for (const section of placed) {
         if (section.after !== after) continue;
         const payload = [...Name.toBytes(section.name), ...section.data];
         bytes = bytes.concat([0], U32.toBytes(payload.length), payload);
       }
     };
     append(0);
-    for (const { id, start, end } of sections(standard, 8)) {
+    for (const { id, start, end } of standardSections) {
       bytes = bytes.concat(standard.slice(start, end));
-      positions.add(id);
       append(id);
-    }
-    for (const section of customs) {
-      if (section.after !== undefined && !positions.has(section.after)) {
-        throw Error(`custom section position ${section.after} does not exist`);
-      }
     }
     append(undefined);
     if (value.names !== undefined) {
