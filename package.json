@@ -11,7 +11,7 @@
   },
   "scripts": {
     "test": "node --loader=ts-node/esm examples/example.ts",
-    "test:wide-arithmetic": "node --wasm-wide-arithmetic --test build/instruction/wide-arithmetic.unit-test.js",
+    "test:unit": "node --wasm-wide-arithmetic --test build/test/*.unit-test.js",
     "build": "tsc",
     "clean": "rm -rf build",
     "prepublishOnly": "npm run clean && npm run build && npm test"

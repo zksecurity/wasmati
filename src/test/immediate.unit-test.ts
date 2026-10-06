@@ -1,4 +1,4 @@
-import { I32, I64, U32 } from "./immediate.js";
+import { I32, I64, U32 } from "../immediate.js";
 import { equal } from "node:assert/strict";
 
 function roundtrip(x: number) {
