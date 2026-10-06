@@ -119,8 +119,7 @@ const Version = iso(tuple([Byte, Byte, Byte, Byte]), {
 
 const isEmpty = (arr: unknown[]) => arr.length === 0;
 
-type ParsedModule = {
-  version: number;
+type Sections = {
   typeSection: TypeSection;
   importSection: ImportSection;
   funcSection: FuncSection;
@@ -133,8 +132,6 @@ type ParsedModule = {
   dataCountSection?: DataCountSection;
   codeSection: CodeSection;
   dataSection: DataSection;
-  names?: NameSection;
-  customSections?: CustomSection[];
 };
 
 const sectionIds = {
@@ -142,7 +139,6 @@ const sectionIds = {
   memorySection: 5, globalSection: 6, exportSection: 7, startSection: 8,
   elemSection: 9, dataCountSection: 12, codeSection: 10, dataSection: 11,
 } as const;
-type Sections = Omit<ParsedModule, "version" | "names" | "customSections">;
 
 const Sections = interleavedRecord<Sections, { name: string; data: number[] }>({
   typeSection: orDefault(TypeSection, [], isEmpty),
@@ -159,52 +155,19 @@ const Sections = interleavedRecord<Sections, { name: string; data: number[] }>({
   dataSection: orDefault(DataSection, [], isEmpty),
 }, { codec: CustomSection, matches: (bytes, offset) => bytes[offset] === 0 });
 
-let ParsedModule = iso(withPreamble(
+const ParsedModule = withValidation(withPreamble(
   [0x00, 0x61, 0x73, 0x6d],
   record({ version: Version, sections: Sections })
-), {
-  to(module: ParsedModule) {
-    const extras = (module.customSections ?? []).map(({ after, ...value }) => {
-      const key = Object.entries(sectionIds).find(([, id]) => id === after)?.[0] as keyof Sections | undefined;
-      if (after !== undefined && after !== 0 && key === undefined) {
-        throw Error(`invalid custom section position ${after}`);
-      }
-      return { after: after === undefined ? null : key, value };
-    });
-    if (module.names !== undefined) {
-      extras.push({ after: null, value: { name: "name", data: NameSection.toBytes(module.names) } });
-    }
-    return { version: module.version, sections: { value: module, extras } };
-  },
-  from({ version, sections: { value, extras } }): ParsedModule {
-    const module: ParsedModule = { version, ...value };
-    const customs = extras.map(({ after, value }) => ({
-      ...value, after: after === undefined || after === null ? 0 : sectionIds[after],
-    }));
-    const nameSections = customs.filter(({ name }) => name === "name");
-    if (nameSections.length === 1) {
-      const section = nameSections[0];
-      try {
-        module.names = NameSection.fromBytes(section.data);
-        customs.splice(customs.indexOf(section), 1);
-      } catch {
-        // Invalid optional metadata remains an opaque custom section.
-      }
-    }
-    if (customs.length > 0) module.customSections = customs;
-    return module;
-  },
-});
-
-ParsedModule = withValidation(
-  ParsedModule,
+),
   ({
     version,
-    funcSection,
-    codeSection,
-    memorySection,
-    dataSection,
-    dataCountSection,
+    sections: { value: {
+      funcSection,
+      codeSection,
+      memorySection,
+      dataSection,
+      dataCountSection,
+    } },
   }) => {
     if (version !== 1) throw Error("unsupported version");
     if (funcSection.length !== codeSection.length) {
@@ -218,7 +181,7 @@ ParsedModule = withValidation(
   }
 );
 
-const Module = iso<ParsedModule, Module>(ParsedModule, {
+const Module = iso(ParsedModule, {
   to({
     types,
     imports,
@@ -232,30 +195,43 @@ const Module = iso<ParsedModule, Module>(ParsedModule, {
     elems,
     names,
     customSections,
-  }) {
+  }: Module) {
+    const extras = (customSections ?? []).map(({ after, ...value }) => {
+      const key = Object.entries(sectionIds).find(([, id]) => id === after)?.[0] as keyof Sections | undefined;
+      if (after !== undefined && after !== 0 && key === undefined) {
+        throw Error(`invalid custom section position ${after}`);
+      }
+      return { after: after === undefined ? null : key, value };
+    });
+    if (names !== undefined) {
+      extras.push({ after: null, value: { name: "name", data: NameSection.toBytes(names) } });
+    }
     let funcSection = funcs.map((f) => f.typeIdx);
     let memorySection = memory ? [memory] : [];
     let codeSection = funcs.map(({ locals, body }) => ({ locals, body }));
     let exportSection: Export[] = exports;
     return {
       version: 1,
-      typeSection: types,
-      importSection: imports,
-      funcSection,
-      tableSection: tables,
-      memorySection,
-      globalSection: globals,
-      exportSection,
-      startSection: start,
-      codeSection,
-      dataSection: datas,
-      dataCountSection: datas.length,
-      elemSection: elems,
-      ...(names === undefined ? {} : { names }),
-      ...(customSections === undefined ? {} : { customSections }),
+      sections: {
+        extras,
+        value: {
+          typeSection: types,
+          importSection: imports,
+          funcSection,
+          tableSection: tables,
+          memorySection,
+          globalSection: globals,
+          exportSection,
+          startSection: start,
+          codeSection,
+          dataSection: datas,
+          dataCountSection: datas.length,
+          elemSection: elems,
+        },
+      },
     };
   },
-  from({
+  from({ sections: { extras, value: {
     typeSection,
     importSection,
     funcSection,
@@ -267,9 +243,21 @@ const Module = iso<ParsedModule, Module>(ParsedModule, {
     codeSection,
     dataSection,
     elemSection,
-    names,
-    customSections,
-  }): Module {
+  } } }): Module {
+    const customSections = extras.map(({ after, value }) => ({
+      ...value, after: after === undefined || after === null ? 0 : sectionIds[after],
+    }));
+    let names: NameSection | undefined;
+    const nameSections = customSections.filter(({ name }) => name === "name");
+    if (nameSections.length === 1) {
+      const section = nameSections[0];
+      try {
+        names = NameSection.fromBytes(section.data);
+        customSections.splice(customSections.indexOf(section), 1);
+      } catch {
+        // Invalid optional metadata remains an opaque custom section.
+      }
+    }
     let importedFunctionsLength = importSection.filter(
       (i) => i.description.kind === "function"
     ).length;
@@ -298,7 +286,7 @@ const Module = iso<ParsedModule, Module>(ParsedModule, {
       datas: dataSection,
       elems: elemSection,
       ...(names === undefined ? {} : { names }),
-      ...(customSections === undefined ? {} : { customSections }),
+      ...(customSections.length === 0 ? {} : { customSections }),
     };
   },
 });
