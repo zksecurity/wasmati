@@ -10,7 +10,8 @@ import {
   withPreamble,
   withValidation,
 } from "./binable.ts";
-import { U32, vec, withByteLength } from "./immediate.ts";
+import { Name, U32, vec, withByteLength } from "./immediate.ts";
+import { NameSection, readU32 } from "./name-section.ts";
 import {
   FunctionIndex,
   FunctionType,
@@ -23,7 +24,15 @@ import { Export, Import } from "./export.ts";
 import { Data, Elem, Global } from "./memory-binable.ts";
 import { Code, type FinalizedFunc } from "./func.ts";
 
-export { Module };
+export { Module, type CustomSection };
+
+type CustomSection = {
+  name: string;
+  data: number[];
+  // The preceding standard section id; 0 means before the first section.
+  // Omit to append after all standard sections.
+  after?: number;
+};
 
 type Module = {
   types: FunctionType[];
@@ -36,6 +45,8 @@ type Module = {
   start?: FunctionIndex;
   imports: Import[];
   exports: Export[];
+  names?: NameSection;
+  customSections?: CustomSection[];
 };
 
 function section<T>(code: number, b: Binable<T>) {
@@ -117,11 +128,13 @@ type ParsedModule = {
   dataCountSection?: DataCountSection;
   codeSection: CodeSection;
   dataSection: DataSection;
+  names?: NameSection;
+  customSections?: CustomSection[];
 };
 
-let ParsedModule = withPreamble(
+const StandardModule = withPreamble(
   [0x00, 0x61, 0x73, 0x6d],
-  record<ParsedModule>({
+  record<Omit<ParsedModule, "names" | "customSections">>({
     version: Version,
     typeSection: orDefault(TypeSection, [], isEmpty),
     importSection: orDefault(ImportSection, [], isEmpty),
@@ -137,6 +150,84 @@ let ParsedModule = withPreamble(
     dataSection: orDefault(DataSection, [], isEmpty),
   })
 );
+
+// Custom sections may occur anywhere. Keep the standard-section codecs above
+// responsible for their existing parsing, ordering and validation.
+let ParsedModule = Binable<ParsedModule>({
+  toBytes(value) {
+    const standard = StandardModule.toBytes(value);
+    const customs = value.customSections ?? [];
+    if (customs.length === 0 && value.names === undefined) return standard;
+    let bytes = standard.slice(0, 8);
+    const positions = new Set([0]);
+    const append = (after: number | undefined) => {
+      for (const section of customs) {
+        if (section.after !== after) continue;
+        const payload = [...Name.toBytes(section.name), ...section.data];
+        bytes = bytes.concat([0], U32.toBytes(payload.length), payload);
+      }
+    };
+    append(0);
+    for (const { id, start, end } of sections(standard, 8)) {
+      bytes = bytes.concat(standard.slice(start, end));
+      positions.add(id);
+      append(id);
+    }
+    for (const section of customs) {
+      if (section.after !== undefined && !positions.has(section.after)) {
+        throw Error(`custom section position ${section.after} does not exist`);
+      }
+    }
+    append(undefined);
+    if (value.names !== undefined) {
+      const payload = [...Name.toBytes("name"), ...NameSection.toBytes(value.names)];
+      bytes = bytes.concat([0], U32.toBytes(payload.length), payload);
+    }
+    return bytes;
+  },
+  readBytes(bytes, offset) {
+    const standard = bytes.slice(offset, offset + 8);
+    const customSections: CustomSection[] = [];
+    let after = 0;
+    for (const { id, start, payload, end } of sections(bytes, offset + 8)) {
+      if (id !== 0) {
+        for (let i = start; i < end; i++) standard.push(bytes[i]);
+        after = id;
+      } else {
+        const body = bytes.slice(payload, end);
+        const [name, dataOffset] = Name.readBytes(body, 0);
+        customSections.push({ name, data: body.slice(dataOffset), after });
+      }
+    }
+    const value: ParsedModule = StandardModule.fromBytes(standard);
+    const nameSections = customSections.filter((section) => section.name === "name");
+    if (nameSections.length === 1) {
+      const section = nameSections[0];
+      try {
+        value.names = NameSection.fromBytes(section.data);
+        customSections.splice(customSections.indexOf(section), 1);
+      } catch {
+        // Malformed optional metadata must not prevent reading a valid module.
+        // Preserve its original payload as an opaque custom section instead.
+      }
+    }
+    if (customSections.length > 0) value.customSections = customSections;
+    return [value, bytes.length];
+  },
+});
+
+function* sections(bytes: number[], offset: number) {
+  while (offset < bytes.length) {
+    const start = offset;
+    const id = bytes[offset++]!;
+    let size: number;
+    [size, offset] = readU32(bytes, offset);
+    const end = offset + size;
+    if (end > bytes.length) throw Error("section extends past end of input");
+    yield { id, start, payload: offset, end };
+    offset = end;
+  }
+}
 
 ParsedModule = withValidation(
   ParsedModule,
@@ -172,6 +263,8 @@ const Module = iso<ParsedModule, Module>(ParsedModule, {
     start,
     datas,
     elems,
+    names,
+    customSections,
   }) {
     let funcSection = funcs.map((f) => f.typeIdx);
     let memorySection = memory ? [memory] : [];
@@ -191,6 +284,8 @@ const Module = iso<ParsedModule, Module>(ParsedModule, {
       dataSection: datas,
       dataCountSection: datas.length,
       elemSection: elems,
+      ...(names === undefined ? {} : { names }),
+      ...(customSections === undefined ? {} : { customSections }),
     };
   },
   from({
@@ -205,6 +300,8 @@ const Module = iso<ParsedModule, Module>(ParsedModule, {
     codeSection,
     dataSection,
     elemSection,
+    names,
+    customSections,
   }): Module {
     let importedFunctionsLength = importSection.filter(
       (i) => i.description.kind === "function"
@@ -233,6 +330,8 @@ const Module = iso<ParsedModule, Module>(ParsedModule, {
       start: startSection,
       datas: dataSection,
       elems: elemSection,
+      ...(names === undefined ? {} : { names }),
+      ...(customSections === undefined ? {} : { customSections }),
     };
   },
 });

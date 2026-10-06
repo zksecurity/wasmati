@@ -32,13 +32,15 @@ function vec<T>(Element: Binable<T>) {
 
 const Name = Binable<string>({
   toBytes(string: string) {
-    return [...U32.toBytes(string.length), ...new TextEncoder().encode(string)];
+    let bytes = new TextEncoder().encode(string);
+    return [...U32.toBytes(bytes.length), ...bytes];
   },
   readBytes(bytes, start) {
     let [length, offset] = U32.readBytes(bytes, start);
     let end = offset + length;
+    if (end > bytes.length) throw Error("name extends past end of input");
     let stringBytes = Uint8Array.from(bytes.slice(offset, end));
-    let string = new TextDecoder().decode(stringBytes);
+    let string = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(stringBytes);
     return [string, end];
   },
 });

@@ -13,6 +13,8 @@ import {
   TableType,
 } from "./types.ts";
 import { memoryConstructor } from "./memory.ts";
+import type { NameSection } from "./name-section.ts";
+import type { CustomSection } from "./module-binable.ts";
 
 export { Module, type ModuleExport };
 
@@ -22,10 +24,14 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   exports: inputExports,
   memory: inputMemory,
   start: inputStart,
+  names,
+  customSections,
 }: {
   exports: Exports;
   memory?: Limits | Dependency.AnyMemory;
   start?: Dependency.AnyFunc;
+  names?: NameSection;
+  customSections?: CustomSection[];
 }) {
   // collect all dependencies (by kind)
   let dependencies = new Set<Dependency.t>();
@@ -186,6 +192,8 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     globals,
     memory,
     start,
+    ...(names === undefined ? {} : { names }),
+    ...(customSections === undefined ? {} : { customSections }),
   };
   return createModule<Exports>(binableModule, importMap);
 }
