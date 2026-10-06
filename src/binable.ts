@@ -20,6 +20,8 @@ export {
   orUndefined,
   orDefault,
   byteEnum,
+  Bytes,
+  sequence,
   Zero as TODO,
 };
 
@@ -42,7 +44,7 @@ function Binable<T>({
     // spec: fromBytes throws if the input bytes are not all used
     fromBytes([...bytes]) {
       let [value, offset] = readBytes(bytes, 0);
-      if (offset < bytes.length)
+      if (offset !== bytes.length)
         throw Error("fromBytes: input bytes left over");
       return value;
     },
@@ -59,6 +61,35 @@ const Byte = Binable<number>({
     return [byte, offset + 1];
   },
 });
+
+// Unframed bytes; use withByteLength to delimit a payload.
+const Bytes = Binable<number[]>({
+  toBytes(bytes) {
+    return bytes;
+  },
+  readBytes(bytes, offset) {
+    return [bytes.slice(offset), bytes.length];
+  },
+});
+
+// Unlike vec, a sequence has no element count and ends at the payload boundary.
+function sequence<T>(element: Binable<T>): Binable<T[]> {
+  return Binable({
+    toBytes(values) {
+      return values.flatMap((value) => element.toBytes(value));
+    },
+    readBytes(bytes, offset) {
+      const values: T[] = [];
+      while (offset < bytes.length) {
+        const [value, end] = element.readBytes(bytes, offset);
+        if (end <= offset || end > bytes.length) throw Error("invalid sequence element length");
+        values.push(value);
+        offset = end;
+      }
+      return [values, offset];
+    },
+  });
+}
 
 type Bool = boolean;
 const Bool = Binable<boolean>({
@@ -147,7 +178,7 @@ function tuple<Types extends Tuple<any>>(binables: {
       let bytes: number[] = [];
       for (let i = 0; i < n; i++) {
         let subBytes = binables[i].toBytes(t[i]);
-        bytes.push(...subBytes);
+        for (const byte of subBytes) bytes.push(byte);
       }
       return bytes;
     },
@@ -170,7 +201,7 @@ function array<T>(binable: Binable<T>, size: number): Binable<T[]> {
       let bytes: number[] = [];
       for (let i = 0; i < size; i++) {
         let subBytes = binable.toBytes(ts[i]);
-        bytes.push(...subBytes);
+        for (const byte of subBytes) bytes.push(byte);
       }
       return bytes;
     },

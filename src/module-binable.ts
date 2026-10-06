@@ -1,17 +1,19 @@
 import {
   Binable,
   Byte,
+  Bytes,
   iso,
   orDefault,
   orUndefined,
   record,
+  sequence,
   tuple,
   withByteCode,
   withPreamble,
   withValidation,
 } from "./binable.ts";
 import { Name, U32, vec, withByteLength } from "./immediate.ts";
-import { NameSection, readU32 } from "./name-section.ts";
+import { NameSection } from "./name-section.ts";
 import {
   FunctionIndex,
   FunctionType,
@@ -54,6 +56,10 @@ function section<T>(code: number, b: Binable<T>) {
   return withByteCode(code, withByteLength(b));
 }
 // 0: CustomSection
+const RawSection = record({ id: Byte, data: withByteLength(Bytes) });
+const RawSections = sequence(RawSection);
+const CustomPayload = record({ name: Name, data: Bytes });
+const CustomSection = section(0, CustomPayload);
 
 // 1: TypeSection
 type TypeSection = FunctionType[];
@@ -159,7 +165,7 @@ let ParsedModule = Binable<ParsedModule>({
     const standard = StandardModule.toBytes(value);
     const customs = value.customSections ?? [];
     if (customs.length === 0 && value.names === undefined) return standard;
-    const standardSections = [...sections(standard, 8)];
+    const [standardSections] = RawSections.readBytes(standard, 8);
     const order = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 10, 11];
     const placed = customs.map((section) => {
       if (section.after === undefined) return section;
@@ -174,34 +180,33 @@ let ParsedModule = Binable<ParsedModule>({
     const append = (after: number | undefined) => {
       for (const section of placed) {
         if (section.after !== after) continue;
-        const payload = [...Name.toBytes(section.name), ...section.data];
-        bytes = bytes.concat([0], U32.toBytes(payload.length), payload);
+        bytes = bytes.concat(CustomSection.toBytes(section));
       }
     };
     append(0);
-    for (const { id, start, end } of standardSections) {
-      bytes = bytes.concat(standard.slice(start, end));
+    for (const standardSection of standardSections) {
+      const { id } = standardSection;
+      bytes = bytes.concat(RawSection.toBytes(standardSection));
       append(id);
     }
     append(undefined);
     if (value.names !== undefined) {
-      const payload = [...Name.toBytes("name"), ...NameSection.toBytes(value.names)];
-      bytes = bytes.concat([0], U32.toBytes(payload.length), payload);
+      bytes = bytes.concat(CustomSection.toBytes({ name: "name", data: NameSection.toBytes(value.names) }));
     }
     return bytes;
   },
   readBytes(bytes, offset) {
-    const standard = bytes.slice(offset, offset + 8);
+    let standard = bytes.slice(offset, offset + 8);
     const customSections: CustomSection[] = [];
     let after = 0;
-    for (const { id, start, payload, end } of sections(bytes, offset + 8)) {
+    const [sections, end] = RawSections.readBytes(bytes, offset + 8);
+    for (const section of sections) {
+      const { id, data } = section;
       if (id !== 0) {
-        for (let i = start; i < end; i++) standard.push(bytes[i]);
+        standard = standard.concat(RawSection.toBytes(section));
         after = id;
       } else {
-        const body = bytes.slice(payload, end);
-        const [name, dataOffset] = Name.readBytes(body, 0);
-        customSections.push({ name, data: body.slice(dataOffset), after });
+        customSections.push({ ...CustomPayload.fromBytes(data), after });
       }
     }
     const value: ParsedModule = StandardModule.fromBytes(standard);
@@ -217,22 +222,9 @@ let ParsedModule = Binable<ParsedModule>({
       }
     }
     if (customSections.length > 0) value.customSections = customSections;
-    return [value, bytes.length];
+    return [value, end];
   },
 });
-
-function* sections(bytes: number[], offset: number) {
-  while (offset < bytes.length) {
-    const start = offset;
-    const id = bytes[offset++]!;
-    let size: number;
-    [size, offset] = readU32(bytes, offset);
-    const end = offset + size;
-    if (end > bytes.length) throw Error("section extends past end of input");
-    yield { id, start, payload: offset, end };
-    offset = end;
-  }
-}
 
 ParsedModule = withValidation(
   ParsedModule,

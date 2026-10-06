@@ -124,7 +124,7 @@ test("UTF-8 names use byte lengths and preserve leading BOM characters", () => {
   }
   assert.deepEqual(Name.toBytes("🍚"), [4, 240, 159, 141, 154]);
   assert.throws(() => Name.fromBytes([1, 255]), /encoded data/);
-  assert.throws(() => Name.fromBytes([3, 97]), /past end/);
+  assert.throws(() => Name.fromBytes([3, 97]), /length/);
   const names = { module: "算術 🍚", functions: { 0: "加算" }, locals: { 0: { 0: "左", 1: "右" } } };
   const bytes = Module({ exports: { "加算": add }, names }).toBytes();
   const compiled = new WebAssembly.Module(bytes);

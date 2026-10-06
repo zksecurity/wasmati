@@ -1,5 +1,5 @@
-import { Binable } from "./binable.ts";
-import { Name, U32 } from "./immediate.ts";
+import { type Binable, Byte, Bytes, iso, record, sequence, withValidation } from "./binable.ts";
+import { Name, U32, vec, withByteLength } from "./immediate.ts";
 
 export { NameSection, type NameMap, type IndirectNameMap };
 
@@ -22,17 +22,6 @@ type NameSection = {
   unknown?: { id: number; data: number[] }[];
 };
 
-// Bound framing reads before delegating the actual LEB128 decoding to U32.
-export function readU32(bytes: number[], offset: number): [number, number] {
-  for (let i = 0; i < 5; i++) {
-    const byte = bytes[offset + i];
-    if (byte === undefined) throw Error("truncated u32");
-    if (i === 4 && byte > 0x0f) throw Error("u32 out of range");
-    if ((byte & 0x80) === 0) return U32.readBytes(bytes, offset);
-  }
-  throw Error("u32 out of range");
-}
-
 function indices(map: Record<number, unknown>) {
   const indices = Object.keys(map).map(Number).sort((a, b) => a - b);
   for (const index of indices) {
@@ -44,30 +33,16 @@ function indices(map: Record<number, unknown>) {
 }
 
 function indexed<T>(value: Binable<T>): Binable<Record<number, T>> {
-  return Binable({
-    toBytes(map) {
-      const keys = indices(map);
-      return [...U32.toBytes(keys.length), ...keys.flatMap((index) => [
-        ...U32.toBytes(index), ...value.toBytes(map[index]),
-      ])];
-    },
-    readBytes(bytes, offset) {
-      let count: number;
-      [count, offset] = readU32(bytes, offset);
-      if (count > bytes.length - offset) throw Error("truncated name map");
-      const map: Record<number, T> = {};
-      let previous = -1;
-      for (let i = 0; i < count; i++) {
-        let index: number, entry: T;
-        [index, offset] = readU32(bytes, offset);
-        if (index <= previous) throw Error("name indices must be unique and increasing");
-        [entry, offset] = value.readBytes(bytes, offset);
-        if (offset > bytes.length) throw Error("truncated name map");
-        map[index] = entry;
-        previous = index;
-      }
-      return [map, offset];
-    },
+  const entries = withValidation(vec(record({ index: U32, value })), (entries) => {
+    let previous = -1;
+    for (const { index } of entries) {
+      if (index <= previous) throw Error("name indices must be unique and increasing");
+      previous = index;
+    }
+  });
+  return iso(entries, {
+    to: (map: Record<number, T>) => indices(map).map((index) => ({ index, value: map[index] })),
+    from: (entries) => Object.fromEntries(entries.map(({ index, value }) => [index, value])),
   });
 }
 
@@ -88,9 +63,19 @@ const subsections = [
   ["tags", NameMap],
 ] as const;
 
+const Subsection = record({ id: Byte, data: withByteLength(Bytes) });
+const Subsections = withValidation(sequence(Subsection), (sections) => {
+  let previous = -1;
+  for (const { id } of sections) {
+    if (!Number.isInteger(id) || id < 0 || id > 255) throw Error("invalid name subsection id");
+    if (id <= previous) throw Error("name subsections must be unique and increasing (no duplicates)");
+    previous = id;
+  }
+});
+
 // Payload only: the enclosing custom section supplies the "name" string.
-const NameSection = Binable<NameSection>({
-  toBytes(names) {
+const NameSection = iso(Subsections, {
+  to(names: NameSection) {
     const sections: { id: number; data: number[] }[] = [];
     for (const [id, [key, codec]] of subsections.entries()) {
       const value = names[key];
@@ -103,36 +88,20 @@ const NameSection = Binable<NameSection>({
       sections.push(section);
     }
     sections.sort((a, b) => a.id - b.id);
-    let previous = -1;
-    return sections.flatMap(({ id, data }) => {
-      if (id <= previous) throw Error("duplicate name subsection");
-      previous = id;
-      return [id, ...U32.toBytes(data.length), ...data];
-    });
+    return sections;
   },
-  readBytes(bytes, offset) {
+  from(sections): NameSection {
     const names: NameSection = {};
-    let previous = -1;
-    while (offset < bytes.length) {
-      const id = bytes[offset++]!;
-      let size: number;
-      [size, offset] = readU32(bytes, offset);
-      const end = offset + size;
-      if (end > bytes.length) throw Error("truncated name subsection");
-      if (id <= previous) throw Error("name subsections must be unique and increasing");
-      previous = id;
-      const data = bytes.slice(offset, end);
+    for (const { id, data } of sections) {
       const subsection = subsections[id];
       if (subsection === undefined) {
         (names.unknown ??= []).push({ id, data });
       } else {
         const [key, codec] = subsection;
-        const [value, consumed] = codec.readBytes(data, 0);
-        if (consumed !== data.length) throw Error("invalid name subsection size");
+        const value = codec.fromBytes(data);
         Object.assign(names, { [key]: value });
       }
-      offset = end;
     }
-    return [names, offset];
+    return names;
   },
 });
