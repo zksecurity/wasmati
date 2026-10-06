@@ -1,6 +1,8 @@
 {
   "include": ["src/**/*.ts"],
   "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "./build/library.tsbuildinfo",
     "target": "esnext",
     "module": "nodenext",
     "strict": true,

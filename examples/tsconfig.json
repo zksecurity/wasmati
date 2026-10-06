@@ -2,6 +2,7 @@
   "extends": "../tsconfig.json",
   "include": ["example.ts", "simple.ts", "fma.ts"],
   "compilerOptions": {
+    "tsBuildInfoFile": "../build/examples.tsbuildinfo",
     "rootDir": "..",
     "noEmit": true
   }
