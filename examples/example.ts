@@ -200,6 +200,7 @@ assert.deepStrictEqual(recoveredModule.module, module.module);
 
 // write wat file for comparison
 let wabtModule = wabt.readWasm(wasmByteCode, { ...wabtFeatures(), readDebugNames: true });
+wabtModule.applyNames();
 let wat = wabtModule.toText({});
 await writeFile(import.meta.url.slice(7).replace(".ts", ".wat"), wat);
 
