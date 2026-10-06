@@ -122,6 +122,7 @@ function func<
   );
   const name = signature.name ?? (run.name || undefined);
   let func = {
+    defined: true,
     kind: "function",
     params: args,
     ...(name === undefined ? {} : { name }),
@@ -152,7 +153,7 @@ function declareFunc<
     out: ToTypeTuple<Results>;
   },
 ) {
-  const declaration: Func<Parameters<Args>, Results> & { defined: boolean } = {
+  const declaration: Func<Parameters<Args>, Results> = {
     kind: "function",
     params: signature.in,
     type: { args: signature.in.types, results: valueTypeLiterals<Results>(signature.out) },
@@ -171,7 +172,7 @@ function declareFunc<
       ) => void,
     ) {
       if (declaration.defined) throw Error("declareFunc: function is already defined");
-      Object.assign(declaration, func(ctx, signature, run), { defined: true });
+      Object.assign(declaration, func(ctx, signature, run));
     },
   });
 }

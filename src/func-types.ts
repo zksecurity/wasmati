@@ -5,6 +5,7 @@ import { ValueType } from "./types.ts";
 export type { Func, ImportFunc, AnyFunc };
 
 type Func<Args extends Parameters, Results extends readonly ValueType[]> = {
+  defined: boolean;
   kind: "function";
   name?: string;
   localNames?: Record<number, string>;

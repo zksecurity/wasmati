@@ -62,7 +62,7 @@ function type(type: FunctionType): Type {
 }
 
 type Func = {
-  defined?: boolean;
+  defined: boolean;
   kind: "function";
   params: Parameters;
   name?: string;

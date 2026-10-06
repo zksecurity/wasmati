@@ -94,8 +94,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   let funcs0: (Dependency.Func & { typeIdx: number; funcIdx: number })[] = [];
   let nImportFuncs = dependencyByKind.importFunction.length;
   for (let func of dependencyByKind.function) {
-    if (func.defined === false)
-      throw Error(`Module: function ${func.name ?? "<unnamed>"} is not defined`);
+    if (!func.defined) throw Error(`Module: function ${func.name ?? "<unnamed>"} is not defined`);
     let typeIdx = pushType(types, func.type);
     let funcIdx = nImportFuncs + funcs0.length;
     funcs0.push({ ...func, typeIdx, funcIdx });
