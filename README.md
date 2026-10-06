@@ -125,11 +125,7 @@ const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x
     - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
 
-- **Name and custom sections.** Parameter and local keys become debug names automatically, and export keys name exported functions, globals, tables and memories. Use `func({ name: "helper", ... }, ...)` or a named callback for internal function names and `Module({ name: "arithmetic", exports })` for the module name. Explicit `Module({ exports, names })` entries override generated names. Read metadata through `module.module.names`; name maps use Wasm indices (including imports), and local indices include parameters. Other custom sections are preserved in `module.module.customSections` and can be supplied as `Module({ exports, customSections })`.
-
-- **Named parameters, native calls.** Declare ABI order with `in: params({ x: i32 }, { y: i64 })`; the builder callback receives `{ x, y }` with exact local types, and `call(f, { x, y })` emits operands in declaration order. `instantiate()` returns the actual native `instance` with fully inferred positional exports: `instance.exports.f(1, 2n)`. Imports use the same ordered declaration and ordinary positional JS callbacks.
-
-- **Grouped locals.** Declare `locals: { tmp: i64, Y: localArray(v128, 5), Z: localArray(i64, n) }` and receive `{ tmp, Y, Z }` directly in the callback. Literal lengths infer tuples; dynamic lengths infer typed arrays. Wasmati handles flattening and type-based reordering, and emits names such as `Y[0]`, so groups need no slicing or casts.
+- Named parameters and debug names. `in: params({ x: i32 }, { y: i64 })` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback; `Module({ name, exports, names })` supports a module name and explicit overrides. Read names through `module.module.names`; other custom sections are available through `module.module.customSections` and `Module({ exports, customSections })`.
 
 ### Features that aren't implemented yet
 
