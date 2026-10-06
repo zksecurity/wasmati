@@ -174,60 +174,6 @@ function record<Types extends Record<string, any>>(binables: {
   });
 }
 
-/**
- * Compose an ordered record with extra entries at field boundaries. The result is { value: recordFields, extras: [{ after, value: extraEntry }] }; matches selects the extra codec before each field and after the last field.
- *
- * On encoding, after: undefined places an entry before the first field, a field key places it after that field (even when omitted), and null appends it after all fields. Entries at the same position retain their array order.
- *
- * On decoding, after identifies the last field that consumed bytes, or undefined before the first field. Optional fields use their existing codecs and do not claim a position when absent. This allows custom Wasm sections to interleave with standard sections while retaining their placement.
- */
-function interleavedRecord<Types extends Record<string, any>, Extra>(
-  binables: { [K in keyof Types]: Binable<Types[K]> },
-  extra: { codec: Binable<Extra>; matches(bytes: number[], offset: number): boolean }
-): Binable<{
-  value: Types;
-  extras: { after?: keyof Types | null; value: Extra }[];
-}> {
-  const keys = Object.keys(binables) as (keyof Types)[];
-  return Binable({
-    toBytes({ value, extras }) {
-      for (const entry of extras) {
-        if (entry.after !== undefined && entry.after !== null && !keys.includes(entry.after)) {
-          throw Error(`invalid interleaved record position ${String(entry.after)}`);
-        }
-      }
-      const at = (after: keyof Types | null | undefined) => extras
-        .filter((entry) => entry.after === after)
-        .flatMap((entry) => extra.codec.toBytes(entry.value));
-      return [at(undefined), ...keys.map((key) => [
-        binables[key].toBytes(value[key]), at(key),
-      ].flat()), at(null)].flat();
-    },
-    readBytes(bytes, offset) {
-      const value = {} as Types;
-      const extras: { after?: keyof Types | null; value: Extra }[] = [];
-      let after: keyof Types | undefined;
-      const readExtras = () => {
-        while (offset < bytes.length && extra.matches(bytes, offset)) {
-          const [value, end] = extra.codec.readBytes(bytes, offset);
-          if (end <= offset || end > bytes.length) throw Error("invalid interleaved entry length");
-          extras.push({ after, value });
-          offset = end;
-        }
-      };
-      for (const key of keys) {
-        readExtras();
-        const [field, end] = binables[key].readBytes(bytes, offset);
-        value[key] = field;
-        if (end > offset) after = key;
-        offset = end;
-      }
-      readExtras();
-      return [{ value, extras }, offset];
-    },
-  });
-}
-
 function tuple<Types extends Tuple<any>>(binables: {
   [i in keyof Types]: Binable<Types[i]>;
 }): Binable<Types> {
@@ -390,6 +336,60 @@ function byteEnum<
       let { kind, value: binable } = entry;
       let [value, end] = binable.readBytes(bytes, offset);
       return [{ kind, value }, end];
+    },
+  });
+}
+
+/**
+ * Compose an ordered record with extra entries at field boundaries. The result is { value: recordFields, extras: [{ after, value: extraEntry }] }; matches selects the extra codec before each field and after the last field.
+ *
+ * On encoding, after: undefined places an entry before the first field, a field key places it after that field (even when omitted), and null appends it after all fields. Entries at the same position retain their array order.
+ *
+ * On decoding, after identifies the last field that consumed bytes, or undefined before the first field. Optional fields use their existing codecs and do not claim a position when absent. This allows custom Wasm sections to interleave with standard sections while retaining their placement.
+ */
+function interleavedRecord<Types extends Record<string, any>, Extra>(
+  binables: { [K in keyof Types]: Binable<Types[K]> },
+  extra: { codec: Binable<Extra>; matches(bytes: number[], offset: number): boolean }
+): Binable<{
+  value: Types;
+  extras: { after?: keyof Types | null; value: Extra }[];
+}> {
+  const keys = Object.keys(binables) as (keyof Types)[];
+  return Binable({
+    toBytes({ value, extras }) {
+      for (const entry of extras) {
+        if (entry.after !== undefined && entry.after !== null && !keys.includes(entry.after)) {
+          throw Error(`invalid interleaved record position ${String(entry.after)}`);
+        }
+      }
+      const at = (after: keyof Types | null | undefined) => extras
+        .filter((entry) => entry.after === after)
+        .flatMap((entry) => extra.codec.toBytes(entry.value));
+      return [at(undefined), ...keys.map((key) => [
+        binables[key].toBytes(value[key]), at(key),
+      ].flat()), at(null)].flat();
+    },
+    readBytes(bytes, offset) {
+      const value = {} as Types;
+      const extras: { after?: keyof Types | null; value: Extra }[] = [];
+      let after: keyof Types | undefined;
+      const readExtras = () => {
+        while (offset < bytes.length && extra.matches(bytes, offset)) {
+          const [value, end] = extra.codec.readBytes(bytes, offset);
+          if (end <= offset || end > bytes.length) throw Error("invalid interleaved entry length");
+          extras.push({ after, value });
+          offset = end;
+        }
+      };
+      for (const key of keys) {
+        readExtras();
+        const [field, end] = binables[key].readBytes(bytes, offset);
+        value[key] = field;
+        if (end > offset) after = key;
+        offset = end;
+      }
+      readExtras();
+      return [{ value, extras }, offset];
     },
   });
 }
