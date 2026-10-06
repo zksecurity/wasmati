@@ -1,4 +1,4 @@
-import { type Binable, Byte, Bytes, iso, record, sequence, withValidation } from "./binable.ts";
+import { type Binable, Byte, RemainingBytes, iso, record, sequence, withValidation } from "./binable.ts";
 import { Name, U32, vec, withByteLength } from "./immediate.ts";
 
 export { NameSection, type NameMap, type IndirectNameMap };
@@ -68,7 +68,7 @@ const subsections = [
   ["tags", NameMap],
 ] as const;
 
-const Subsection = record({ id: Byte, data: withByteLength(Bytes) });
+const Subsection = record({ id: Byte, data: withByteLength(RemainingBytes) });
 const Subsections = withValidation(sequence(Subsection), (sections) => {
   let previous = -1;
   for (const { id } of sections) {

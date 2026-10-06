@@ -1,7 +1,7 @@
 import {
   type Binable,
   Byte,
-  Bytes,
+  RemainingBytes,
   iso,
   orDefault,
   orUndefined,
@@ -56,7 +56,7 @@ function section<T>(code: number, b: Binable<T>) {
   return withByteCode(code, withByteLength(b));
 }
 // 0: CustomSection
-const CustomPayload = record({ name: Name, data: Bytes });
+const CustomPayload = record({ name: Name, data: RemainingBytes });
 const CustomSection = section(0, CustomPayload);
 
 // 1: TypeSection

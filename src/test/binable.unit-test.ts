@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Byte, Bytes, constant, record, sequence, interleavedRecord, orUndefined, withByteCode } from "../binable.ts";
+import { Byte, RemainingBytes, constant, record, sequence, interleavedRecord, orUndefined, withByteCode } from "../binable.ts";
 import { withByteLength } from "../immediate.ts";
 
 test("length-delimited sequences compose with following record fields", () => {
@@ -14,8 +14,8 @@ test("length-delimited codecs cannot read across their payload boundary", () => 
   const codec = record({ value: withByteLength(Byte), marker: Byte });
   assert.throws(() => codec.fromBytes([0, 99]));
   assert.throws(() => codec.fromBytes([2, 10, 20, 99]));
-  assert.throws(() => withByteLength(Bytes).fromBytes([3, 10, 20]));
-  assert.deepEqual(withByteLength(Bytes).fromBytes([2, 10, 20]), [10, 20]);
+  assert.throws(() => withByteLength(RemainingBytes).fromBytes([3, 10, 20]));
+  assert.deepEqual(withByteLength(RemainingBytes).fromBytes([2, 10, 20]), [10, 20]);
 });
 
 test("sequences reject elements that consume no bytes or overrun the input", () => {

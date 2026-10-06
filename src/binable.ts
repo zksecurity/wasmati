@@ -20,7 +20,7 @@ export {
   orUndefined,
   orDefault,
   byteEnum,
-  Bytes,
+  RemainingBytes,
   sequence,
   interleavedRecord,
   Zero as TODO,
@@ -64,7 +64,7 @@ const Byte = Binable<number>({
 });
 
 /** Read or write raw bytes without a length prefix. Decoding consumes all remaining input; wrap in withByteLength when followed by other fields. */
-const Bytes = Binable<number[]>({
+const RemainingBytes = Binable<number[]>({
   toBytes(bytes) {
     return bytes;
   },
