@@ -125,7 +125,7 @@ const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x
     - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
 
-- Named parameters and debug names. `in: params({ x: i32 }, { y: i64 })` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback; `Module({ name, exports, names })` supports a module name and explicit overrides. Read names through `module.module.names`; other custom sections are available through `module.module.customSections` and `Module({ exports, customSections })`.
+- Named parameters and debug names. `in: params({ x: i32 }, { y: i64 })` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback.
 
 ### Features that aren't implemented yet
 
