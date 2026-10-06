@@ -1,8 +1,8 @@
-import { Instruction_, baseInstruction } from "./base.js";
-import * as Dependency from "../dependency.js";
-import { LocalContext } from "../local-context.js";
-import { U32, U8 } from "../immediate.js";
-import { record, tuple } from "../binable.js";
+import { type Instruction_, baseInstruction } from "./base.ts";
+import * as Dependency from "../dependency.ts";
+import type { LocalContext } from "../local-context.ts";
+import { U32, U8 } from "../immediate.ts";
+import { record, tuple } from "../binable.ts";
 import {
   DataIndex,
   ElemIndex,
@@ -10,11 +10,11 @@ import {
   TableIndex,
   ValueType,
   valueTypeLiterals,
-  ValueTypeObjects,
-} from "../types.js";
-import { Tuple } from "../util.js";
-import { InstructionName } from "./opcodes.js";
-import { Input, processStackArgs } from "./stack-args.js";
+  type ValueTypeObjects,
+} from "../types.ts";
+import type { Tuple } from "../util.ts";
+import type { InstructionName } from "./opcodes.ts";
+import { type Input, processStackArgs } from "./stack-args.ts";
 
 export {
   memoryOps,

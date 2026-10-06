@@ -1,20 +1,20 @@
-import * as Dependency from "./dependency.js";
-import { Export, Import } from "./export.js";
-import { FinalizedFunc, JSFunction } from "./func.js";
-import { resolveInstruction } from "./instruction/base.js";
-import { Module as BinableModule } from "./module-binable.js";
-import { Data, Elem, Global } from "./memory-binable.js";
+import * as Dependency from "./dependency.ts";
+import { Export, Import } from "./export.ts";
+import type { FinalizedFunc, JSFunction } from "./func.ts";
+import { resolveInstruction } from "./instruction/base.ts";
+import { Module as BinableModule } from "./module-binable.ts";
+import { Data, Elem, Global } from "./memory-binable.ts";
 import {
   FunctionType,
   functionTypeEquals,
-  JSValue,
+  type JSValue,
   Limits,
   MemoryType,
   TableType,
-} from "./types.js";
-import { memoryConstructor } from "./memory.js";
+} from "./types.ts";
+import { memoryConstructor } from "./memory.ts";
 
-export { Module, ModuleExport };
+export { Module, type ModuleExport };
 
 type Module = ReturnType<typeof ModuleConstructor>;
 

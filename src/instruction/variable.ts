@@ -1,18 +1,18 @@
-import { Undefined } from "../binable.js";
-import { Const } from "../dependency.js";
-import * as Dependency from "../dependency.js";
-import { U32 } from "../immediate.js";
-import { baseInstruction } from "./base.js";
+import { Undefined } from "../binable.ts";
+import { Const } from "../dependency.ts";
+import * as Dependency from "../dependency.ts";
+import { U32 } from "../immediate.ts";
+import { baseInstruction } from "./base.ts";
 import {
-  Local,
+  type Local,
   RefType,
-  RefTypeObject,
+  type RefTypeObject,
   ValueType,
   valueTypeLiteral,
-} from "../types.js";
-import { LocalContext, StackVar } from "../local-context.js";
-import { globalGet, localGet } from "./variable-get.js";
-import { Input, processStackArgs } from "./stack-args.js";
+} from "../types.ts";
+import { type LocalContext, StackVar } from "../local-context.ts";
+import { globalGet, localGet } from "./variable-get.ts";
+import { type Input, processStackArgs } from "./stack-args.ts";
 
 export {
   localOps,

@@ -1,41 +1,41 @@
-import { Binable, Undefined } from "../binable.js";
-import * as Dependency from "../dependency.js";
+import { Binable, Undefined } from "../binable.ts";
+import type * as Dependency from "../dependency.ts";
 import {
   formatStack,
-  LocalContext,
+  type LocalContext,
   popStack,
   pushInstruction,
-  RandomLabel,
+  type RandomLabel,
   StackVar,
   stackVars,
   withContext,
-} from "../local-context.js";
+} from "../local-context.ts";
 import {
   FunctionType,
   ValueType,
   valueTypeLiterals,
-  ValueTypeObject,
-  ValueTypeObjects,
-} from "../types.js";
-import { Tuple } from "../util.js";
-import { InstructionName, nameToOpcode } from "./opcodes.js";
+  type ValueTypeObject,
+  type ValueTypeObjects,
+} from "../types.ts";
+import type { Tuple } from "../util.ts";
+import { type InstructionName, nameToOpcode } from "./opcodes.ts";
 
 export {
   baseInstructionWithImmediate,
   baseInstruction,
-  BaseInstruction,
-  ResolvedInstruction,
+  type BaseInstruction,
+  type ResolvedInstruction,
   resolveInstruction,
   resolveExpression,
   createExpressionWithType,
-  FunctionTypeInput,
+  type FunctionTypeInput,
   lookupInstruction,
   lookupOpcode,
   lookupSubcode,
   typeFromInput,
-  Instruction,
+  type Instruction,
   isInstruction,
-  Instruction_,
+  type Instruction_,
 };
 
 const nameToInstruction: Record<string, BaseInstruction> = {};

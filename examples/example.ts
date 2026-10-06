@@ -30,10 +30,10 @@ import {
   importMemory,
   atomic,
   StackVar,
-} from "../build/index.js";
+} from "../src/index.ts";
 import assert from "node:assert";
 import Wabt from "wabt";
-import { writeFile } from "../src/util-node.js";
+import { writeFile } from "../src/util-node.ts";
 
 const wabt = await Wabt();
 

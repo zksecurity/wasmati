@@ -9,19 +9,19 @@ import {
   withByteCode,
   withPreamble,
   withValidation,
-} from "./binable.js";
-import { U32, vec, withByteLength } from "./immediate.js";
+} from "./binable.ts";
+import { U32, vec, withByteLength } from "./immediate.ts";
 import {
   FunctionIndex,
   FunctionType,
   GlobalType,
   MemoryType,
   TableType,
-  ValueTypeObject,
-} from "./types.js";
-import { Export, Import } from "./export.js";
-import { Data, Elem, Global } from "./memory-binable.js";
-import { Code, FinalizedFunc } from "./func.js";
+  type ValueTypeObject,
+} from "./types.ts";
+import { Export, Import } from "./export.ts";
+import { Data, Elem, Global } from "./memory-binable.ts";
+import { Code, type FinalizedFunc } from "./func.ts";
 
 export { Module };
 

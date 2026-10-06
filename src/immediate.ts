@@ -1,5 +1,5 @@
 import { write, read } from "ieee754";
-import { Binable } from "./binable.js";
+import { Binable } from "./binable.ts";
 
 export { vec, withByteLength, Name, U8, U32, I32, I64, S33, F32, F64 };
 

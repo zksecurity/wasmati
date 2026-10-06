@@ -1,33 +1,33 @@
-import { record, tuple, Undefined } from "../binable.js";
-import * as Dependency from "../dependency.js";
-import { AnyFunc } from "../func-types.js";
-import { U32, vec } from "../immediate.js";
+import { record, tuple, Undefined } from "../binable.ts";
+import * as Dependency from "../dependency.ts";
+import type { AnyFunc } from "../func-types.ts";
+import { U32, vec } from "../immediate.ts";
 import {
   getFrameFromLabel,
-  Label,
+  type Label,
   labelTypes,
   popStack,
   popUnknown,
   pushStack,
-  RandomLabel,
+  type RandomLabel,
   setUnreachable,
   isNumberType,
   isVectorType,
   isSameType,
-  LocalContext,
-} from "../local-context.js";
-import { ValueType, valueTypeLiteral, ValueTypeObject } from "../types.js";
+  type LocalContext,
+} from "../local-context.ts";
+import { ValueType, valueTypeLiteral, type ValueTypeObject } from "../types.ts";
 import {
   baseInstruction,
   createExpressionWithType,
-  FunctionTypeInput,
+  type FunctionTypeInput,
   resolveExpression,
   baseInstructionWithImmediate,
   typeFromInput,
-  Instruction_,
-} from "./base.js";
-import { Block, IfBlock } from "./binable.js";
-import { Input, Inputs, processStackArgs } from "./stack-args.js";
+  type Instruction_,
+} from "./base.ts";
+import { Block, IfBlock } from "./binable.ts";
+import { type Input, type Inputs, processStackArgs } from "./stack-args.ts";
 
 export { control, bindControlOps, parametric };
 

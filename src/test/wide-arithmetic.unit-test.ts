@@ -10,7 +10,7 @@ import {
   i64,
   local,
   StackVar,
-} from "../index.js";
+} from "../index.ts";
 
 const add128 = func(
   { in: [i64, i64, i64, i64], out: [i64, i64] },

@@ -1,6 +1,6 @@
-import { Binable, Bool, Byte, record, withByteCode } from "./binable.js";
-import { U32, vec } from "./immediate.js";
-import { Tuple } from "./util.js";
+import { Binable, Bool, Byte, record, withByteCode } from "./binable.ts";
+import { U32, vec } from "./immediate.ts";
+import type { Tuple } from "./util.ts";
 
 export { i32t, i64t, f32t, f64t, v128t, funcref, externref };
 export {
@@ -12,26 +12,26 @@ export {
   DataIndex,
 };
 export {
-  ValueTypeObject,
-  RefTypeObject,
+  type ValueTypeObject,
+  type RefTypeObject,
   FunctionType,
   MemoryType,
   GlobalType,
   TableType,
   ValueType,
   RefType,
-  Type,
-  Local,
+  type Type,
+  type Local,
   ResultType,
   invertRecord,
   valueType,
-  ValueTypeObjects,
+  type ValueTypeObjects,
   valueTypeLiteral,
   valueTypeLiterals,
-  ValueTypeLiterals,
+  type ValueTypeLiterals,
   functionTypeEquals,
   printFunctionType,
-  JSValue,
+  type JSValue,
   Limits,
   valueTypeSet,
 };

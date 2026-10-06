@@ -1,15 +1,15 @@
-import * as Dependency from "./dependency.js";
-import { InstructionName } from "./instruction/opcodes.js";
-import { ValueType } from "./types.js";
+import type * as Dependency from "./dependency.ts";
+import type { InstructionName } from "./instruction/opcodes.ts";
+import { ValueType } from "./types.ts";
 
 export {
-  LocalContext,
+  type LocalContext,
   StackVar,
-  StackVars,
+  type StackVars,
   stackVars,
   Unknown,
-  Label,
-  RandomLabel,
+  type Label,
+  type RandomLabel,
   popStack,
   popUnknown,
   pushStack,

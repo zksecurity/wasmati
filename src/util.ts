@@ -1,4 +1,4 @@
-export { Tuple, TupleN };
+export type { Tuple, TupleN };
 
 type Tuple<T> = [] | [T, ...T[]];
 

@@ -1,6 +1,6 @@
-import { Const } from "./dependency.js";
-import * as Dependency from "./dependency.js";
-import { RefType, RefTypeObject, valueTypeLiteral } from "./types.js";
+import { Const } from "./dependency.ts";
+import * as Dependency from "./dependency.ts";
+import { RefType, type RefTypeObject, valueTypeLiteral } from "./types.ts";
 
 export {
   memoryConstructor,

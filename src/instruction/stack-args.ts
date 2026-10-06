@@ -1,27 +1,27 @@
-import { Binable, Undefined } from "../binable.js";
-import { AnyGlobal } from "../dependency.js";
-import { Dependency } from "../index.js";
-import { formatStack, pushStack } from "../local-context.js";
-import { popStack } from "../local-context.js";
-import { emptyContext } from "../local-context.js";
-import { LocalContext, StackVar, Unknown } from "../local-context.js";
+import { Binable, Undefined } from "../binable.ts";
+import type { AnyGlobal } from "../dependency.ts";
+import { Dependency } from "../index.ts";
+import { formatStack, pushStack } from "../local-context.ts";
+import { popStack } from "../local-context.ts";
+import { emptyContext } from "../local-context.ts";
+import { type LocalContext, StackVar, Unknown } from "../local-context.ts";
 import {
-  Local,
+  type Local,
   ValueType,
   valueTypeLiterals,
-  ValueTypeObjects,
-} from "../types.js";
-import { Tuple } from "../util.js";
-import { Instruction_, baseInstruction } from "./base.js";
-import { f32Const, f64Const, i32Const, i64Const } from "./const.js";
-import { InstructionName } from "./opcodes.js";
-import { globalGet, localGet } from "./variable-get.js";
+  type ValueTypeObjects,
+} from "../types.ts";
+import type { Tuple } from "../util.ts";
+import { type Instruction_, baseInstruction } from "./base.ts";
+import { f32Const, f64Const, i32Const, i64Const } from "./const.ts";
+import type { InstructionName } from "./opcodes.ts";
+import { globalGet, localGet } from "./variable-get.ts";
 
 export {
   instruction,
   instructionWithArg,
-  Input,
-  Inputs,
+  type Input,
+  type Inputs,
   processStackArgs,
   insertInstruction,
 };

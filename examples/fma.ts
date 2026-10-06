@@ -1,6 +1,6 @@
-// run with `node --loader=ts-node/esm examples/fma.ts`
+// run with `node examples/fma.ts`
 import assert from "assert";
-import { f64, f64x2, func, Module } from "../src/index.js";
+import { f64, f64x2, func, Module } from "../src/index.ts";
 
 const fma = func({ in: [f64, f64, f64], out: [f64] }, ([x, y, z]) => {
   let r = f64x2.relaxed_madd(f64x2.splat(x), f64x2.splat(y), f64x2.splat(z));

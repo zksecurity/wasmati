@@ -1,14 +1,14 @@
-import { F32, F64, U8 } from "../immediate.js";
-import { baseInstruction } from "./base.js";
-import { i32t, i64t, f32t, f64t, v128t } from "../types.js";
+import { F32, F64, U8 } from "../immediate.ts";
+import { baseInstruction } from "./base.ts";
+import { i32t, i64t, f32t, f64t, v128t } from "../types.ts";
 import {
   memoryLaneInstruction as mli,
   memoryInstruction as mi,
-} from "./memory.js";
-import { array, Byte } from "../binable.js";
-import { TupleN } from "../util.js";
-import { LocalContext } from "../local-context.js";
-import { instruction as i, instructionWithArg as iarg } from "./stack-args.js";
+} from "./memory.ts";
+import { array, Byte } from "../binable.ts";
+import type { TupleN } from "../util.ts";
+import type { LocalContext } from "../local-context.ts";
+import { instruction as i, instructionWithArg as iarg } from "./stack-args.ts";
 
 export {
   v128Ops,

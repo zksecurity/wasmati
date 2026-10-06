@@ -1,4 +1,4 @@
-import { Tuple } from "./util.js";
+import type { Tuple } from "./util.ts";
 
 export {
   Binable,

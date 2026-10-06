@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["example.ts", "simple.ts", "fma.ts"],
+  "compilerOptions": {
+    "rootDir": "..",
+    "noEmit": true
+  }
+}

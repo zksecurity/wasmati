@@ -1,14 +1,14 @@
-import { Binable, constant, or, record, withByteCode } from "../binable.js";
-import { S33, U32 } from "../immediate.js";
-import { ValueType } from "../types.js";
+import { Binable, constant, or, record, withByteCode } from "../binable.ts";
+import { S33, U32 } from "../immediate.ts";
+import { ValueType } from "../types.ts";
 import {
-  BaseInstruction,
+  type BaseInstruction,
   isInstruction,
   lookupInstruction,
   lookupOpcode,
   lookupSubcode,
-  ResolvedInstruction,
-} from "./base.js";
+  type ResolvedInstruction,
+} from "./base.ts";
 
 export { Expression, ConstExpression, Block, IfBlock };
 

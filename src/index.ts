@@ -1,25 +1,25 @@
-export { Module } from "./module.js";
+export { Module } from "./module.ts";
 import {
   globalConstructor,
   refOps,
   bindLocalOps,
   bindGlobalOps,
-} from "./instruction/variable.js";
-import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.js";
-import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.js";
+} from "./instruction/variable.ts";
+import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.ts";
+import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.ts";
 import {
   bindControlOps,
   control as controlOps,
   parametric,
-} from "./instruction/control.js";
+} from "./instruction/control.ts";
 import {
   emptyContext,
-  LocalContext,
-  Label,
+  type LocalContext,
+  type Label,
   StackVar,
   Unknown,
-} from "./local-context.js";
-import { Tuple } from "./util.js";
+} from "./local-context.ts";
+import type { Tuple } from "./util.ts";
 import {
   f32t,
   f64t,
@@ -29,20 +29,20 @@ import {
   funcref,
   externref,
   ValueType,
-  ValueTypeObject,
+  type ValueTypeObject,
   RefType,
-  RefTypeObject,
-  Type,
-  JSValue,
-} from "./types.js";
-import { Func, ImportFunc, AnyFunc } from "./func-types.js";
+  type RefTypeObject,
+  type Type,
+  type JSValue,
+} from "./types.ts";
+import type { Func, ImportFunc, AnyFunc } from "./func-types.ts";
 import {
-  JSFunction,
-  Local,
+  type JSFunction,
+  type Local,
   func as originalFunc,
-  ToTypeTuple,
-} from "./func.js";
-import { Instruction, FunctionTypeInput } from "./instruction/base.js";
+  type ToTypeTuple,
+} from "./func.ts";
+import type { Instruction, FunctionTypeInput } from "./instruction/base.ts";
 import {
   f32x4Ops,
   f64x2Ops,
@@ -52,26 +52,26 @@ import {
   i8x16Ops,
   v128Ops,
   wrapConst,
-} from "./instruction/vector.js";
+} from "./instruction/vector.ts";
 import {
   dataConstructor,
   elemConstructor,
   memoryConstructor,
   tableConstructor,
-} from "./memory.js";
-import * as Dependency from "./dependency.js";
-import {
+} from "./memory.ts";
+import * as Dependency from "./dependency.ts";
+import type {
   Global,
   ImportGlobal,
   AnyGlobal,
   ImportMemory,
   AnyMemory,
-} from "./dependency.js";
-import { Const } from "./dependency.js";
-import { importFunc, importGlobal, importMemory } from "./export.js";
-import { TupleN } from "./util.js";
-import { ModuleExport } from "./module.js";
-import { Input } from "./instruction/stack-args.js";
+} from "./dependency.ts";
+import { Const } from "./dependency.ts";
+import { importFunc, importGlobal, importMemory } from "./export.ts";
+import type { TupleN } from "./util.ts";
+import type { ModuleExport } from "./module.ts";
+import type { Input } from "./instruction/stack-args.ts";
 import {
   atomicOps,
   i32AtomicOps,
@@ -84,7 +84,7 @@ import {
   i64AtomicRmw8Ops,
   i64AtomicRmwOps,
   memoryAtomicOps,
-} from "./instruction/atomic.js";
+} from "./instruction/atomic.ts";
 
 // instruction API
 export {
@@ -127,21 +127,21 @@ export {
 
 // other public API
 export { defaultCtx };
-export { func, Func, importFunc, ImportFunc, AnyFunc };
-export { importMemory, ImportMemory, AnyMemory };
-export { Global, importGlobal, ImportGlobal, AnyGlobal };
+export { func, type Func, importFunc, type ImportFunc, type AnyFunc };
+export { importMemory, type ImportMemory, type AnyMemory };
+export { type Global, importGlobal, type ImportGlobal, type AnyGlobal };
 export {
   funcref,
   externref,
-  Local,
+  type Local,
   $,
   StackVar,
-  Input,
-  Type,
+  type Input,
+  type Type,
   ValueType,
-  ValueTypeObject,
+  type ValueTypeObject,
   RefType,
-  RefTypeObject,
+  type RefTypeObject,
 };
 export { Const, Dependency };
 export type {

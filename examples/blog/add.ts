@@ -1,7 +1,7 @@
 import {
   i32,
   func,
-  Local,
+  type Local,
   if_,
   return_,
   Module,
@@ -9,7 +9,7 @@ import {
   local,
   block,
   br,
-  Input,
+  type Input,
   $,
 } from "wasmati";
 
