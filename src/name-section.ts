@@ -104,7 +104,8 @@ const NameSection = iso(Subsections, {
       } else {
         const [key, codec] = subsection;
         const value = codec.fromBytes(data);
-        Object.assign(names, { [key]: value });
+        // The subsection pairs each key with its codec; TS loses that correlation.
+        (names as Record<typeof key, typeof value>)[key] = value;
       }
     }
     return names;
