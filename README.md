@@ -124,7 +124,7 @@ const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x
   - Internal representation of modules / funcs / etc is a readable JSON object
     - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
-  - Generate stack-style wasmati TypeScript with `decompile(bytes)` (see [example](examples/decompile.ts)). The generated default export builds a `Module` from a `WebAssembly.Imports` object.
+  - Generate stack-style wasmati TypeScript with `decompile(bytes)` or `wasmati decompile input.wasm -o output.ts` (omit `-o` to write to stdout). The generated default export builds a `Module` from a `WebAssembly.Imports` object.
 
 - Named parameters and debug names. `in: params({ x: i32 }, { y: i64 })` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback.
 

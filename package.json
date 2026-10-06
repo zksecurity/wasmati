@@ -4,6 +4,9 @@
   "description": "Write low-level WebAssembly, from JavaScript",
   "type": "module",
   "main": "build/index.js",
+  "bin": {
+    "wasmati": "build/cli.js"
+  },
   "types": "./build/index.d.ts",
   "exports": {
     "types": "./build/index.d.ts",
