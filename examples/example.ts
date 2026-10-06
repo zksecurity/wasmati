@@ -1,6 +1,5 @@
 import {
   localArray,
-  params,
   Module,
   func,
   control,
@@ -44,13 +43,10 @@ const wabt = await Wabt();
 
 let log = (...args: any) => console.log("logging from wasm:", ...args);
 
-let consoleLog = importFunc({ name: "consoleLog", in: params({ value: i32 }), out: [] }, log);
-let consoleLog64 = importFunc({ name: "consoleLog64", in: params({ value: i64 }), out: [] }, log);
-let consoleLogF64 = importFunc({ name: "consoleLogF64", in: params({ value: f64 }), out: [] }, log);
-let consoleLogFunc = importFunc(
-  { name: "consoleLogFunc", in: params({ value: funcref }), out: [] },
-  log,
-);
+let consoleLog = importFunc({ name: "consoleLog", in: [{ value: i32 }], out: [] }, log);
+let consoleLog64 = importFunc({ name: "consoleLog64", in: [{ value: i64 }], out: [] }, log);
+let consoleLogF64 = importFunc({ name: "consoleLogF64", in: [{ value: f64 }], out: [] }, log);
+let consoleLogFunc = importFunc({ name: "consoleLogFunc", in: [{ value: funcref }], out: [] }, log);
 
 let mem = importMemory(
   { min: 1, max: 1 << 16, shared: true },
@@ -59,7 +55,7 @@ let mem = importMemory(
 );
 
 let myFunc = func(
-  { name: "myFunc", in: params({ x: i32 }, { y: i32 }), locals: { tmp: i32, i: i32 }, out: [i32] },
+  { name: "myFunc", in: [{ x: i32 }, { y: i32 }], locals: { tmp: i32, i: i32 }, out: [i32] },
   ({ x, y }, { tmp, i }, ctx) => {
     i64.trunc_sat_f64_s(1.125);
     call(consoleLog64);
@@ -97,7 +93,7 @@ let myFuncGlobal = global(Const.refFunc(myFunc));
 let f64Global = global(Const.f64(0), { mutable: true });
 
 // this function is not part of the import graph of the module, so won't end up in the assembly
-let testUnreachable = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x }) => {
+let testUnreachable = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x }) => {
   unreachable();
   // global.get(importedGlobal); // uncommenting shows that we handle type errors after unreachable correctly
   i32.add($, x);
@@ -112,7 +108,7 @@ let funcTable = table({ type: funcref, min: 4 }, [
 
 let exportedFunc = func(
   {
-    in: params({ x: i32 }, { doLog: i32 }),
+    in: [{ x: i32 }, { doLog: i32 }],
     locals: { vectors: localArray(v128, 2), y: i32 },
     out: [i32],
   },
@@ -177,7 +173,7 @@ let exportedFunc = func(
   },
 );
 
-const fma = func({ in: params({ x: f64 }, { y: f64 }, { z: f64 }), out: [f64] }, ({ x, y, z }) => {
+const fma = func({ in: [{ x: f64 }, { y: f64 }, { z: f64 }], out: [f64] }, ({ x, y, z }) => {
   f64x2.splat(x);
   f64x2.splat(y);
   f64x2.splat(z);
@@ -185,7 +181,7 @@ const fma = func({ in: params({ x: f64 }, { y: f64 }, { z: f64 }), out: [f64] },
   f64x2.extract_lane(0);
 });
 
-let startFunc = importFunc({ in: params(), out: [] }, () => console.log("starting wasm"));
+let startFunc = importFunc({ in: [], out: [] }, () => console.log("starting wasm"));
 
 let module = Module({
   name: "example",

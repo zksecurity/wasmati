@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import wabtFactory from "wabt";
-import { decompile, Module, declareFunc, params, i32, i64, local, call } from "../index.ts";
+import { decompile, Module, declareFunc, i32, i64, local, call } from "../index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const importPath = fileURLToPath(new URL("../index.ts", import.meta.url));
@@ -228,7 +228,7 @@ test("decompiles SIMD immediates, floats, missing names and hostile debug/export
   assert.equal(invoke(result.instance, "__proto__", 42), 42);
   const f = declareFunc({
     name: 'bad-name"\n',
-    in: params({ ["__proto__"]: i32 }, { ["i32"]: i32 }),
+    in: [{ ["__proto__"]: i32 }, { ["i32"]: i32 }],
     locals: { ["x-y"]: i64 },
     out: [i32],
   });
@@ -251,7 +251,7 @@ test("decompiles SIMD immediates, floats, missing names and hostile debug/export
 });
 
 test("decompiles wide arithmetic through the public API", async () => {
-  const f = declareFunc({ in: params({ low: i64 }, { high: i64 }), out: [i64, i64] });
+  const f = declareFunc({ in: [{ low: i64 }, { high: i64 }], out: [i64, i64] });
   f.define(({ low, high }) => {
     local.get(low);
     local.get(high);
@@ -265,13 +265,13 @@ test("decompiles wide arithmetic through the public API", async () => {
 });
 
 test("function declarations require a definition, preserve identity and cannot be redefined", () => {
-  const f = declareFunc({ name: "pending", in: params({ x: i32 }), out: [i32] });
+  const f = declareFunc({ name: "pending", in: [{ x: i32 }], out: [i32] });
   assert.throws(() => Module({ exports: { f } }), /not defined/);
   f.define(({ x }) => {
     local.get(x);
   });
   assert.throws(() => f.define(() => {}), /already defined/);
-  const g = declareFunc({ in: params({ x: i32 }), out: [i32] });
+  const g = declareFunc({ in: [{ x: i32 }], out: [i32] });
   g.define(({ x }) => {
     local.get(x);
     call(f);
