@@ -25,7 +25,13 @@ import {
   type JSValue,
 } from "./types.ts";
 import type { Func, ImportFunc, AnyFunc } from "./func-types.ts";
-import { type JSFunction, type Local, func as originalFunc, type ToTypeTuple } from "./func.ts";
+import {
+  type JSFunction,
+  type Local,
+  func as originalFunc,
+  declareFunc as originalDeclareFunc,
+  type ToTypeTuple,
+} from "./func.ts";
 import type { Instruction, FunctionTypeInput } from "./instruction/base.ts";
 import {
   f32x4Ops,
@@ -41,7 +47,7 @@ import { dataConstructor, elemConstructor, memoryConstructor, tableConstructor }
 import * as Dependency from "./dependency.ts";
 import type { Global, ImportGlobal, AnyGlobal, ImportMemory, AnyMemory } from "./dependency.ts";
 import { Const } from "./dependency.ts";
-import { importFunc, importGlobal, importMemory } from "./export.ts";
+import { importFunc, importGlobal, importMemory, importTable } from "./export.ts";
 import type { TupleN } from "./util.ts";
 import type { ModuleExport } from "./module.ts";
 import type { Input } from "./instruction/stack-args.ts";
@@ -88,7 +94,8 @@ export { nop, unreachable, block, loop, if_, br, br_if, br_table, return_, call,
 
 // other public API
 export { defaultCtx };
-export { func, type Func, importFunc, type ImportFunc, type AnyFunc };
+export { declareFunc, func, type Func, importFunc, type ImportFunc, type AnyFunc };
+export { importTable };
 export { importMemory, type ImportMemory, type AnyMemory };
 export { type Global, importGlobal, type ImportGlobal, type AnyGlobal };
 export {
@@ -123,6 +130,7 @@ type f64 = "f64";
 type v128 = "v128";
 
 const defaultCtx = emptyContext();
+const declareFunc = removeContext(defaultCtx, originalDeclareFunc);
 
 const {
   func,
@@ -297,3 +305,5 @@ function removeContext<Args extends Tuple<any>, Return extends any>(
 ): (...args: Args) => Return {
   return (...args: Args) => op(ctx, ...args);
 }
+
+export { decompile } from "./decompile.ts";
