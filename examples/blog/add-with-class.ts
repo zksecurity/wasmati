@@ -1,4 +1,5 @@
-import { params,
+import {
+  params,
   i32,
   func,
   type Local,
@@ -121,7 +122,7 @@ const add = func(
       if (i < n - 1) i32.shr_s(zi, w);
       z.set(i, i32.and(zi, wordMax));
     }
-  }
+  },
 );
 
 // compile and use wasm code

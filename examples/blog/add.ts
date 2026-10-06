@@ -1,4 +1,5 @@
-import { params,
+import {
+  params,
   i32,
   func,
   type Local,
@@ -64,7 +65,7 @@ const add = func(
       if (i < n - 1) i32.shr_s(zi, w);
       storeLimb(z, i, i32.and(zi, wordMax));
     }
-  }
+  },
 );
 
 function loadLimb(x: Local<i32>, i: number) {

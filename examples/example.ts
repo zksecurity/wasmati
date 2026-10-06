@@ -1,4 +1,6 @@
-import { localArray, params,
+import {
+  localArray,
+  params,
   Module,
   func,
   control,
@@ -39,15 +41,26 @@ const wabt = await Wabt();
 
 let log = (...args: any) => console.log("logging from wasm:", ...args);
 
-let consoleLog = importFunc({ name: "consoleLog", in: params({ value: i32 }), out: [] }, (value) => log(value));
-let consoleLog64 = importFunc({ name: "consoleLog64", in: params({ value: i64 }), out: [] }, (value) => log(value));
-let consoleLogF64 = importFunc({ name: "consoleLogF64", in: params({ value: f64 }), out: [] }, (value) => log(value));
-let consoleLogFunc = importFunc({ name: "consoleLogFunc", in: params({ value: funcref }), out: [] }, (value) => log(value));
+let consoleLog = importFunc({ name: "consoleLog", in: params({ value: i32 }), out: [] }, (value) =>
+  log(value),
+);
+let consoleLog64 = importFunc(
+  { name: "consoleLog64", in: params({ value: i64 }), out: [] },
+  (value) => log(value),
+);
+let consoleLogF64 = importFunc(
+  { name: "consoleLogF64", in: params({ value: f64 }), out: [] },
+  (value) => log(value),
+);
+let consoleLogFunc = importFunc(
+  { name: "consoleLogFunc", in: params({ value: funcref }), out: [] },
+  (value) => log(value),
+);
 
 let mem = importMemory(
   { min: 1, max: 1 << 16, shared: true },
   undefined,
-  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
 );
 
 let myFunc = func(
@@ -81,7 +94,7 @@ let myFunc = func(
       local.get(tmp);
       drop();
     });
-  }
+  },
 );
 
 let importedGlobal = importGlobal(i64, 1000n);
@@ -166,7 +179,7 @@ let exportedFunc = func(
     drop();
     drop();
     atomic.fence();
-  }
+  },
 );
 
 const fma = func({ in: params({ x: f64 }, { y: f64 }, { z: f64 }), out: [f64] }, ({ x, y, z }) => {
@@ -177,9 +190,7 @@ const fma = func({ in: params({ x: f64 }, { y: f64 }, { z: f64 }), out: [f64] },
   f64x2.extract_lane(0);
 });
 
-let startFunc = importFunc({ in: params(), out: [] }, () =>
-  console.log("starting wasm")
-);
+let startFunc = importFunc({ in: params(), out: [] }, () => console.log("starting wasm"));
 
 let module = Module({
   name: "example",

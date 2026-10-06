@@ -1,4 +1,14 @@
-import { params, i32, func, type Local, if_, return_, Module, memory, local } from "../../src/index.ts";
+import {
+  params,
+  i32,
+  func,
+  type Local,
+  if_,
+  return_,
+  Module,
+  memory,
+  local,
+} from "../../src/index.ts";
 
 const n = 9; // number of limbs
 
@@ -27,7 +37,7 @@ const isGreater = func(
 
     // fall-through case: return false if x = y
     i32.const(0);
-  }
+  },
 );
 
 function loadLimb(x: Local<i32>, i: number) {

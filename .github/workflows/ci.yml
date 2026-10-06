@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   format:
-    name: Source formatting
+    name: Source and example formatting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

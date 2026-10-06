@@ -16,12 +16,12 @@
     "clean": "rm -rf build",
     "prepublishOnly": "npm run clean && npm run build && npm test",
     "check": "tsc --noEmit && tsc --project examples",
-    "format": "prettier --write 'src/**/*.ts'",
-    "format:check": "prettier --check 'src/**/*.ts'",
+    "format": "prettier --write '{src,examples}/**/*.ts'",
+    "format:check": "prettier --check '{src,examples}/**/*.ts'",
     "prepare": "husky"
   },
   "lint-staged": {
-    "src/**/*.ts": "prettier --write"
+    "{src,examples}/**/*.ts": "prettier --write"
   },
   "files": [
     "src",
