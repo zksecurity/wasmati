@@ -18,7 +18,7 @@ import {
 
 // Checked by tsc, never executed: negative cases must fail at compile time.
 async function checkNamedFunctionTypes() {
-  const mixed: Func<[{ small: "i32" }, { large: "i64" }, { another: "i32" }], ["i64"]> = func(
+  const mixed = func(
     {
       in: params({ small: i32 }, { large: i64 }, { another: i32 }),
       locals: { scratch: i64, limbs: localArray(i64, 5) },
@@ -87,6 +87,7 @@ async function checkNamedFunctionTypes() {
   params({ 1: i32 }, { "1": i64 });
   // @ts-expect-error Wasm parameter names must be text keys
   params({ [Symbol.iterator]: i32 });
+  mixed satisfies Func<[{ small: "i32" }, { large: "i64" }, { another: "i32" }], ["i64"]>;
   const binary = params({ z: i32 }, { x: i32 }, { y: i32 });
   binary satisfies Parameters<[{ z: "i32" }, { x: "i32" }, { y: "i32" }]>;
   const typed: Func<[{ z: "i32" }, { x: "i32" }, { y: "i32" }], []> = func(
