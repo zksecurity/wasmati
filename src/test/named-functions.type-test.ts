@@ -9,6 +9,9 @@ import {
   importFunc,
   local,
   type Func,
+  type ImportFunc,
+  type AnyFunc,
+  type Parameters,
   type Local,
   type StackVar,
 } from "../index.ts";
@@ -84,8 +87,35 @@ async function checkNamedFunctionTypes() {
   params({ 1: i32 }, { "1": i64 });
   // @ts-expect-error Wasm parameter names must be text keys
   params({ [Symbol.iterator]: i32 });
+  mixed satisfies Func<[{ small: "i32" }, { large: "i64" }, { another: "i32" }], ["i64"]>;
   const binary = params({ z: i32 }, { x: i32 }, { y: i32 });
-  const typed: Func<typeof binary, []> = func({ in: binary, out: [] }, () => {});
+  binary satisfies Parameters<[{ z: "i32" }, { x: "i32" }, { y: "i32" }]>;
+  const typed: Func<[{ z: "i32" }, { x: "i32" }, { y: "i32" }], []> = func(
+    { in: binary, out: [] },
+    () => {},
+  );
+  // @ts-expect-error annotations preserve ABI order and each parameter's type
+  mixed satisfies Func<[{ large: "i64" }, { small: "i32" }, { another: "i32" }], ["i64"]>;
+  // @ts-expect-error parameter schemas require valid Wasm value types
+  type Invalid = Func<[{ x: "invalid" }], []>;
+  const imported: ImportFunc<[{ small: "i32" }, { large: "i64" }], ["i64"]> = importFunc(
+    { in: params({ small: i32 }, { large: i64 }), out: [i64] },
+    (small, large) => {
+      small satisfies number;
+      large satisfies bigint;
+      return large;
+    },
+  );
+  const either: AnyFunc<[{ small: "i32" }, { large: "i64" }], ["i64"]> = imported;
+  func({ in: params(), out: [i64] }, () => {
+    call(either, { small: 1, large: 2n }) satisfies StackVar<i64>;
+    // @ts-expect-error explicit import annotations preserve named operand types
+    call(either, { small: 1, large: 2 });
+  });
+  const nativeImport = await Module({ exports: { imported } }).instantiate();
+  nativeImport.instance.exports.imported(1, 2n) satisfies bigint;
+  // @ts-expect-error explicit import annotations preserve native argument order
+  nativeImport.instance.exports.imported(1n, 2);
   func({ in: params(), out: [] }, () => {
     call(typed, { y: 3, x: 2, z: 1 });
     // @ts-expect-error reusable signature types preserve required callback keys

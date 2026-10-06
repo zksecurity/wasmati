@@ -90,8 +90,8 @@ function importFunc<
     in: Parameters<Args>;
     out: ToTypeTuple<Results>;
   } & Dependency.ImportPath,
-  run: NoInfer<JSFunction<ImportFunc<Parameters<Args>, Results>>>,
-): ImportFunc<Parameters<Args>, Results> {
+  run: NoInfer<JSFunction<ImportFunc<Args, Results>>>,
+): ImportFunc<Args, Results> {
   const type = { args: args_.types, results: valueTypeLiterals<Results>(results_) };
   const name = inputName ?? (run.name || undefined);
   return {
