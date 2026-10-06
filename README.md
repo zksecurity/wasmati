@@ -41,6 +41,7 @@ $ node --experimental-strip-types example.ts
 
   - [threads and atomics](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)
   - [relaxed simd](https://github.com/WebAssembly/relaxed-simd/blob/main/proposals/relaxed-simd/Overview.md)
+  - [wide arithmetic](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md)
 
 - **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 

@@ -242,6 +242,12 @@ const opcodes = {
     15: "table.grow",
     16: "table.size",
     17: "table.fill",
+
+    // wide arithmetic
+    0x13: "i64.add128",
+    0x14: "i64.sub128",
+    0x15: "i64.mul_wide_s",
+    0x16: "i64.mul_wide_u",
   },
 
   // simd

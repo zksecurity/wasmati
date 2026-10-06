@@ -140,6 +140,20 @@ const i64Ops = {
   trunc_sat_f32_u: instruction("i64.trunc_sat_f32_u", [f32t], [i64t]),
   trunc_sat_f64_s: instruction("i64.trunc_sat_f64_s", [f64t], [i64t]),
   trunc_sat_f64_u: instruction("i64.trunc_sat_f64_u", [f64t], [i64t]),
+
+  // wide arithmetic (128-bit operands and results are low/high i64 pairs)
+  add128: instruction(
+    "i64.add128",
+    [i64t, i64t, i64t, i64t],
+    [i64t, i64t]
+  ),
+  sub128: instruction(
+    "i64.sub128",
+    [i64t, i64t, i64t, i64t],
+    [i64t, i64t]
+  ),
+  mul_wide_s: instruction("i64.mul_wide_s", [i64t, i64t], [i64t, i64t]),
+  mul_wide_u: instruction("i64.mul_wide_u", [i64t, i64t], [i64t, i64t]),
 };
 
 const f32Ops = {
