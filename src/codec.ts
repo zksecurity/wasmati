@@ -6,6 +6,7 @@ export {
   record,
   array,
   sequence,
+  repeatWhile,
   iso,
   constant,
   or,
@@ -87,13 +88,21 @@ function array<T, Item>(element: Codec<T, Item>, size: number): Codec<T[], Item>
 
 /** Repeat until the input ends. Use a format-specific delimiter when more input follows the sequence. */
 function sequence<T, Item>(element: Codec<T, Item>): Codec<T[], Item> {
+  return repeatWhile(element, (input, offset) => offset < input.length);
+}
+
+/** Repeat while lookahead matches. A matching but malformed element propagates its error; it does not silently end the sequence. */
+function repeatWhile<T, Item>(
+  element: Codec<T, Item>,
+  matches: (input: Item[], offset: number) => boolean,
+): Codec<T[], Item> {
   return {
     encode(values) {
       return values.flatMap((value) => element.encode(value));
     },
     decode(input, offset) {
       const values: T[] = [];
-      while (offset < input.length) {
+      while (matches(input, offset)) {
         const [value, end] = element.decode(input, offset);
         if (end <= offset || end > input.length) throw Error("invalid sequence element length");
         values.push(value);

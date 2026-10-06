@@ -3,7 +3,7 @@ import type { Module as DecodedModule } from "./module-binable.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 import type { FunctionType, ValueType } from "./types.ts";
 
-export { decompile };
+export { decompile, decompileModule };
 
 /**
  * Decode Wasm using the existing Binable codecs and emit editable, stack-style wasmati TypeScript.
@@ -13,6 +13,11 @@ export { decompile };
  */
 function decompile(bytes: Uint8Array, { importPath = "wasmati" } = {}): string {
   const module = api.Module.fromBytes(bytes).module;
+  return decompileModule(module, { importPath });
+}
+
+/** Emit from the shared module representation, without encoding and decoding it through Wasm first. */
+function decompileModule(module: DecodedModule, { importPath = "wasmati" } = {}): string {
   return new Source(module, importPath).emit();
 }
 
