@@ -1,10 +1,20 @@
-import { i32, func, type Local, if_, return_, Module, memory, local } from "wasmati";
+import {
+  params,
+  i32,
+  func,
+  type Local,
+  if_,
+  return_,
+  Module,
+  memory,
+  local,
+} from "../../src/index.ts";
 
 const n = 9; // number of limbs
 
 const isGreater = func(
-  { in: [i32, i32], locals: [i32, i32], out: [i32] },
-  ([x, y], [xi, yi]) => {
+  { in: params({ x: i32 }, { y: i32 }), locals: { xi: i32, yi: i32 }, out: [i32] },
+  ({ x, y }, { xi, yi }) => {
     for (let i = n - 1; i >= 0; i--) {
       // set xi = x[i] and yi = y[i]
       local.set(xi, loadLimb(x, i));
@@ -27,7 +37,7 @@ const isGreater = func(
 
     // fall-through case: return false if x = y
     i32.const(0);
-  }
+  },
 );
 
 function loadLimb(x: Local<i32>, i: number) {

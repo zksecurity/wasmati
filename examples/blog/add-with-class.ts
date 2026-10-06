@@ -1,4 +1,5 @@
 import {
+  params,
   i32,
   func,
   type Local,
@@ -10,7 +11,7 @@ import {
   block,
   br,
   type Input,
-} from "wasmati";
+} from "../../src/index.ts";
 
 let p = 0x40000000000000000000000000000000224698fc094cf91b992d30ed00000001n;
 
@@ -88,11 +89,11 @@ function isLower(x: Field, y: Field) {
 
 const add = func(
   {
-    in: [i32, i32, i32],
-    locals: [i32, i32, i32],
+    in: params({ zPtr: i32 }, { xPtr: i32 }, { yPtr: i32 }),
+    locals: { xi: i32, yi: i32, zi: i32 },
     out: [],
   },
-  ([zPtr, xPtr, yPtr], [xi, yi, zi]) => {
+  ({ zPtr, xPtr, yPtr }, { xi, yi, zi }) => {
     let x = new MemoryField(xPtr, xi);
     let y = new MemoryField(yPtr, yi);
     let z = new MemoryField(zPtr, zi);
@@ -121,7 +122,7 @@ const add = func(
       if (i < n - 1) i32.shr_s(zi, w);
       z.set(i, i32.and(zi, wordMax));
     }
-  }
+  },
 );
 
 // compile and use wasm code

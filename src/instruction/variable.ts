@@ -3,33 +3,19 @@ import { Const } from "../dependency.ts";
 import * as Dependency from "../dependency.ts";
 import { U32 } from "../immediate.ts";
 import { baseInstruction } from "./base.ts";
-import {
-  type Local,
-  RefType,
-  type RefTypeObject,
-  ValueType,
-  valueTypeLiteral,
-} from "../types.ts";
+import { type Local, RefType, type RefTypeObject, ValueType, valueTypeLiteral } from "../types.ts";
 import { type LocalContext, StackVar } from "../local-context.ts";
 import { globalGet, localGet } from "./variable-get.ts";
 import { type Input, processStackArgs } from "./stack-args.ts";
 
-export {
-  localOps,
-  bindLocalOps,
-  globalOps,
-  bindGlobalOps,
-  globalConstructor,
-  refOps,
-};
+export { localOps, bindLocalOps, globalOps, bindGlobalOps, globalConstructor, refOps };
 
 const localOps = {
   get: localGet,
   set: baseInstruction("local.set", U32, {
     create({ locals }, x: Local) {
       let local = locals[x.index];
-      if (local === undefined)
-        throw Error(`local with index ${x.index} not available`);
+      if (local === undefined) throw Error(`local with index ${x.index} not available`);
       return { in: [local], out: [] };
     },
     resolve: (_, x: Local) => x.index,
@@ -37,8 +23,7 @@ const localOps = {
   tee: baseInstruction("local.tee", U32, {
     create({ locals }, x: Local) {
       let type = locals[x.index];
-      if (type === undefined)
-        throw Error(`local with index ${x.index} not available`);
+      if (type === undefined) throw Error(`local with index ${x.index} not available`);
       return { in: [type], out: [type] };
     },
     resolve: (_, x: Local) => x.index,
@@ -51,21 +36,11 @@ function bindLocalOps(ctx: LocalContext) {
       return localOps.get(ctx, x) as StackVar<T>;
     },
     set: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      processStackArgs(
-        ctx,
-        "local.set",
-        [x.type],
-        value === undefined ? [] : [value]
-      );
+      processStackArgs(ctx, "local.set", [x.type], value === undefined ? [] : [value]);
       return localOps.set(ctx, x);
     },
     tee: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      processStackArgs(
-        ctx,
-        "local.tee",
-        [x.type],
-        value === undefined ? [] : [value]
-      );
+      processStackArgs(ctx, "local.tee", [x.type], value === undefined ? [] : [value]);
       return localOps.tee(ctx, x) as StackVar<L["type"]>;
     },
   };
@@ -93,16 +68,8 @@ function bindGlobalOps(ctx: LocalContext) {
     get: function <T extends ValueType>(x: Dependency.AnyGlobal<T>) {
       return globalOps.get(ctx, x) as StackVar<T>;
     },
-    set: function <G extends Dependency.AnyGlobal>(
-      x: G,
-      value?: Input<G["type"]["value"]>
-    ) {
-      processStackArgs(
-        ctx,
-        "global.set",
-        [x.type.value],
-        value === undefined ? [] : [value]
-      );
+    set: function <G extends Dependency.AnyGlobal>(x: G, value?: Input<G["type"]["value"]>) {
+      processStackArgs(ctx, "global.set", [x.type.value], value === undefined ? [] : [value]);
       return globalOps.set(ctx, x);
     },
   };
@@ -110,7 +77,7 @@ function bindGlobalOps(ctx: LocalContext) {
 
 function globalConstructor<T extends ValueType>(
   init: Const.t<T>,
-  { mutable = false } = {}
+  { mutable = false } = {},
 ): Dependency.Global<T> {
   let deps = init.deps as Dependency.Global<T>["deps"];
   let type = init.type.results[0];

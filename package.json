@@ -15,7 +15,13 @@
     "build": "tsc",
     "clean": "rm -rf build",
     "prepublishOnly": "npm run clean && npm run build && npm test",
-    "check": "tsc --noEmit && tsc --project examples"
+    "check": "tsc --noEmit && tsc --project examples",
+    "format": "prettier --write '{src,examples}/**/*.ts'",
+    "format:check": "prettier --check '{src,examples}/**/*.ts'",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "{src,examples}/**/*.ts": "prettier --write"
   },
   "files": [
     "src",
@@ -36,6 +42,9 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.9",
     "typescript": "^7.0.2",
     "wabt": "^1.0.36"
   }

@@ -14,9 +14,9 @@ npm i wasmati
 
 ```ts
 // example.ts
-import { i64, func, Module } from "wasmati";
+import { i64, func, params, Module } from "wasmati";
 
-const myMultiply = func({ in: [i64, i64], out: [i64] }, ([x, y]) => {
+const myMultiply = func({ in: params({ x: i64 }, { y: i64 }), out: [i64] }, ({ x, y }) => {
   i64.mul(x, y);
 });
 
@@ -45,7 +45,7 @@ $ node example.ts
 - **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
 ```ts
-const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
+const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
   local.get(x);
   local.get(y);
   i32.add();
@@ -58,7 +58,7 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
 - Optional syntax sugar to reduce boilerplate assembly like `local.get` and `i32.const`
 
 ```ts
-const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
+const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
   i32.add(x, y); // local.get(x), local.get(y) are filled in
   i32.shl($, 2); // $ is the top of the stack; i32.const(2) is filled in
   call(otherFunction);
@@ -66,9 +66,9 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
 
 // or also
 
-const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
+const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
   let z = i32.add(x, y);
-  call(otherFunction, [i32.shl(z, 2)]);
+  call(otherFunction, { value: i32.shl(z, 2) });
 });
 ```
 
@@ -76,8 +76,8 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
 
 ```ts
 const myFunction = func(
-  { in: [i32, i32], locals: [i64], out: [i32] },
-  ([x, y], [u]) => {
+  { in: params({ x: i32 }, { y: i32 }), locals: { u: i64 }, out: [i32] },
+  ({ x, y }, { u }) => {
     i32.add(x, u); // type error: Type '"i64"' is not assignable to type '"i32"'.
   }
 );
@@ -97,25 +97,25 @@ Error: i32.add: Expected i32 on the stack, got i64.
 let mem = memory({ min: 10 });
 
 let module = Module({ exports: { myFunction, mem } });
-let instance = await module.instantiate();
+let { instance } = await module.instantiate();
 ```
 
 - **Excellent type inference.** Example: Exported function types are inferred from `func` definitions:
 
 ```ts
 instance.exports.myFunction;
-//                 ^ (arg_0: number, arg_1: number) => number
+//                 ^ (x: number, y: number) => number
 ```
 
 - **Atomic import declaration.** Imports are declared as types along with their JS values. Abstracts away the global "import object" that is separate from "import declaration".
 
 ```ts
-const consoleLog = importFunc({ in: [i32], out: [] }, (x) =>
+const consoleLog = importFunc({ in: params({ x: i32 }), out: [] }, (x) =>
   console.log("logging from wasm:", x)
 );
 
-const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
-  call(consoleLog, [x]);
+const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
+  call(consoleLog, { x });
   i32.add(x, y);
 });
 ```
@@ -125,13 +125,13 @@ const myFunction = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
     - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
 
-- **Name and custom sections.** Read and write module, function, parameter and local names with `module.module.names`, or supply them as `Module({ exports, names })`. Name maps use Wasm indices (including imports); local indices include parameters. Other custom sections are preserved in `module.module.customSections` and can be supplied as `Module({ exports, customSections })`.
+- Named parameters and debug names. `in: params({ x: i32 }, { y: i64 })` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback.
 
 ### Features that aren't implemented yet
 
 _PRs welcome!_
 
-- **Wasmati build.** We want to add an optional build step which takes as input a file that exports your `Module`, and compiles it to a file which doesn't depend on wasmati at runtime. Instead, it hard-codes the Wasm bytecode as base64 string, correctly imports all dependencies (imports) for the instantiation like the original file did, instantiates the module (top-level await) and exports the module's exports.
+- **Wasmati build.** We want to add an optional build step which takes as input a file that exports your `Module`, and compiles it to a file which doesn't depend on wasmati at runtime. Instead, it hard-codes the Wasm bytecode as base64 string, correctly imports all dependencies (imports) for the instantiation like the original file did, instantiates the module (top-level await) and exports the module's instance.exports.
 
 ```ts
 // example.ts

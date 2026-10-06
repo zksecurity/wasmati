@@ -1,4 +1,5 @@
 import {
+  params,
   i32,
   func,
   type Local,
@@ -11,7 +12,7 @@ import {
   br,
   type Input,
   $,
-} from "wasmati";
+} from "../../src/index.ts";
 
 let p = 0x40000000000000000000000000000000224698fc094cf91b992d30ed00000001n;
 
@@ -30,11 +31,11 @@ let P = bigintToLimbs(p);
  */
 const add = func(
   {
-    in: [i32, i32, i32],
-    locals: [i32],
+    in: params({ z: i32 }, { x: i32 }, { y: i32 }),
+    locals: { zi: i32 },
     out: [],
   },
-  ([z, x, y], [zi]) => {
+  ({ z, x, y }, { zi }) => {
     // z = x + y
     for (let i = 0; i < n; i++) {
       // zi = x[i] + y[i] + carry
@@ -64,7 +65,7 @@ const add = func(
       if (i < n - 1) i32.shr_s(zi, w);
       storeLimb(z, i, i32.and(zi, wordMax));
     }
-  }
+  },
 );
 
 function loadLimb(x: Local<i32>, i: number) {

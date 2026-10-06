@@ -5,14 +5,8 @@
  * indices for them.
  */
 
-import {
-  FunctionType,
-  GlobalType,
-  MemoryType,
-  RefType,
-  TableType,
-  ValueType,
-} from "./types.ts";
+import { FunctionType, GlobalType, MemoryType, RefType, TableType, ValueType } from "./types.ts";
+import type { Parameters } from "./parameters.ts";
 import { Byte } from "./binable.ts";
 
 export {
@@ -69,6 +63,9 @@ function type(type: FunctionType): Type {
 
 type Func = {
   kind: "function";
+  params: Parameters;
+  name?: string;
+  localNames?: Record<number, string>;
   type: FunctionType;
   locals: ValueType[];
   body: Instruction[];
@@ -123,6 +120,8 @@ type Elem = {
 type ImportPath = { module?: string; string?: string };
 type ImportFunc = ImportPath & {
   kind: "importFunction";
+  name?: string;
+  params: Parameters;
   type: FunctionType;
   value: Function;
   deps: [];
@@ -212,14 +211,7 @@ namespace Const {
   export type globalGet<T extends ValueType> = ConstInstruction<T> & {
     string: "global.get";
   };
-  export type t_ =
-    | i32
-    | i64
-    | f32
-    | f64
-    | refNull<RefType>
-    | refFunc
-    | globalGet<ValueType>;
+  export type t_ = i32 | i64 | f32 | f64 | refNull<RefType> | refFunc | globalGet<ValueType>;
   export type t<T extends ValueType> = ConstInstruction<T> & {
     string: t_["string"];
   };
@@ -279,8 +271,7 @@ const Const = {
     };
   },
   globalGet<T extends ValueType>(global: Global<T>): Const.globalGet<T> {
-    if (global.type.mutable)
-      throw Error("global in a const expression can not be mutable");
+    if (global.type.mutable) throw Error("global in a const expression can not be mutable");
     return {
       string: "global.get",
       type: { args: [], results: [global.type.value] },

@@ -142,10 +142,7 @@ function toSLEB128(x0: bigint | number): number[] {
   while (true) {
     let byte = Number(x & 0b0111_1111n);
     x >>= 7n;
-    if (
-      (x === 0n && (byte & 0b0100_0000) === 0) ||
-      (x === -1n && (byte & 0b0100_0000) !== 0)
-    ) {
+    if ((x === 0n && (byte & 0b0100_0000) === 0) || (x === -1n && (byte & 0b0100_0000) !== 0)) {
       bytes.push(byte);
       return bytes;
     }

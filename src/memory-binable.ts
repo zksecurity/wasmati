@@ -1,13 +1,4 @@
-import {
-  Binable,
-  Byte,
-  constant,
-  iso,
-  or,
-  record,
-  tuple,
-  withValidation,
-} from "./binable.ts";
+import { Binable, Byte, constant, iso, or, record, tuple, withValidation } from "./binable.ts";
 import { U32, vec } from "./immediate.ts";
 import { ConstExpression, Expression } from "./instruction/binable.ts";
 import { FunctionIndex, GlobalType, RefType, TableIndex } from "./types.ts";
@@ -37,26 +28,17 @@ const PassiveData = withU32(
   record({
     mode: constant("passive" as const),
     init: vec(Byte),
-  })
+  }),
 );
 
 type ActiveDataMultiMemory = {
   init: Byte[];
   mode: { memory: U32; offset: ConstExpression };
 };
-const ActiveDataMultiMemory = withU32(
-  2,
-  record({ mode: Offset, init: vec(Byte) })
-);
+const ActiveDataMultiMemory = withU32(2, record({ mode: Offset, init: vec(Byte) }));
 
-const Data: Binable<Data> = or(
-  [ActiveData, PassiveData, ActiveDataMultiMemory],
-  (t: Data) =>
-    t.mode === "passive"
-      ? PassiveData
-      : t.mode.memory === 0
-      ? ActiveData
-      : ActiveDataMultiMemory
+const Data: Binable<Data> = or([ActiveData, PassiveData, ActiveDataMultiMemory], (t: Data) =>
+  t.mode === "passive" ? PassiveData : t.mode.memory === 0 ? ActiveData : ActiveDataMultiMemory,
 );
 
 type Elem = {
@@ -86,13 +68,9 @@ const Elem = Binable<Elem>({
     let isPassive = Number(typeof mode === "string");
     let isExplicit = Number(!(type === "funcref" && isFuncIdx(init)));
     let isBit1 = Number(
-      typeof mode !== "string"
-        ? mode.table !== 0 && !isExplicit
-        : mode === "declarative"
+      typeof mode !== "string" ? mode.table !== 0 && !isExplicit : mode === "declarative",
     );
-    let bytes = U32.toBytes(
-      (isPassive << 0) | (isBit1 << 1) | (isExplicit << 2)
-    );
+    let bytes = U32.toBytes((isPassive << 0) | (isBit1 << 1) | (isExplicit << 2));
     // in active mode, write table and offset
     if (typeof mode !== "string") {
       let table = isBit1 ? TableIndex.toBytes(mode.table) : [];
@@ -100,8 +78,7 @@ const Elem = Binable<Elem>({
       bytes.push(...table, ...offset);
     }
     // write type
-    let typeBytes =
-      isPassive | isBit1 ? (isExplicit ? RefType.toBytes(type) : [0x00]) : [];
+    let typeBytes = isPassive | isBit1 ? (isExplicit ? RefType.toBytes(type) : [0x00]) : [];
     bytes.push(...typeBytes);
     // write init
     let initBytes = isExplicit
@@ -146,9 +123,8 @@ function withU32<T>(code: number, binable: Binable<T>): Binable<T> {
   return second(
     code,
     withValidation(tuple([U32, binable]), ([code_]) => {
-      if (code !== code_)
-        throw Error(`invalid u32 code, expected ${code}, got ${code_}`);
-    })
+      if (code !== code_) throw Error(`invalid u32 code, expected ${code}, got ${code_}`);
+    }),
   );
 }
 

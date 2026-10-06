@@ -39,10 +39,7 @@ export {
 };
 
 const nameToInstruction: Record<string, BaseInstruction> = {};
-const opcodeToInstruction: Record<
-  number,
-  BaseInstruction | Record<number, BaseInstruction>
-> = {};
+const opcodeToInstruction: Record<number, BaseInstruction | Record<number, BaseInstruction>> = {};
 
 type BaseInstruction = {
   string: string;
@@ -60,7 +57,7 @@ function baseInstruction<
   CreateArgs extends Tuple<any>,
   ResolveArgs extends Tuple<any>,
   Args extends Tuple<ValueType> | ValueType[],
-  Results extends Tuple<ValueType> | ValueType[]
+  Results extends Tuple<ValueType> | ValueType[],
 >(
   string: InstructionName,
   immediate: Binable<Immediate> | undefined = undefined,
@@ -78,11 +75,8 @@ function baseInstruction<
       resolveArgs?: ResolveArgs;
     };
     resolve?(deps: number[], ...args: ResolveArgs): Immediate;
-  }
-): ((
-  ctx: LocalContext,
-  ...createArgs: CreateArgs
-) => Instruction_<Args, Results>) & {
+  },
+): ((ctx: LocalContext, ...createArgs: CreateArgs) => Instruction_<Args, Results>) & {
   create(ctx: LocalContext, ...createArgs: CreateArgs): Dependency.Instruction;
 } {
   resolve ??= noResolve;
@@ -93,15 +87,10 @@ function baseInstruction<
     opcodeToInstruction[opcode] = instruction;
   } else {
     opcodeToInstruction[opcode[0]] ??= {} as Record<number, BaseInstruction>;
-    (opcodeToInstruction[opcode[0]] as Record<number, BaseInstruction>)[
-      opcode[1]
-    ] = instruction;
+    (opcodeToInstruction[opcode[0]] as Record<number, BaseInstruction>)[opcode[1]] = instruction;
   }
 
-  function wrapCreate(
-    ctx: LocalContext,
-    ...createArgs: CreateArgs
-  ): Dependency.Instruction {
+  function wrapCreate(ctx: LocalContext, ...createArgs: CreateArgs): Dependency.Instruction {
     let {
       in: args,
       out: results,
@@ -129,16 +118,16 @@ function baseInstruction<
         results.length === 0
           ? undefined
           : results.length === 1
-          ? StackVar(results[0])
-          : results.map(StackVar)
+            ? StackVar(results[0])
+            : results.map(StackVar)
       ) as Instruction_<Args, Results>;
     },
-    { create: wrapCreate }
+    { create: wrapCreate },
   );
 }
 
 function isInstruction(
-  value: BaseInstruction | Record<number, BaseInstruction>
+  value: BaseInstruction | Record<number, BaseInstruction>,
 ): value is BaseInstruction {
   return "opcode" in value;
 }
@@ -150,8 +139,8 @@ type Instruction<Args, Results> = {
 type Instruction_<Args, Results> = Results extends []
   ? void
   : Results extends [ValueType]
-  ? StackVar<Results[0]>
-  : Instruction<Args, Results>;
+    ? StackVar<Results[0]>
+    : Instruction<Args, Results>;
 
 /**
  * Instruction of constant type without dependencies,
@@ -162,13 +151,13 @@ type Instruction_<Args, Results> = Results extends []
 function baseInstructionWithImmediate<
   Args extends Tuple<ValueType>,
   Results extends Tuple<ValueType>,
-  Immediate extends any
+  Immediate extends any,
 >(
   name: InstructionName,
   immediate: Binable<Immediate> | undefined,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>,
-  validateImmediate?: (immediate: Immediate) => void
+  validateImmediate?: (immediate: Immediate) => void,
 ) {
   immediate = immediate === Undefined ? undefined : immediate;
   type CreateArgs = Immediate extends undefined ? [] : [immediate: Immediate];
@@ -177,25 +166,21 @@ function baseInstructionWithImmediate<
     out: valueTypeLiterals<Results>(results),
   };
 
-  return baseInstruction<Immediate, CreateArgs, CreateArgs, Args, Results>(
-    name,
-    immediate,
-    {
-      create:
-        // validate immediate if we have a validation callback
-        validateImmediate && immediate !== undefined
-          ? (_ctx, ...args) => {
-              validateImmediate(args[0] as Immediate);
-              return instr;
-            }
-          : () => instr,
-    }
-  );
+  return baseInstruction<Immediate, CreateArgs, CreateArgs, Args, Results>(name, immediate, {
+    create:
+      // validate immediate if we have a validation callback
+      validateImmediate && immediate !== undefined
+        ? (_ctx, ...args) => {
+            validateImmediate(args[0] as Immediate);
+            return instr;
+          }
+        : () => instr,
+  });
 }
 
 function resolveInstruction(
   { string: name, deps, resolveArgs }: Dependency.Instruction,
-  depToIndex: Map<Dependency.t, number>
+  depToIndex: Map<Dependency.t, number>,
 ): ResolvedInstruction {
   let instr = lookupInstruction(name);
   let depIndices: number[] = [];
@@ -230,7 +215,7 @@ function createExpressionWithType(
   name: LocalContext["frames"][number]["opcode"],
   ctx: LocalContext,
   type: FunctionTypeInput,
-  run: (label: RandomLabel) => void
+  run: (label: RandomLabel) => void,
 ): {
   body: Dependency.Instruction[];
   type: FunctionType;
@@ -257,15 +242,11 @@ function createExpressionWithType(
         ...ctx.frames,
       ],
     },
-    () => run(label)
+    () => run(label),
   );
   popStack(subCtx, results);
   if (stack.length !== 0)
-    throw Error(
-      `expected stack to be empty at the end of block, got ${formatStack(
-        stack
-      )}`
-    );
+    throw Error(`expected stack to be empty at the end of block, got ${formatStack(stack)}`);
   let { body } = subCtx;
   return { body, type: { args, results }, deps: body.flatMap((i) => i.deps) };
 }
@@ -295,13 +276,8 @@ function lookupOpcode(opcode: number) {
   return instr;
 }
 
-function lookupSubcode(
-  opcode: number,
-  subcode: number,
-  codes: Record<number, BaseInstruction>
-) {
+function lookupSubcode(opcode: number, subcode: number, codes: Record<number, BaseInstruction>) {
   let instr = codes[subcode];
-  if (instr === undefined)
-    throw Error(`invalid opcode (${opcode}, ${subcode})`);
+  if (instr === undefined) throw Error(`invalid opcode (${opcode}, ${subcode})`);
   return instr;
 }

@@ -16,14 +16,7 @@ import type { Tuple } from "../util.ts";
 import type { InstructionName } from "./opcodes.ts";
 import { type Input, processStackArgs } from "./stack-args.ts";
 
-export {
-  memoryOps,
-  dataOps,
-  tableOps,
-  elemOps,
-  memoryInstruction,
-  memoryLaneInstruction,
-};
+export { memoryOps, dataOps, tableOps, elemOps, memoryInstruction, memoryLaneInstruction };
 
 const memoryOps = {
   size: baseInstruction("memory.size", MemoryIndex, {
@@ -125,11 +118,7 @@ const tableOps = {
     resolve: ([elemIdx, tableIdx]) => [elemIdx, tableIdx],
   }),
   copy: baseInstruction("table.init", tuple([TableIndex, TableIndex]), {
-    create(
-      _: LocalContext,
-      table1: Dependency.Table,
-      table2: Dependency.Table
-    ) {
+    create(_: LocalContext, table1: Dependency.Table, table2: Dependency.Table) {
       return {
         in: ["i32", "i32", "i32"],
         out: [],
@@ -188,12 +177,12 @@ const MemArg = record({ align: U32, offset: U32 });
 
 function memoryInstruction<
   const Args extends Tuple<ValueType>,
-  const Results extends Tuple<ValueType>
+  const Results extends Tuple<ValueType>,
 >(
   name: InstructionName,
   bits: number,
   args: ValueTypeObjects<Args>,
-  results: ValueTypeObjects<Results>
+  results: ValueTypeObjects<Results>,
 ): ((...args: [] | Args) => any) extends (...args: infer P) => any
   ? (
       ctx: LocalContext,
@@ -233,14 +222,11 @@ function memoryInstruction<
 type MemArgAndLane = { memArg: MemArg; lane: U8 };
 const MemArgAndLane = record({ memArg: MemArg, lane: U8 });
 
-function memoryLaneInstruction<
-  Args extends Tuple<ValueType>,
-  Results extends Tuple<ValueType>
->(
+function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueType>>(
   name: InstructionName,
   bits: number,
   args: ValueTypeObjects<Args>,
-  results: ValueTypeObjects<Results>
+  results: ValueTypeObjects<Results>,
 ): ((...args: [] | Args) => any) extends (...args: infer P) => any
   ? (
       ctx: LocalContext,
@@ -280,7 +266,7 @@ function memoryLaneInstruction<
 function memArgFromInput(
   name: string,
   bits: number,
-  { offset = 0, align = bits / 8 }: { offset?: number; align?: number }
+  { offset = 0, align = bits / 8 }: { offset?: number; align?: number },
 ) {
   let alignExponent = Math.log2(align);
   if (!Number.isInteger(alignExponent)) {

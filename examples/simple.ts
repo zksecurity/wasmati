@@ -1,7 +1,7 @@
 // run with `node examples/simple.ts`
-import { i64, func, Module } from "../src/index.ts";
+import { params, i64, func, Module } from "../src/index.ts";
 
-const myFunction = func({ in: [i64, i64], out: [i64] }, ([x, y]) => {
+const myFunction = func({ in: params({ x: i64 }, { y: i64 }), out: [i64] }, ({ x, y }) => {
   i64.mul(x, y);
 });
 

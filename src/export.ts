@@ -12,9 +12,10 @@ import {
   valueTypeLiteral,
   valueTypeLiterals,
 } from "./types.ts";
-import type { ToTypeTuple } from "./func.ts";
+import type { JSFunction, ToTypeTuple } from "./func.ts";
 import type { Tuple } from "./util.ts";
 import * as Dependency from "./dependency.ts";
+import type { Parameters, ParameterEntry } from "./parameters.ts";
 import type { ImportFunc } from "./func-types.ts";
 import { dataConstructor } from "./memory.ts";
 
@@ -73,33 +74,41 @@ const Import = record<Import>({
   description: ImportDescription,
 });
 
+/** Declare a native JS import with ordered named parameters and a return type checked against its Wasm results. */
 function importFunc<
-  const Args extends Tuple<ValueType>,
-  const Results extends Tuple<ValueType>
+  const Args extends readonly ParameterEntry[] = [],
+  const Results extends Tuple<ValueType> = [],
 >(
   {
+    name: inputName,
     in: args_,
     out: results_,
   }: {
-    in: ToTypeTuple<Args>;
+    name?: string;
+    in: Parameters<Args>;
     out: ToTypeTuple<Results>;
   },
-  run: Function
-): ImportFunc<Args, Results> {
-  let args = valueTypeLiterals<Args>(args_);
-  let results = valueTypeLiterals<Results>(results_);
-  let type = { args, results };
-  return { kind: "importFunction", type, deps: [], value: run };
+  run: NoInfer<JSFunction<ImportFunc<Parameters<Args>, Results>>>,
+): ImportFunc<Parameters<Args>, Results> {
+  const type = { args: args_.types, results: valueTypeLiterals<Results>(results_) };
+  const name = inputName ?? (run.name || undefined);
+  return {
+    kind: "importFunction",
+    params: args_,
+    type,
+    deps: [],
+    value: run,
+    ...(name === undefined ? {} : { name }),
+  };
 }
 
 function importGlobal<V extends ValueType>(
   type: Type<V>,
   value: JSValue<V>,
-  { mutable = false } = {}
+  { mutable = false } = {},
 ): Dependency.ImportGlobal<V> {
   let globalType = { value: valueTypeLiteral(type), mutable };
-  let valueType: WebAssembly.ValueType =
-    type.kind === "funcref" ? "anyfunc" : type.kind;
+  let valueType: WebAssembly.ValueType = type.kind === "funcref" ? "anyfunc" : type.kind;
   let value_ = new WebAssembly.Global({ value: valueType, mutable }, value);
   return { kind: "importGlobal", type: globalType, deps: [], value: value_ };
 }
@@ -118,8 +127,7 @@ function importMemory(
   ...content: (number[] | Uint8Array)[]
 ) {
   let type = { limits: { min, max, shared } };
-  let value =
-    memory ?? new WebAssembly.Memory({ initial: min, maximum: max, shared });
+  let value = memory ?? new WebAssembly.Memory({ initial: min, maximum: max, shared });
   let memory_: Dependency.ImportMemory = {
     kind: "importMemory",
     type,
@@ -128,10 +136,7 @@ function importMemory(
   };
   let offset = 0;
   for (let init of content) {
-    dataConstructor(
-      { memory: memory_, offset: Dependency.Const.i32(offset) },
-      init
-    );
+    dataConstructor({ memory: memory_, offset: Dependency.Const.i32(offset) }, init);
     offset += init.length;
   }
   return memory_;
