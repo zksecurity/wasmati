@@ -248,3 +248,14 @@ test("unreachable code has unknown operand types, which still constrain known on
   ])
     await assert.rejects(buildTextModule(parseWat(source)), /expected|reference/, source);
 });
+
+test("repeated export names survive decompilation, so the engine can reject them", async () => {
+  const parsed = parseWat('(module (func $f) (export "a" (func $f)) (export "a" (func $f)))');
+  assert.match(decompileModule(parsed), /exportEntries: \[\["a", f\], \["a", f\]\]/);
+  const rebuilt = await buildTextModule(parsed);
+  assert.deepEqual(
+    rebuilt.module.exports.map((e) => e.name),
+    ["a", "a"],
+  );
+  await assert.rejects(WebAssembly.compile(rebuilt.toBytes()), /Duplicate export name/);
+});

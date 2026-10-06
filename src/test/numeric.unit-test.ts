@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { func, i32, i64, f32, f64, v128, i64x2, Module } from "../index.ts";
+import { func, global, Const, i32, i64, f32, f64, v128, i32x4, i64x2, Module } from "../index.ts";
 import { F32, F64 } from "../immediate.ts";
 
 test("signed and unsigned greater-than use distinct instructions for i32 and i64", async () => {
@@ -50,4 +50,12 @@ test("i64x2.bitmask returns an i32", async () => {
   const bitmask = func({ in: [{ x: v128 }], out: [i32] }, ({ x }) => i64x2.bitmask(x));
   const module = Module({ exports: { bitmask } });
   assert.ok(WebAssembly.validate(module.toBytes()));
+});
+
+test("vector constants accept signed lanes and initialize globals", async () => {
+  const g = global(Const.v128("i32x4", [-1, 2, 0xffffffff, -0x80000000]));
+  const lane = func({ in: [], out: [i32] }, () => i32x4.extract_lane(0, global.get(g)));
+  const { instance } = await Module({ exports: { lane } }).instantiate();
+  assert.equal(instance.exports.lane(), -1);
+  assert.throws(() => Const.v128("i8x16", [256, ...Array(15).fill(0)] as any), /fit/);
 });

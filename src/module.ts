@@ -22,6 +22,7 @@ type Module = ReturnType<typeof ModuleConstructor>;
 
 function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   exports: inputExports,
+  exportEntries = [],
   memory: inputMemory,
   start: inputStart,
   name,
@@ -30,6 +31,11 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   dependencies: inputDependencies = [],
 }: {
   exports: Exports;
+  /**
+   * Further exports as ordered name-value pairs, after `exports`. Unlike in `exports`, names can repeat,
+   * which makes the module invalid; the decompiler uses this to reproduce such modules faithfully.
+   */
+  exportEntries?: [name: string, value: Dependency.Export][];
   memory?: Limits | Dependency.AnyMemory;
   start?: Dependency.AnyFunc;
   name?: string;
@@ -41,8 +47,12 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   // collect all dependencies (by kind)
   let dependencies = new Set<Dependency.t>();
   for (const dep of inputDependencies) pushDependency(dependencies, dep);
-  for (let name in inputExports) {
-    pushDependency(dependencies, inputExports[name]);
+  let allExports: [string, Dependency.Export][] = [
+    ...Object.entries(inputExports),
+    ...exportEntries,
+  ];
+  for (let [, exp] of allExports) {
+    pushDependency(dependencies, exp);
   }
   if (inputMemory !== undefined) {
     let memory = "kind" in inputMemory ? inputMemory : memoryConstructor(inputMemory);
@@ -175,8 +185,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
 
   // exports
   let exports: Export[] = [];
-  for (let name in inputExports) {
-    let exp = inputExports[name];
+  for (let [name, exp] of allExports) {
     let kind = Dependency.kindToExportKind[exp.kind];
     let value = depToIndex.get(exp)!;
     exports.push({ name, description: { kind, value } });

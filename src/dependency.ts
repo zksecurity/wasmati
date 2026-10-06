@@ -9,6 +9,14 @@ import { FunctionType, GlobalType, MemoryType, RefType, TableType, ValueType } f
 import type { Parameters } from "./parameters.ts";
 import { Byte } from "./binable.ts";
 import type { F32, F64 } from "./immediate.ts";
+import {
+  toV128Bytes,
+  type ShapeLength,
+  type ShapeType,
+  type V128,
+  type VectorShape,
+} from "./v128.ts";
+import type { TupleN } from "./util.ts";
 
 export {
   type t,
@@ -208,6 +216,7 @@ namespace Const {
   export type i64 = ConstInstruction<"i64"> & { string: "i64.const" };
   export type f32 = ConstInstruction<"f32"> & { string: "f32.const" };
   export type f64 = ConstInstruction<"f64"> & { string: "f64.const" };
+  export type v128 = ConstInstruction<"v128"> & { string: "v128.const" };
   export type refNull<T extends RefType> = ConstInstruction<T> & {
     string: "ref.null";
   };
@@ -215,7 +224,7 @@ namespace Const {
   export type globalGet<T extends ValueType> = ConstInstruction<T> & {
     string: "global.get";
   };
-  export type t_ = i32 | i64 | f32 | f64 | refNull<RefType> | refFunc | globalGet<ValueType>;
+  export type t_ = i32 | i64 | f32 | f64 | v128 | refNull<RefType> | refFunc | globalGet<ValueType>;
   export type t<T extends ValueType> = ConstInstruction<T> & {
     string: t_["string"];
   };
@@ -252,6 +261,17 @@ const Const = {
       type: { args: [], results: ["f64"] },
       deps: [],
       resolveArgs: [x],
+    };
+  },
+  v128<Shape extends VectorShape>(
+    shape: Shape,
+    value: TupleN<ShapeType[Shape], ShapeLength[Shape]>,
+  ): Const.v128 {
+    return {
+      string: "v128.const",
+      type: { args: [], results: ["v128"] },
+      deps: [],
+      resolveArgs: [toV128Bytes(...([shape, value] as V128))],
     };
   },
   refFuncNull: {
