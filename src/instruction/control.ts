@@ -27,7 +27,7 @@ import {
   type Instruction_,
 } from "./base.ts";
 import { Block, IfBlock } from "./binable.ts";
-import { type Input, type Inputs, processStackArgs } from "./stack-args.ts";
+import { type Input, processStackArgs } from "./stack-args.ts";
 
 export { control, bindControlOps, parametric };
 
@@ -192,14 +192,14 @@ function bindControlOps(ctx: LocalContext) {
   return {
     call: <F extends AnyFunc<any, any>>(
       func: F,
-      args?: Inputs<F["type"]["args"]>
+      args?: { [K in keyof F["params"]]: Input<F["params"][K]> }
     ): Instruction_<F["type"]["args"], F["type"]["results"]> => {
       if (args !== undefined) {
         processStackArgs(
           ctx,
           "call",
           func.type.args,
-          args as Input<ValueType>[]
+          Object.keys(func.params).map((name) => args[name]) as Input<ValueType>[]
         );
       }
       return call(ctx, func) as any;

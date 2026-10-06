@@ -12,7 +12,7 @@ import {
   valueTypeLiteral,
   valueTypeLiterals,
 } from "./types.ts";
-import type { ToTypeTuple } from "./func.ts";
+import type { JSFunction, ToTypeRecord, ToTypeTuple } from "./func.ts";
 import type { Tuple } from "./util.ts";
 import * as Dependency from "./dependency.ts";
 import type { ImportFunc } from "./func-types.ts";
@@ -73,23 +73,34 @@ const Import = record<Import>({
   description: ImportDescription,
 });
 
+/** Declare a JS import with named arguments and a return type checked against its Wasm results. */
 function importFunc<
-  const Args extends Tuple<ValueType>,
-  const Results extends Tuple<ValueType>
+  const Args extends Record<string, ValueType> = {},
+  const Results extends Tuple<ValueType> = []
 >(
   {
+    name: inputName,
     in: args_,
     out: results_,
   }: {
-    in: ToTypeTuple<Args>;
+    name?: string;
+    in: ToTypeRecord<Args>;
     out: ToTypeTuple<Results>;
   },
-  run: Function
+  run: NoInfer<JSFunction<ImportFunc<Args, Results>>>
 ): ImportFunc<Args, Results> {
-  let args = valueTypeLiterals<Args>(args_);
+  const keys = Object.keys(args_);
+  const params = Object.fromEntries(
+    keys.map((name) => [name, valueTypeLiteral(args_[name])])
+  ) as unknown as Args;
+  let args = Object.values(params);
   let results = valueTypeLiterals<Results>(results_);
   let type = { args, results };
-  return { kind: "importFunction", type, deps: [], value: run };
+  // Specialize the native import adapter once, rather than constructing entries per call.
+  const fields = keys.map((name, index) => `[${JSON.stringify(name)}]: args[${index}]`).join(", ");
+  const value = new Function("fn", `return (...args) => fn({ ${fields} })`)(run) as Function;
+  const name = inputName ?? (run.name || undefined);
+  return { kind: "importFunction", params, type, deps: [], value, ...(name === undefined ? {} : { name }) };
 }
 
 function importGlobal<V extends ValueType>(

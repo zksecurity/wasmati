@@ -10,7 +10,7 @@ import {
   block,
   br,
   type Input,
-} from "wasmati";
+} from "../../src/index.ts";
 
 let p = 0x40000000000000000000000000000000224698fc094cf91b992d30ed00000001n;
 
@@ -88,11 +88,11 @@ function isLower(x: Field, y: Field) {
 
 const add = func(
   {
-    in: [i32, i32, i32],
-    locals: [i32, i32, i32],
+    in: { zPtr: i32, xPtr: i32, yPtr: i32 },
+    locals: { xi: i32, yi: i32, zi: i32 },
     out: [],
   },
-  ([zPtr, xPtr, yPtr], [xi, yi, zi]) => {
+  ({ zPtr, xPtr, yPtr }, { xi, yi, zi }) => {
     let x = new MemoryField(xPtr, xi);
     let y = new MemoryField(yPtr, yi);
     let z = new MemoryField(zPtr, zi);
@@ -130,7 +130,7 @@ let module = Module({
   exports: { add, memory: memory({ min: 1 }) },
 });
 let {
-  instance: { exports: wasm },
+  exports: wasm,
 } = await module.instantiate();
 
 let offset = 0;
@@ -165,7 +165,7 @@ function benchWasm(x0: bigint, N: number) {
   let z = fromBigint(0n);
   let x = fromBigint(x0);
   for (let i = 0; i < N; i++) {
-    wasm.add(z, z, x);
+    wasm.add({ zPtr: z, xPtr: z, yPtr: x });
   }
   return toBigint(z);
 }

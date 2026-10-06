@@ -11,7 +11,7 @@ import {
   br,
   type Input,
   $,
-} from "wasmati";
+} from "../../src/index.ts";
 
 let p = 0x40000000000000000000000000000000224698fc094cf91b992d30ed00000001n;
 
@@ -30,11 +30,11 @@ let P = bigintToLimbs(p);
  */
 const add = func(
   {
-    in: [i32, i32, i32],
-    locals: [i32],
+    in: { z: i32, x: i32, y: i32 },
+    locals: { zi: i32 },
     out: [],
   },
-  ([z, x, y], [zi]) => {
+  ({ z, x, y }, { zi }) => {
     // z = x + y
     for (let i = 0; i < n; i++) {
       // zi = x[i] + y[i] + carry
@@ -80,10 +80,10 @@ function storeLimb(x: Local<i32>, i: number, s: Input<i32>) {
 let module = Module({
   exports: { add, memory: memory({ min: 1 }) },
 });
-let { instance } = await module.instantiate();
-let wasm = instance.exports;
+let { exports } = await module.instantiate();
+let wasm = exports;
 
-wasm.add satisfies (z: number, x: number, y: number) => void;
+wasm.add satisfies (args: { z: number; x: number; y: number }) => void;
 
 let offset = 0;
 
@@ -117,7 +117,7 @@ function benchWasm(x0: bigint, N: number) {
   let z = fromBigint(0n);
   let x = fromBigint(x0);
   for (let i = 0; i < N; i++) {
-    wasm.add(z, z, x);
+    wasm.add({ z, x: z, y: x });
   }
   return toBigint(z);
 }

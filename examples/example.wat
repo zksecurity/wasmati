@@ -1,4 +1,4 @@
-(module
+(module $example
   (type (;0;) (func (param i64)))
   (type (;1;) (func (param i32)))
   (type (;2;) (func (param funcref)))
@@ -7,15 +7,15 @@
   (type (;5;) (func (param i32 i32) (result i32)))
   (type (;6;) (func (param f64 f64 f64) (result f64)))
   (type (;7;) (func (param i32) (result i32)))
-  (import "" "f0" (func (;0;) (type 0)))
-  (import "" "f1" (func (;1;) (type 1)))
-  (import "" "f2" (func (;2;) (type 2)))
-  (import "" "f3" (func (;3;) (type 3)))
-  (import "" "f4" (func (;4;) (type 4)))
-  (import "" "g0" (global (;0;) i64))
-  (import "" "m0" (memory (;0;) 1 65536 shared))
-  (func (;5;) (type 5) (param i32 i32) (result i32)
-    (local v128 v128 i32)
+  (import "" "f0" (func $consoleLog64 (type 0)))
+  (import "" "f1" (func $consoleLog (type 1)))
+  (import "" "f2" (func $consoleLogFunc (type 2)))
+  (import "" "f3" (func $consoleLogF64 (type 3)))
+  (import "" "f4" (func $f4 (type 4)))
+  (import "" "g0" (global $importedGlobal i64))
+  (import "" "m0" (memory $memory 1 65536 shared))
+  (func $exportedFunc (type 5) (param $x i32) (param $doLog i32) (result i32)
+    (local $_ v128) (local $v v128) (local $y i32)
     ref.func 6
     call 2
     global.get 1
@@ -74,8 +74,8 @@
     drop
     drop
     atomic.fence)
-  (func (;6;) (type 5) (param i32 i32) (result i32)
-    (local i32 i32)
+  (func $myFunc (type 5) (param $x i32) (param $y i32) (result i32)
+    (local $tmp i32) (local $i i32)
     f64.const 0x1.2p+0 (;=1.125;)
     i64.trunc_sat_f64_s
     call 0
@@ -110,7 +110,7 @@
       local.get 2
       drop
     end)
-  (func (;7;) (type 6) (param f64 f64 f64) (result f64)
+  (func $fma (type 6) (param $x f64) (param $y f64) (param $z f64) (result f64)
     local.get 0
     f64x2.splat
     local.get 1

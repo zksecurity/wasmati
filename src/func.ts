@@ -18,6 +18,7 @@ import {
   type Type,
   TypeIndex,
   ValueType,
+  valueTypeLiteral,
   valueTypeLiterals,
 } from "./types.ts";
 import type { Tuple } from "./util.ts";
@@ -26,50 +27,54 @@ import type { Func } from "./func-types.ts";
 // external
 export { func, type Local };
 // internal
-export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple };
+export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple, type ToTypeRecord };
 
+/**
+ * Declare named parameters and locals, preserving each key's Wasm type in the callback.
+ * Parameter order follows Object.keys(signature.in). Local names follow their indices after grouping by type.
+ * An explicit signature.name or a named callback supplies the internal function's debug name; exports provide a fallback.
+ */
 function func<
-  const Args extends Tuple<ValueType>,
-  const Locals extends Tuple<ValueType>,
-  const Results extends Tuple<ValueType>
+  const Args extends Record<string, ValueType> = {},
+  const Results extends Tuple<ValueType> = [],
+  const Locals extends Record<string, ValueType> = {}
 >(
   ctx: LocalContext,
   signature: {
-    in: ToTypeTuple<Args>;
-    locals?: ToTypeTuple<Locals>;
+    name?: string;
+    in: ToTypeRecord<Args>;
+    locals?: ToTypeRecord<Locals>;
     out: ToTypeTuple<Results>;
   },
   run: (args: ToLocal<Args>, locals: ToLocal<Locals>, ctx: LocalContext) => void
 ): Func<Args, Results> {
   let {
     in: args,
-    locals = [] as ToTypeTuple<Locals>,
+    locals = {} as ToTypeRecord<Locals>,
     out: results,
   } = signature;
   ctx.stack = [];
-  let argsArray = valueTypeLiterals<Args>(args);
-  let localsArray = valueTypeLiterals<Locals>(locals);
+  const argNames = Object.keys(args);
+  const localKeys = Object.keys(locals);
+  const params = Object.fromEntries(
+    argNames.map((name) => [name, valueTypeLiteral(args[name])])
+  ) as unknown as Args;
+  let argsArray = Object.values(params);
+  let localsArray = localKeys.map((name) => valueTypeLiteral(locals[name]));
   let resultsArray = valueTypeLiterals<Results>(results);
-  let type: { args: Args; results: Results } & FunctionType = {
-    args: argsArray as any,
-    results: resultsArray as any,
-  };
+  let type = { args: argsArray, results: resultsArray };
   let nArgs = argsArray.length;
-  let argsInput = argsArray.map(
-    (type, index): Local => ({
-      kind: "local",
-      type,
-      index,
-    })
-  ) as ToLocal<Args>;
+  const argsInput = Object.fromEntries(argNames.map((name, index) => [
+    name, { kind: "local", type: params[name], index } satisfies Local,
+  ])) as ToLocal<Args>;
   let { sortedLocals, localIndices } = sortLocals(localsArray, nArgs);
-  let localsInput = localIndices.map(
-    (index, j): Local => ({
-      kind: "local",
-      type: localsArray[j],
-      index,
-    })
-  ) as ToLocal<Locals>;
+  const localsInput = Object.fromEntries(localKeys.map((name, j) => [
+    name, { kind: "local", type: localsArray[j], index: localIndices[j] } satisfies Local,
+  ])) as ToLocal<Locals>;
+  const localNames = Object.fromEntries([
+    ...argNames.map((name, index) => [index, name]),
+    ...localKeys.map((name, j) => [localIndices[j], name]),
+  ]);
   let stack: StackVar<ValueType>[] = [];
   let { body, deps } = withContext(
     ctx,
@@ -100,8 +105,12 @@ function func<
         );
     }
   );
+  const name = signature.name ?? (run.name || undefined);
   let func = {
     kind: "function",
+    params,
+    ...(name === undefined ? {} : { name }),
+    localNames,
     type,
     body,
     deps,
@@ -110,14 +119,7 @@ function func<
   return func;
 }
 
-// type inference of function signature
-
-// example:
-// type Test = JSFunction<Func<["i64", "i32"], ["i32"]>>;
-// ^ (arg_0: bigint, arg_1: number) => number
-
-type ObjectValues<T> = UnionToTuple<T[keyof T]>;
-
+// Named parameters retain each key's exact type; result tuples retain arity.
 type JSValues<T extends readonly ValueType[]> = {
   [i in keyof T]: JSValue<T[i]>;
 };
@@ -127,38 +129,19 @@ type ReturnValues<T extends readonly ValueType[]> = T extends []
   ? JSValue<T[0]>
   : JSValues<T>;
 
-type JSFunctionType_<Args extends ValueType[], Results extends ValueType[]> = (
-  ...arg: JSValues<Args>
-) => ReturnValues<Results>;
+type JSFunction<T extends Dependency.AnyFunc> = keyof T["params"] extends never
+  ? () => ReturnValues<T["type"]["results"]>
+  : (args: { [K in keyof T["params"]]: JSValue<T["params"][K]> }) => ReturnValues<T["type"]["results"]>;
 
-type JSFunction<T extends Dependency.AnyFunc> = JSFunctionType_<
-  T["type"]["args"],
-  T["type"]["results"]
->;
-
-type ToLocal<T extends Tuple<ValueType>> = {
+type ToLocal<T extends Record<string, ValueType>> = {
   [K in keyof T]: Local<T[K]>;
 };
 type ToTypeRecord<T extends Record<string, ValueType>> = {
-  [K in keyof T]: { kind: T[K] };
+  [K in keyof T]: Type<T[K]>;
 };
 type ToTypeTuple<T extends readonly ValueType[]> = {
   [K in keyof T]: Type<T[K]>;
 };
-
-// bad hack :/
-
-type UnionToIntersection<U> = (
-  U extends any ? (arg: U) => any : never
-) extends (arg: infer I) => void
-  ? I
-  : never;
-
-type UnionToTuple<T> = UnionToIntersection<
-  T extends any ? (t: T) => T : never
-> extends (_: any) => infer W
-  ? [...UnionToTuple<Exclude<T, W>>, W]
-  : [];
 
 type FinalizedFunc = {
   funcIdx: FunctionIndex;

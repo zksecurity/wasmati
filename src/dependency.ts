@@ -69,6 +69,9 @@ function type(type: FunctionType): Type {
 
 type Func = {
   kind: "function";
+  params: Record<string, ValueType>;
+  name?: string;
+  localNames?: Record<number, string>;
   type: FunctionType;
   locals: ValueType[];
   body: Instruction[];
@@ -123,6 +126,8 @@ type Elem = {
 type ImportPath = { module?: string; string?: string };
 type ImportFunc = ImportPath & {
   kind: "importFunction";
+  name?: string;
+  params: Record<string, ValueType>;
   type: FunctionType;
   value: Function;
   deps: [];

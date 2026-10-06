@@ -1,10 +1,10 @@
-import { i32, func, type Local, if_, return_, Module, memory, local } from "wasmati";
+import { i32, func, type Local, if_, return_, Module, memory, local } from "../../src/index.ts";
 
 const n = 9; // number of limbs
 
 const isGreater = func(
-  { in: [i32, i32], locals: [i32, i32], out: [i32] },
-  ([x, y], [xi, yi]) => {
+  { in: { x: i32, y: i32 }, locals: { xi: i32, yi: i32 }, out: [i32] },
+  ({ x, y }, { xi, yi }) => {
     for (let i = n - 1; i >= 0; i--) {
       // set xi = x[i] and yi = y[i]
       local.set(xi, loadLimb(x, i));
@@ -38,7 +38,7 @@ function loadLimb(x: Local<i32>, i: number) {
 
 let module = Module({ exports: { isGreater, memory: memory({ min: 1 }) } });
 let {
-  instance: { exports: wasm },
+  exports: wasm,
 } = await module.instantiate();
 
 let offset = 0;
@@ -59,6 +59,6 @@ function fromBigint(x0: bigint) {
 let x = fromBigint(20n);
 let y = fromBigint(19n);
 
-let isXGreater = wasm.isGreater(x, y);
+let isXGreater = wasm.isGreater({ x, y });
 
 console.log({ isXGreater });

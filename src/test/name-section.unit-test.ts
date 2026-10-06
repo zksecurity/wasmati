@@ -4,7 +4,7 @@ import wabtFactory from "wabt";
 import { Module, NameSection, func, i32 } from "../index.ts";
 import { Name, U32 } from "../immediate.ts";
 
-const add = func({ in: [i32, i32], out: [i32] }, ([x, y]) => {
+const add = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
   i32.add(x, y);
 });
 
@@ -21,8 +21,8 @@ test("public Module API emits readable module, function and local names", async 
   assert.equal(sections.length, 1);
   assert.deepEqual([...new Uint8Array(sections[0])], NameSection.toBytes(names));
   assert.deepEqual(Module.fromBytes(bytes).module.names, names);
-  const { instance } = await module.instantiate();
-  assert.equal(instance.exports.add(20, 22), 42);
+  const { exports } = await module.instantiate();
+  assert.equal(exports.add({ x: 20, y: 22 }), 42);
   const wabt = await wabtFactory();
   const decoded = wabt.readWasm(bytes, { readDebugNames: true });
   try {
@@ -54,8 +54,8 @@ test("decodes WABT names, including imported functions, parameters and locals", 
       locals: { 0: {}, 1: { 0: "x", 1: "y", 2: "tmp" } },
     });
     assert.deepEqual(Module.fromBytes(module.toBytes()).module.names, module.module.names);
-    const { instance } = await module.instantiate();
-    assert.equal(instance.exports.add(20, 22), 42);
+    const { exports } = await module.instantiate();
+    assert.equal(exports.add({ x: 20, y: 22 }), 42);
   } finally {
     parsed.destroy();
   }
@@ -86,8 +86,8 @@ test("custom sections survive before, between and after standard sections", asyn
   const recovered = Module.fromBytes<{ add: typeof add }>(module.toBytes());
   assert.deepEqual(recovered.module.customSections, customSections);
   assert.deepEqual(recovered.toBytes(), module.toBytes());
-  const { instance } = await recovered.instantiate();
-  assert.equal(instance.exports.add(20, 22), 42);
+  const { exports } = await recovered.instantiate();
+  assert.equal(exports.add({ x: 20, y: 22 }), 42);
   assert.throws(() => Module({ exports: {}, customSections: [{ name: "x", data: [], after: 255 }] }).toBytes(), /position/);
 });
 

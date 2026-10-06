@@ -13,7 +13,7 @@ import {
   TableType,
 } from "./types.ts";
 import { memoryConstructor } from "./memory.ts";
-import type { NameSection } from "./name-section.ts";
+import type { NameMap, NameSection } from "./name-section.ts";
 import type { CustomSection } from "./module-binable.ts";
 
 export { Module, type ModuleExport };
@@ -24,12 +24,14 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   exports: inputExports,
   memory: inputMemory,
   start: inputStart,
+  name,
   names,
   customSections,
 }: {
   exports: Exports;
   memory?: Limits | Dependency.AnyMemory;
   start?: Dependency.AnyFunc;
+  name?: string;
   names?: NameSection;
   customSections?: CustomSection[];
 }) {
@@ -181,6 +183,40 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     let value = depToIndex.get(exp)!;
     exports.push({ name, description: { kind, value } });
   }
+  // Resolve debug names only after dependency indices and sorted locals are known.
+  const generated: NameSection = name === undefined ? {} : { module: name };
+  for (const func of funcs0) {
+    if (func.name !== undefined) (generated.functions ??= {})[func.funcIdx] = func.name;
+    if (func.localNames !== undefined) (generated.locals ??= {})[func.funcIdx] = func.localNames;
+  }
+  dependencyByKind.importFunction.forEach((func, index) => {
+    const debugName = func.name ?? func.string;
+    if (debugName !== undefined) (generated.functions ??= {})[index] = debugName;
+    (generated.locals ??= {})[index] = Object.fromEntries(Object.keys(func.params).map((name, index) => [index, name]));
+  });
+  const exportNameMaps = {
+    function: "functions", global: "globals", table: "tables", memory: "memories",
+  } as const;
+  for (const { name, description: { kind, value } } of exports) {
+    const map: NameMap = generated[exportNameMaps[kind]] ??= {};
+    map[value] ??= name;
+  }
+  imports.filter((imp) => imp.description.kind === "function").forEach((entry, index) => {
+    (generated.functions ??= {})[index] ??= entry.name;
+  });
+  // Explicit metadata overrides inferred entries, preserving other generated names.
+  const mergedNames: NameSection = { ...generated, ...names };
+  for (const key of Object.values(exportNameMaps)) {
+    if (generated[key] !== undefined || names?.[key] !== undefined) {
+      mergedNames[key] = { ...generated[key], ...names?.[key] };
+    }
+  }
+  if (generated.locals !== undefined || names?.locals !== undefined) {
+    mergedNames.locals = { ...generated.locals, ...names?.locals };
+    for (const index of Object.keys(generated.locals ?? {}).map(Number)) {
+      mergedNames.locals[index] = { ...generated.locals?.[index], ...names?.locals?.[index] };
+    }
+  }
   let binableModule: BinableModule = {
     types,
     funcs,
@@ -192,32 +228,50 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     globals,
     memory,
     start,
-    ...(names === undefined ? {} : { names }),
+    ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(binableModule, importMap);
+  const parameters = Object.fromEntries(Object.entries(inputExports)
+    .filter(([, value]) => value.kind === "function" || value.kind === "importFunction")
+    .map(([name, value]) => [name, Object.keys((value as Dependency.AnyFunc).params)]));
+  return createModule<Exports>(binableModule, importMap, parameters);
 }
 
 function createModule<Exports extends Record<string, Dependency.Export>>(
   binableModule: BinableModule,
-  importMap: WebAssembly.Imports
+  importMap: WebAssembly.Imports,
+  parameters?: Record<string, string[]>
 ) {
   let module = {
     module: binableModule,
     importMap,
+    /** Instantiate native Wasm and return typed named exports alongside the native instance. */
     async instantiate() {
       let wasmByteCode = BinableModule.toBytes(binableModule);
-      return (await WebAssembly.instantiate(
-        Uint8Array.from(wasmByteCode),
-        importMap
-      )) as {
-        instance: WebAssembly.Instance & {
-          exports: {
-            [K in keyof Exports]: ModuleExport<Exports[K]>;
-          };
-        };
-        module: WebAssembly.Module;
-      };
+      const { instance, module } = await WebAssembly.instantiate(
+        Uint8Array.from(wasmByteCode), importMap
+      );
+      const importedTypes = binableModule.imports
+        .flatMap((imp) => imp.description.kind === "function" ? [imp.description.value] : []);
+      const exports = Object.fromEntries(binableModule.exports.map(({ name, description }) => {
+        const value = instance.exports[name];
+        if (description.kind !== "function") return [name, value];
+        const index = description.value;
+        const type = index < importedTypes.length
+          ? binableModule.types[importedTypes[index]]
+          : binableModule.funcs[index - importedTypes.length].type;
+        const keys = parameters?.[name] ?? type.args.map((_, i) => binableModule.names?.locals?.[index]?.[i]);
+        if (keys.some((key) => key === undefined) || new Set(keys).size !== keys.length) {
+          return [name, () => {
+            throw Error(`Named calls to "${name}" require unique parameter names; use instance.exports for native calls.`);
+          }];
+        }
+        // Compile direct property reads once, avoiding key iteration and arrays per call.
+        const args = keys.map((key) => `args[${JSON.stringify(key)}]`).join(", ");
+        const named = new Function("fn", `return args => fn(${args})`)(value);
+        return [name, named];
+      })) as { [K in keyof Exports]: ModuleExport<Exports[K]> };
+      return { instance, module, exports };
     },
     toBytes() {
       let bytes = BinableModule.toBytes(module.module);

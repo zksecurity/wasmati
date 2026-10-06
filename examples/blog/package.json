@@ -11,9 +11,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "wasmati": "^0.1.9"
-  },
   "devDependencies": {
     "typescript": "^7.0.2"
   }

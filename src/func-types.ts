@@ -4,29 +4,34 @@ import { ValueType } from "./types.ts";
 export type { Func, ImportFunc, AnyFunc };
 
 type Func<
-  Args extends readonly ValueType[],
+  Args extends Record<string, ValueType>,
   Results extends readonly ValueType[]
 > = {
   kind: "function";
+  name?: string;
+  localNames?: Record<number, string>;
   locals: ValueType[];
   body: Dependency.Instruction[];
   deps: Dependency.t[];
-  type: { args: Args; results: Results };
+  params: Args;
+  type: { args: ValueType[]; results: Results };
 };
 
 type ImportFunc<
-  Args extends readonly ValueType[],
+  Args extends Record<string, ValueType>,
   Results extends readonly ValueType[]
 > = {
   module?: string;
   string?: string;
   kind: "importFunction";
-  type: { args: Args; results: Results };
+  name?: string;
+  params: Args;
+  type: { args: ValueType[]; results: Results };
   value: Function;
   deps: [];
 };
 
 type AnyFunc<
-  Args extends readonly ValueType[],
+  Args extends Record<string, ValueType>,
   Results extends readonly ValueType[]
 > = Func<Args, Results> | ImportFunc<Args, Results>;
