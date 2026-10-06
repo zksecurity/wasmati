@@ -19,7 +19,7 @@ import type { Parameters, ParameterEntry } from "./parameters.ts";
 import type { ImportFunc } from "./func-types.ts";
 import { dataConstructor } from "./memory.ts";
 
-export { Export, Import, type ExternType, importFunc, importGlobal, importMemory };
+export { Export, Import, type ExternType, importFunc, importGlobal, importMemory, importTable };
 
 type ExternType =
   | { kind: "function"; value: FunctionType }
@@ -74,7 +74,7 @@ const Import = record<Import>({
   description: ImportDescription,
 });
 
-/** Declare a native JS import with ordered named parameters and a return type checked against its Wasm results. */
+/** Declare a typed native JS import. module/field optionally override its automatically assigned import path. */
 function importFunc<
   const Args extends readonly ParameterEntry[] = [],
   const Results extends Tuple<ValueType> = [],
@@ -83,17 +83,21 @@ function importFunc<
     name: inputName,
     in: args_,
     out: results_,
+    module,
+    field,
   }: {
     name?: string;
     in: Parameters<Args>;
     out: ToTypeTuple<Results>;
-  },
+  } & Dependency.ImportPath,
   run: NoInfer<JSFunction<ImportFunc<Parameters<Args>, Results>>>,
 ): ImportFunc<Parameters<Args>, Results> {
   const type = { args: args_.types, results: valueTypeLiterals<Results>(results_) };
   const name = inputName ?? (run.name || undefined);
   return {
     kind: "importFunction",
+    module,
+    field,
     params: args_,
     type,
     deps: [],
@@ -104,13 +108,16 @@ function importFunc<
 
 function importGlobal<V extends ValueType>(
   type: Type<V>,
-  value: JSValue<V>,
-  { mutable = false } = {},
+  value: JSValue<V> | WebAssembly.Global,
+  { mutable = false, module, field }: { mutable?: boolean } & Dependency.ImportPath = {},
 ): Dependency.ImportGlobal<V> {
   let globalType = { value: valueTypeLiteral(type), mutable };
   let valueType: WebAssembly.ValueType = type.kind === "funcref" ? "anyfunc" : type.kind;
-  let value_ = new WebAssembly.Global({ value: valueType, mutable }, value);
-  return { kind: "importGlobal", type: globalType, deps: [], value: value_ };
+  let value_ =
+    value instanceof WebAssembly.Global
+      ? value
+      : new WebAssembly.Global({ value: valueType, mutable }, value);
+  return { kind: "importGlobal", module, field, type: globalType, deps: [], value: value_ };
 }
 
 function importMemory(
@@ -118,11 +125,13 @@ function importMemory(
     min,
     max,
     shared = false,
+    module,
+    field,
   }: {
     min: number;
     max?: number;
     shared?: boolean;
-  },
+  } & Dependency.ImportPath,
   memory?: WebAssembly.Memory,
   ...content: (number[] | Uint8Array)[]
 ) {
@@ -130,6 +139,8 @@ function importMemory(
   let value = memory ?? new WebAssembly.Memory({ initial: min, maximum: max, shared });
   let memory_: Dependency.ImportMemory = {
     kind: "importMemory",
+    module,
+    field,
     type,
     deps: [],
     value,
@@ -140,4 +151,25 @@ function importMemory(
     offset += init.length;
   }
   return memory_;
+}
+
+/** Import an existing table, retaining its identity and element-segment dependencies. */
+function importTable(
+  {
+    type,
+    min,
+    max,
+    module,
+    field,
+  }: { type: Type<"funcref" | "externref">; min: number; max?: number } & Dependency.ImportPath,
+  value: WebAssembly.Table,
+): Dependency.ImportTable {
+  return {
+    kind: "importTable",
+    module,
+    field,
+    type: { type: type.kind, limits: { min, max, shared: false } },
+    value,
+    deps: [],
+  };
 }

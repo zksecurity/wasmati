@@ -256,7 +256,7 @@ const select_poly = baseInstruction("select", Undefined, {
 const select_t = baseInstruction("select_t", vec(ValueType), {
   create(_: LocalContext, t: ValueTypeObject) {
     let t_ = valueTypeLiteral(t);
-    return { in: ["i32", t_, t_], out: [t_], resolveArgs: [[t_]] };
+    return { in: [t_, t_, "i32"], out: [t_], resolveArgs: [[t_]] };
   },
 });
 

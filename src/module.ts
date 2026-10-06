@@ -27,6 +27,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   name,
   names,
   customSections,
+  dependencies: inputDependencies = [],
 }: {
   exports: Exports;
   memory?: Limits | Dependency.AnyMemory;
@@ -34,9 +35,12 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   name?: string;
   names?: NameSection;
   customSections?: CustomSection[];
+  /** Include declarations even when exports and the start function do not reference them. */
+  dependencies?: Dependency.t[];
 }) {
   // collect all dependencies (by kind)
   let dependencies = new Set<Dependency.t>();
+  for (const dep of inputDependencies) pushDependency(dependencies, dep);
   for (let name in inputExports) {
     pushDependency(dependencies, inputExports[name]);
   }
@@ -90,6 +94,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   let funcs0: (Dependency.Func & { typeIdx: number; funcIdx: number })[] = [];
   let nImportFuncs = dependencyByKind.importFunction.length;
   for (let func of dependencyByKind.function) {
+    if (!func.defined) throw Error(`Module: function ${func.name ?? "<unnamed>"} is not defined`);
     let typeIdx = pushType(types, func.type);
     let funcIdx = nImportFuncs + funcs0.length;
     funcs0.push({ ...func, typeIdx, funcIdx });
@@ -183,7 +188,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     if (func.localNames !== undefined) (generated.locals ??= {})[func.funcIdx] = func.localNames;
   }
   dependencyByKind.importFunction.forEach((func, index) => {
-    const debugName = func.name ?? func.string;
+    const debugName = func.name ?? func.field;
     if (debugName !== undefined) (generated.functions ??= {})[index] = debugName;
     (generated.locals ??= {})[index] = Object.fromEntries(
       func.params.names.map((name, index) => [index, name]),
@@ -305,7 +310,7 @@ function pushType(types: FunctionType[], type: FunctionType) {
 }
 
 function addImport(
-  { kind, module = "", string, value }: Dependency.AnyImport,
+  { kind, module = "", field, value }: Dependency.AnyImport,
   description: Import["description"],
   i: number,
   importMap: WebAssembly.Imports,
@@ -316,15 +321,15 @@ function addImport(
     importMemory: "m",
     importTable: "t",
   }[kind];
-  string ??= `${prefix}${i}`;
-  let import_ = { module, name: string, description };
+  field ??= `${prefix}${i}`;
+  let import_ = { module, name: field, description };
   let importModule = (importMap[module] ??= {});
-  if (string in importModule && importModule[string] !== value) {
+  if (field in importModule && importModule[field] !== value) {
     throw Error(
-      `Overwriting import "${module}" > "${string}" with different value. Use the same value twice instead.`,
+      `Overwriting import "${module}" > "${field}" with different value. Use the same value twice instead.`,
     );
   }
-  importModule[string] = value;
+  importModule[field] = value;
   return import_;
 }
 

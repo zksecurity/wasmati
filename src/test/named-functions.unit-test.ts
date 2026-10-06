@@ -22,8 +22,10 @@ import {
 } from "../index.ts";
 
 test("named parameters and grouped locals emit their actual Wasm indices", async () => {
-  const id = importFunc({ in: params({ value: i64 }), out: [i64] }, (value) => value);
-  id.string = "identity";
+  const id = importFunc(
+    { field: "identity", in: params({ value: i64 }), out: [i64] },
+    (value) => value,
+  );
   const helper = func(
     {
       name: "helper",

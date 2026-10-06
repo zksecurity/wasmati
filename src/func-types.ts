@@ -13,11 +13,12 @@ type Func<Args extends Parameters, Results extends readonly ValueType[]> = {
   deps: Dependency.t[];
   params: Args;
   type: { args: Args["types"]; results: Results };
+  defined: boolean;
 };
 
 type ImportFunc<Args extends Parameters, Results extends readonly ValueType[]> = {
   module?: string;
-  string?: string;
+  field?: string;
   kind: "importFunction";
   name?: string;
   params: Args;

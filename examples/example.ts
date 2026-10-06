@@ -32,10 +32,13 @@ import {
   importMemory,
   atomic,
   StackVar,
+  decompile,
 } from "../src/index.ts";
 import assert from "node:assert";
 import Wabt from "wabt";
 import { writeFile } from "../src/util-node.ts";
+import { format, resolveConfig } from "prettier";
+import { fileURLToPath } from "node:url";
 
 const wabt = await Wabt();
 
@@ -204,6 +207,16 @@ wabtModule.applyNames();
 let wat = wabtModule.toText({});
 await writeFile(import.meta.url.slice(7).replace(".ts", ".wat"), wat);
 
+// Keep the decompiled source alongside the WAT output for comparison.
+const decompiledPath = fileURLToPath(new URL("./example.decompiled.ts", import.meta.url));
+await writeFile(
+  decompiledPath,
+  await format(decompile(wasmByteCode, { importPath: "../src/index.ts" }), {
+    ...(await resolveConfig(decompiledPath)),
+    parser: "typescript",
+  }),
+);
+
 // instantiate
 let wasmModule = await module.instantiate();
 let { exports } = wasmModule.instance;
@@ -224,6 +237,14 @@ console.log({
   importedGlobal: exports.importedGlobal.value,
   memory: new Uint8Array(exports.memory.buffer, 0, 8),
 });
+
+// Execute the generated source using the same native imports.
+const { default: createDecompiledModule } = await import("./example.decompiled.ts");
+const rebuilt = await createDecompiledModule(module.importMap).instantiate();
+assert.equal(rebuilt.instance.exports.exportedFunc(10, 0), result);
+assert.equal(rebuilt.instance.exports.fma(2, 3, 4), exports.fma(2, 3, 4));
+assert.equal(rebuilt.instance.exports.memory, exports.memory);
+assert.equal(rebuilt.instance.exports.importedGlobal, exports.importedGlobal);
 
 // wabt features
 

@@ -98,7 +98,7 @@ const ConstExpression = Expression;
 const Empty = withByteCode(0x40, constant("empty"));
 
 type BlockType = "empty" | ValueType | U32;
-const BlockType = or([Empty, S33, ValueType], (t) =>
+const BlockType = or([Empty, ValueType, S33], (t) =>
   t === "empty" ? Empty : typeof t === "number" ? S33 : ValueType,
 );
 

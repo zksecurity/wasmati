@@ -1,0 +1,476 @@
+import * as api from "./index.ts";
+import type { Module as DecodedModule } from "./module-binable.ts";
+import type { ResolvedInstruction } from "./instruction/base.ts";
+import type { FunctionType, ValueType } from "./types.ts";
+
+export { decompile };
+
+/**
+ * Decode Wasm using the existing Binable codecs and emit editable, stack-style wasmati TypeScript.
+ * The default export is a module factory accepting the original WebAssembly import object.
+ * importPath chooses where the generated source imports wasmati (default: the published package).
+ * Unsupported builder constructs throw rather than embedding raw instructions or input bytes.
+ */
+function decompile(bytes: Uint8Array, { importPath = "wasmati" } = {}): string {
+  const module = api.Module.fromBytes(bytes).module;
+  return new Source(module, importPath).emit();
+}
+
+type Binding = { key: string; variable: string };
+
+// Allocation is deterministic; debug names need not be legal or unique TS identifiers.
+class Names {
+  private used: Set<string>;
+
+  constructor(declarations: string[] = []) {
+    this.used = new Set([
+      ...Object.keys(api),
+      ...declarations,
+      ..."eval arguments await break case catch class const continue debugger default delete do else enum export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof var void while with yield async abstract as asserts any boolean constructor declare get infer is keyof module namespace never number object of readonly require set string symbol type undefined unique unknown from global using NaN Infinity imports createModule args locals".split(
+        " ",
+      ),
+    ]);
+  }
+
+  take(name: string): string {
+    const base = name.replace(/[^a-zA-Z0-9_$]/g, "_").replace(/^(?=[0-9])/, "_") || "unnamed";
+    let candidate = base;
+    for (let n = 1; this.used.has(candidate); n++) candidate = `${base}_${n}`;
+    this.used.add(candidate);
+    return candidate;
+  }
+}
+
+class Source {
+  private names = new Names();
+  private functions: string[] = [];
+  private globals: string[] = [];
+  private tables: string[] = [];
+  private memories: string[] = [];
+  private datas: string[] = [];
+  private elems: string[] = [];
+  private parameters: Binding[][] = [];
+  private locals: Binding[][] = [];
+  private usedApi = new Set(["Module"]);
+  private lines: string[] = [];
+  private dependencies: string[] = [];
+
+  private module: DecodedModule;
+  private importPath: string;
+
+  constructor(module: DecodedModule, importPath: string) {
+    this.module = module;
+    this.importPath = importPath;
+  }
+
+  private use(name: string): string {
+    this.usedApi.add(name.split(".")[0]);
+    return name;
+  }
+
+  private line(text: string, indent = 1) {
+    this.lines.push(`${"  ".repeat(indent)}${text}`);
+  }
+
+  private name(kind: "functions" | "globals" | "tables" | "memories", index: number) {
+    const exportKind = {
+      functions: "function",
+      globals: "global",
+      tables: "table",
+      memories: "memory",
+    }[kind];
+    return (
+      this.module.names?.[kind]?.[index] ??
+      this.module.exports.find(
+        (e) => e.description.kind === exportKind && e.description.value === index,
+      )?.name ??
+      `${exportKind}${index}`
+    );
+  }
+
+  private bindings(index: number, types: ValueType[]): Binding[] {
+    const keys = new Set<string>();
+    const variables = new Names([
+      ...this.functions,
+      ...this.globals,
+      ...this.tables,
+      ...this.memories,
+      ...this.datas,
+      ...this.elems,
+    ]);
+    return types.map((_, i) => {
+      const base = this.module.names?.locals?.[index]?.[i] ?? `local${i}`;
+      let key = base;
+      for (let n = 1; keys.has(key); n++) key = `${base}_${n}`;
+      keys.add(key);
+      return { key, variable: variables.take(key) };
+    });
+  }
+
+  private signature(
+    index: number,
+    type: FunctionType,
+    locals: ValueType[] = [],
+    path?: { module: string; field: string },
+  ): string {
+    const bindings = this.bindings(index, [...type.args, ...locals]);
+    const parameters = (this.parameters[index] = bindings.slice(0, type.args.length));
+    this.locals[index] = bindings.slice(type.args.length);
+    const input = parameters
+      .map((b, i) => `{ ${property(b.key)}: ${this.use(type.args[i])} }`)
+      .join(", ");
+    const localEntries = this.locals[index]
+      .map((b, i) => `${property(b.key)}: ${this.use(locals[i])}`)
+      .join(", ");
+    const name = this.module.names?.functions?.[index];
+    return `{ ${path === undefined ? "" : `module: ${literal(path.module)}, field: ${literal(path.field)}, `}${name === undefined ? "" : `name: ${literal(name)}, `}in: ${this.use("params")}(${input}), ${locals.length ? `locals: { ${localEntries} }, ` : ""}out: [${type.results.map((t) => this.use(t)).join(", ")}] }`;
+  }
+
+  emit(): string {
+    // Allocate all function identities before globals/segments can reference them.
+    const importedFunctions = this.module.imports.filter(
+      (i) => i.description.kind === "function",
+    ).length;
+    for (let i = 0; i < importedFunctions + this.module.funcs.length; i++) {
+      this.functions.push(this.names.take(this.name("functions", i)));
+    }
+    for (const [kind, refs] of [
+      ["global", this.globals],
+      ["table", this.tables],
+      ["memory", this.memories],
+    ] as const) {
+      const count =
+        this.module.imports.filter((i) => i.description.kind === kind).length +
+        (kind === "global"
+          ? this.module.globals.length
+          : kind === "table"
+            ? this.module.tables.length
+            : Number(this.module.memory !== undefined));
+      const map = { global: "globals", table: "tables", memory: "memories" } as const;
+      for (let i = 0; i < count; i++) refs.push(this.names.take(this.name(map[kind], i)));
+    }
+    this.datas = this.module.datas.map((_, i) => this.names.take(`data${i}`));
+    this.elems = this.module.elems.map((_, i) => this.names.take(`elem${i}`));
+    const nextIndex = { function: 0, global: 0, table: 0, memory: 0 };
+    for (const imp of this.module.imports) {
+      const { kind, value } = imp.description;
+      const index = nextIndex[kind]++;
+      const path = { module: imp.module, field: imp.name };
+      const imported = `imports[${literal(imp.module)}]?.[${literal(imp.name)}]`;
+      let variable: string;
+      let expression: string;
+      switch (kind) {
+        case "function": {
+          variable = this.functions[index];
+          const type = this.module.types[value as number];
+          expression = `${this.use("importFunc")}(${this.signature(index, type, [], path)}, ${imported} as ${jsSignature(type)})`;
+          break;
+        }
+        case "global": {
+          variable = this.globals[index];
+          const type = value as Extract<typeof imp.description, { kind: "global" }>["value"];
+          expression = `${this.use("importGlobal")}(${this.use(type.value)}, ${imported} as WebAssembly.Global, ${literal({ mutable: type.mutable, ...path })})`;
+          break;
+        }
+        case "memory": {
+          variable = this.memories[index];
+          const type = value as Extract<typeof imp.description, { kind: "memory" }>["value"];
+          expression = `${this.use("importMemory")}(${literal({ ...type.limits, ...path })}, ${imported} as WebAssembly.Memory)`;
+          break;
+        }
+        case "table": {
+          variable = this.tables[index];
+          const type = value as Extract<typeof imp.description, { kind: "table" }>["value"];
+          expression = `${this.use("importTable")}({ type: ${this.use(type.type)}, ...${literal({ ...type.limits, ...path })} }, ${imported} as WebAssembly.Table)`;
+          break;
+        }
+      }
+      this.line(`const ${variable} = ${expression};`);
+      this.dependencies.push(variable);
+    }
+    for (const f of this.module.funcs) {
+      this.line(
+        `const ${this.functions[f.funcIdx]} = ${this.use("declareFunc")}(${this.signature(f.funcIdx, f.type, f.locals)});`,
+      );
+      this.dependencies.push(this.functions[f.funcIdx]);
+    }
+    for (const g of this.module.globals) {
+      const variable = this.globals[nextIndex.global++];
+      this.line(
+        `const ${variable} = ${this.use("global")}(${this.constant(g.init)}, { mutable: ${g.type.mutable} });`,
+      );
+      this.dependencies.push(variable);
+    }
+    for (const t of this.module.tables) {
+      const variable = this.tables[nextIndex.table++];
+      this.line(
+        `const ${variable} = ${this.use("table")}({ type: ${this.use(t.type)}, ...${literal(t.limits)} });`,
+      );
+      this.dependencies.push(variable);
+    }
+    if (this.module.memory) {
+      const variable = this.memories[nextIndex.memory++];
+      this.line(
+        `const ${variable} = ${this.use("memory")}(${literal(this.module.memory.limits)});`,
+      );
+      this.dependencies.push(variable);
+    }
+    for (const [index, d] of this.module.datas.entries()) {
+      const variable = this.datas[index];
+      const mode =
+        typeof d.mode === "string"
+          ? literal(d.mode)
+          : `{ memory: ${this.reference(this.memories, d.mode.memory)}, offset: ${this.constant(d.mode.offset)} }`;
+      this.line(`const ${variable} = ${this.use("data")}(${mode}, ${literal(d.init)});`);
+      this.dependencies.push(variable);
+    }
+    for (const [index, e] of this.module.elems.entries()) {
+      const variable = this.elems[index];
+      const mode =
+        typeof e.mode === "string"
+          ? literal(e.mode)
+          : `{ table: ${this.reference(this.tables, e.mode.table)}, offset: ${this.constant(e.mode.offset)} }`;
+      this.line(
+        `const ${variable} = ${this.use("elem")}({ type: ${this.use(e.type)}, mode: ${mode} }, [${e.init.map((init) => this.constant(init)).join(", ")}]);`,
+      );
+      this.dependencies.push(variable);
+    }
+    for (const f of this.module.funcs) {
+      const destructure = (bindings: Binding[]) =>
+        `{ ${bindings.map((b) => (b.key === b.variable ? b.key : `${literal(b.key)}: ${b.variable}`)).join(", ")} }`;
+      const args = this.parameters[f.funcIdx];
+      const locals = this.locals[f.funcIdx];
+      const callback = locals.length
+        ? `${destructure(args)}, ${destructure(locals)}`
+        : args.length
+          ? destructure(args)
+          : "";
+      this.line(`${this.functions[f.funcIdx]}.define((${callback}) => {`);
+      this.instructions(
+        f.body,
+        [...this.parameters[f.funcIdx], ...this.locals[f.funcIdx]].map((b) => b.variable),
+        2,
+      );
+      this.line("});");
+    }
+    // Unreferenced types also belong to the module, even if the builder deduplicates equal signatures.
+    for (const type of this.module.types) {
+      this.dependencies.push(`${this.use("Dependency")}.type(${literal(type)})`);
+    }
+    const exports = this.module.exports.map((e) => {
+      const refs = {
+        function: this.functions,
+        global: this.globals,
+        table: this.tables,
+        memory: this.memories,
+      };
+      const variable = this.reference(refs[e.description.kind], e.description.value);
+      return e.name === variable ? variable : `${property(e.name)}: ${variable}`;
+    });
+    this.line("return Module({");
+    if (this.module.names?.module !== undefined)
+      this.line(`name: ${literal(this.module.names.module)},`, 2);
+    this.line(`exports: { ${exports.join(", ")} },`, 2);
+    if (this.module.start !== undefined)
+      this.line(`start: ${this.reference(this.functions, this.module.start)},`, 2);
+    this.line(`dependencies: [${this.dependencies.join(", ")}],`, 2);
+    if (this.module.customSections?.length)
+      this.line(`customSections: ${literal(this.module.customSections)},`, 2);
+    this.line("});");
+    return `import { ${[...this.usedApi].sort().join(", ")} } from ${literal(this.importPath)};\n\nexport default function createModule(imports: WebAssembly.Imports = {}) {\n${this.lines.join("\n")}\n}\n`;
+  }
+
+  private reference(references: string[], index: number): string {
+    const ref = references[index];
+    if (ref === undefined) throw Error(`decompile: missing reference at index ${index}`);
+    return ref;
+  }
+
+  private type(blockType: "empty" | ValueType | number): string {
+    const type =
+      blockType === "empty"
+        ? { args: [], results: [] }
+        : typeof blockType === "number"
+          ? this.module.types[blockType]
+          : { args: [], results: [blockType] };
+    if (!type) throw Error(`decompile: missing block type ${blockType}`);
+    return `{ in: [${type.args.map((t) => this.use(t)).join(", ")}], out: [${type.results.map((t) => this.use(t)).join(", ")}] }`;
+  }
+
+  private constant(expression: ResolvedInstruction[]): string {
+    if (expression.length !== 1)
+      throw Error("decompile: extended constant expressions are not supported by the builder yet");
+    const { name, immediate } = expression[0];
+    switch (name) {
+      case "i32.const":
+      case "i64.const":
+      case "f32.const":
+      case "f64.const":
+        return `${this.use("Const")}.${name.slice(0, 3)}(${literal(immediate)})`;
+      case "ref.func":
+        return `${this.use("Const")}.refFunc(${this.reference(this.functions, immediate)})`;
+      case "ref.null":
+        return `${this.use("Const")}.${immediate === "funcref" ? "refFuncNull" : "refExternNull"}`;
+      case "global.get":
+        return `${this.use("Const")}.globalGet(${this.reference(this.globals, immediate)})`;
+      default:
+        throw Error(`decompile: unsupported constant instruction ${name}`);
+    }
+  }
+
+  private instructions(body: ResolvedInstruction[], locals: string[], indent: number) {
+    for (const { name, immediate: imm } of body) {
+      if (name === "block" || name === "loop" || name === "if") {
+        const op = this.use(name === "if" ? "control.if" : name);
+        this.line(`${op}(${this.type(imm.blockType)}, () => {`, indent);
+        this.instructions(
+          name === "if" ? imm.instructions.if : imm.instructions,
+          locals,
+          indent + 1,
+        );
+        if (name === "if" && imm.instructions.else !== undefined) {
+          this.line("}, () => {", indent);
+          this.instructions(imm.instructions.else, locals, indent + 1);
+        }
+        this.line("});", indent);
+        continue;
+      }
+      let op = name;
+      let args: string[] = [];
+      switch (name) {
+        case "local.get":
+        case "local.set":
+        case "local.tee":
+          args = [this.reference(locals, imm)];
+          break;
+        case "global.get":
+        case "global.set":
+          args = [this.reference(this.globals, imm)];
+          break;
+        case "call":
+        case "ref.func":
+          args = [this.reference(this.functions, imm)];
+          break;
+        case "call_indirect":
+          args = [this.reference(this.tables, imm[1]), this.type(imm[0])];
+          break;
+        case "return":
+          op = "control.return";
+          break;
+        case "br":
+        case "br_if":
+          args = [literal(imm)];
+          break;
+        case "br_table":
+          args = [literal(imm.indices), literal(imm.defaultIndex)];
+          break;
+        case "ref.null":
+          args = [this.use(imm)];
+          break;
+        case "select_t":
+          if (imm.length !== 1) throw Error("decompile: select requires exactly one result type");
+          op = "select";
+          args = [this.use(imm[0])];
+          break;
+        case "v128.const":
+          args = [literal("i8x16"), literal(imm)];
+          break;
+        case "memory.size":
+        case "memory.grow":
+        case "memory.fill":
+          if (imm !== 0) throw Error("decompile: multiple memories are not supported");
+          break;
+        case "memory.copy":
+          if (imm.some((i: number) => i !== 0))
+            throw Error("decompile: multiple memories are not supported");
+          break;
+        case "memory.init":
+          if (imm[1] !== 0) throw Error("decompile: multiple memories are not supported");
+          args = [this.reference(this.datas, imm[0])];
+          break;
+        case "data.drop":
+          args = [this.reference(this.datas, imm)];
+          break;
+        case "elem.drop":
+          args = [this.reference(this.elems, imm)];
+          break;
+        case "table.init":
+          args = [this.reference(this.tables, imm[1]), this.reference(this.elems, imm[0])];
+          break;
+        case "table.copy":
+          args = imm.map((i: number) => this.reference(this.tables, i));
+          break;
+        case "table.get":
+        case "table.set":
+        case "table.size":
+        case "table.grow":
+        case "table.fill":
+          args = [this.reference(this.tables, imm)];
+          break;
+        case "atomic.fence":
+          break;
+        default:
+          if (imm !== undefined) {
+            if (typeof imm === "object" && imm !== null && "memArg" in imm)
+              args = [memarg(imm.memArg), literal(imm.lane)];
+            else if (typeof imm === "object" && imm !== null && "align" in imm)
+              args = [memarg(imm)];
+            else args = [literal(imm)];
+          }
+      }
+      // Most instruction names are already public API paths. Check instead of emitting broken source.
+      let value: unknown = api;
+      for (const part of op.split("."))
+        value = (value as Record<string, unknown> | undefined)?.[part];
+      if (typeof value !== "function") throw Error(`decompile: no builder for ${name}`);
+      this.line(`${this.use(op)}(${args.join(", ")});`, indent);
+    }
+  }
+}
+
+function memarg({ offset, align }: { offset: number; align: number }): string {
+  // Binary alignment is an exponent; the public API takes an alignment in bytes.
+  return `{ offset: ${offset}, align: ${2 ** align} }`;
+}
+
+function property(key: string): string {
+  return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) && key !== "__proto__" ? key : `[${literal(key)}]`;
+}
+
+function literal(value: unknown): string {
+  if (typeof value === "bigint") return `${value}n`;
+  if (typeof value === "number") {
+    if (Object.is(value, -0)) return "-0";
+    if (Number.isNaN(value)) return "NaN";
+    if (value === Infinity) return "Infinity";
+    if (value === -Infinity) return "-Infinity";
+  }
+  if (Array.isArray(value)) return `[${value.map(literal).join(", ")}]`;
+  if (typeof value === "object" && value !== null) {
+    return `{ ${Object.entries(value)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => `${property(k)}: ${literal(v)}`)
+      .join(", ")} }`;
+  }
+  return JSON.stringify(value);
+}
+
+function jsSignature(type: FunctionType): string {
+  const jsType = (type: ValueType) =>
+    type === "i64"
+      ? "bigint"
+      : type === "funcref"
+        ? "Function | null"
+        : type === "externref"
+          ? "unknown"
+          : type === "v128"
+            ? "never"
+            : "number";
+  const result =
+    type.results.length === 0
+      ? "void"
+      : type.results.length === 1
+        ? jsType(type.results[0])
+        : `[${type.results.map(jsType).join(", ")}]`;
+  return `(${type.args.map((t, i) => `arg${i}: ${jsType(t)}`).join(", ")}) => ${result}`;
+}

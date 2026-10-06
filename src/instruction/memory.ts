@@ -88,7 +88,7 @@ const dataOps = {
 
 const tableOps = {
   get: baseInstruction("table.get", TableIndex, {
-    create(_: LocalContext, table: Dependency.Table) {
+    create(_: LocalContext, table: Dependency.AnyTable) {
       return {
         in: ["i32"],
         out: [table.type.type],
@@ -98,7 +98,7 @@ const tableOps = {
     resolve: ([tableIdx]) => tableIdx,
   }),
   set: baseInstruction("table.set", TableIndex, {
-    create(_: LocalContext, table: Dependency.Table) {
+    create(_: LocalContext, table: Dependency.AnyTable) {
       return {
         in: ["i32", table.type.type],
         out: [],
@@ -108,7 +108,7 @@ const tableOps = {
     resolve: ([tableIdx]) => tableIdx,
   }),
   init: baseInstruction("table.init", tuple([ElemIndex, TableIndex]), {
-    create(_: LocalContext, table: Dependency.Table, elem: Dependency.Elem) {
+    create(_: LocalContext, table: Dependency.AnyTable, elem: Dependency.Elem) {
       return {
         in: ["i32", "i32", "i32"],
         out: [],
@@ -117,8 +117,8 @@ const tableOps = {
     },
     resolve: ([elemIdx, tableIdx]) => [elemIdx, tableIdx],
   }),
-  copy: baseInstruction("table.init", tuple([TableIndex, TableIndex]), {
-    create(_: LocalContext, table1: Dependency.Table, table2: Dependency.Table) {
+  copy: baseInstruction("table.copy", tuple([TableIndex, TableIndex]), {
+    create(_: LocalContext, table1: Dependency.AnyTable, table2: Dependency.AnyTable) {
       return {
         in: ["i32", "i32", "i32"],
         out: [],
@@ -128,7 +128,7 @@ const tableOps = {
     resolve: ([tableIdx1, tableIdx2]) => [tableIdx1, tableIdx2],
   }),
   grow: baseInstruction("table.grow", TableIndex, {
-    create(_: LocalContext, table: Dependency.Table) {
+    create(_: LocalContext, table: Dependency.AnyTable) {
       return {
         in: [table.type.type, "i32"],
         out: ["i32"],
@@ -138,7 +138,7 @@ const tableOps = {
     resolve: ([tableIdx]) => tableIdx,
   }),
   size: baseInstruction("table.size", TableIndex, {
-    create(_: LocalContext, table: Dependency.Table) {
+    create(_: LocalContext, table: Dependency.AnyTable) {
       return {
         in: [],
         out: ["i32"],
@@ -148,7 +148,7 @@ const tableOps = {
     resolve: ([tableIdx]) => tableIdx,
   }),
   fill: baseInstruction("table.fill", TableIndex, {
-    create(_: LocalContext, table: Dependency.Table) {
+    create(_: LocalContext, table: Dependency.AnyTable) {
       return {
         in: ["i32", table.type.type, "i32"],
         out: [],

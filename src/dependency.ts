@@ -32,6 +32,7 @@ export {
   type AnyMemory,
   type AnyTable,
   type AnyImport,
+  type ImportPath,
   type Instruction,
   Const,
 };
@@ -70,6 +71,7 @@ type Func = {
   locals: ValueType[];
   body: Instruction[];
   deps: t[];
+  defined: boolean;
 };
 type HasRefTo = { kind: "hasRefTo"; value: AnyFunc; deps: [] };
 function hasRefTo(value: AnyFunc): HasRefTo {
@@ -117,7 +119,8 @@ type Elem = {
   deps: (AnyTable | AnyFunc | AnyGlobal)[];
 };
 
-type ImportPath = { module?: string; string?: string };
+/** Optional Wasm import path overrides; omitted paths use the generated module/field names. */
+type ImportPath = { module?: string; field?: string };
 type ImportFunc = ImportPath & {
   kind: "importFunction";
   name?: string;
@@ -270,7 +273,7 @@ const Const = {
       resolveArgs: [],
     };
   },
-  globalGet<T extends ValueType>(global: Global<T>): Const.globalGet<T> {
+  globalGet<T extends ValueType>(global: AnyGlobal<T>): Const.globalGet<T> {
     if (global.type.mutable) throw Error("global in a const expression can not be mutable");
     return {
       string: "global.get",
