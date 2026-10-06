@@ -305,6 +305,14 @@ class Source {
     return `import { ${[...this.usedApi].sort().join(", ")} } from ${literal(this.importPath)};\n\nexport default function createModule(imports: WebAssembly.Imports = {}) {\n${this.lines.join("\n")}\n}\n`;
   }
 
+  /** Memory instructions name a 64-bit memory; otherwise they use the default memory. */
+  private memoryArgument(): string[] {
+    const imported = this.module.imports.find((i) => i.description.kind === "memory");
+    const type = imported?.description.value ?? this.module.memory;
+    const limits = (type as { limits: { address?: string } } | undefined)?.limits;
+    return limits?.address === "i64" ? [this.reference(this.memories, 0)] : [];
+  }
+
   private reference(references: string[], index: number): string {
     const ref = references[index];
     if (ref === undefined) throw Error(`decompile: missing reference at index ${index}`);
@@ -421,14 +429,16 @@ class Source {
         case "memory.grow":
         case "memory.fill":
           if (imm !== 0) throw Error("decompile: multiple memories are not supported");
+          args = this.memoryArgument();
           break;
         case "memory.copy":
           if (imm.some((i: number) => i !== 0))
             throw Error("decompile: multiple memories are not supported");
+          args = this.memoryArgument();
           break;
         case "memory.init":
           if (imm[1] !== 0) throw Error("decompile: multiple memories are not supported");
-          args = [this.reference(this.datas, imm[0])];
+          args = [this.reference(this.datas, imm[0]), ...this.memoryArgument()];
           break;
         case "data.drop":
           args = [this.reference(this.datas, imm)];
@@ -457,10 +467,11 @@ class Source {
           break;
         default:
           if (imm !== undefined) {
+            const [memory] = this.memoryArgument();
             if (typeof imm === "object" && imm !== null && "memArg" in imm)
-              args = [memarg(imm.memArg), literal(imm.lane)];
+              args = [memarg(imm.memArg, memory), literal(imm.lane)];
             else if (typeof imm === "object" && imm !== null && "align" in imm)
-              args = [memarg(imm)];
+              args = [memarg(imm, memory)];
             else args = [literal(imm)];
           }
       }
@@ -474,9 +485,9 @@ class Source {
   }
 }
 
-function memarg({ offset, align }: { offset: number; align: number }): string {
+function memarg({ offset, align }: { offset: number; align: number }, memory?: string): string {
   // Binary alignment is an exponent; the public API takes an alignment in bytes.
-  return `{ offset: ${offset}, align: ${2 ** align} }`;
+  return `{ ${memory === undefined ? "" : `memory: ${memory}, `}offset: ${offset}, align: ${2 ** align} }`;
 }
 
 function property(key: string): string {

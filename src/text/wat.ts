@@ -4,6 +4,7 @@ import type { Elem, Data } from "../memory-binable.ts";
 import type { ResolvedInstruction } from "../instruction/base.ts";
 import type { NameMap, NameSection } from "../name-section.ts";
 import type {
+  AddressType,
   FunctionType,
   GlobalType,
   IndexSpace,
@@ -16,6 +17,7 @@ import { Cursor } from "./cursor.ts";
 import { readTree, withLocation, UnsupportedTextError, type List } from "./lexer.ts";
 import { parseInstructions, parseValueType, type BlockType, type Scope } from "./instructions.ts";
 import { parseU64 } from "./numbers.ts";
+import { limits } from "../memory.ts";
 
 export { parseWat, parseModule };
 
@@ -164,9 +166,10 @@ class ModuleParser {
     if (path === undefined) this.defined = true;
     // Inline segments take the next segment index: a table without limits has inline elements.
     let segment: number | undefined;
-    if (path === undefined && kind === "table" && !c.peekIndex() && c.peekAtom() !== "i64")
+    const ahead = c.peekAtom() === "i32" || c.peekAtom() === "i64" ? 1 : 0;
+    if (path === undefined && kind === "table" && !c.peekIndex(ahead))
       segment = this.allocate(undefined, "elem");
-    if (path === undefined && kind === "memory" && c.peekHead() === "data")
+    if (path === undefined && kind === "memory" && c.peekHead(ahead) === "data")
       segment = this.allocate(undefined, "data");
 
     return () => {
@@ -224,14 +227,14 @@ class ModuleParser {
       this.module.tables.push(this.tableType(c));
       return;
     }
+    const address = this.address(c);
     const type = this.refType(c);
     const items = c.list("elem");
     const init = items.done || items.peekIndex() ? this.functions(items) : this.expressions(items);
     items.end();
     const size = init.length;
-    this.module.tables.push({ type, limits: { min: size, max: size, shared: false } });
-    const offset = [{ name: "i32.const", immediate: 0 }];
-    this.module.elems[segment] = { type, init, mode: { table: index, offset } };
+    this.module.tables.push({ type, limits: limits(size, size, false, address) });
+    this.module.elems[segment] = { type, init, mode: { table: index, offset: zero(address) } };
   }
 
   private memory(c: Cursor, index: number, segment: number | undefined) {
@@ -239,13 +242,13 @@ class ModuleParser {
       this.module.memory = this.memoryType(c);
       return;
     }
+    const address = this.address(c);
     const data = c.list("data");
     const init = data.until((d) => d.bytes()).flat();
     data.end();
     const pages = Math.ceil(init.length / 65536);
-    this.module.memory = { limits: { min: pages, max: pages, shared: false } };
-    const offset = [{ name: "i32.const", immediate: 0 }];
-    this.module.datas[segment] = { init, mode: { memory: index, offset } };
+    this.module.memory = { limits: limits(pages, pages, false, address) };
+    this.module.datas[segment] = { init, mode: { memory: index, offset: zero(address) } };
   }
 
   private global(c: Cursor) {
@@ -335,27 +338,34 @@ class ModuleParser {
     return type;
   }
 
-  private limits(c: Cursor) {
-    if (c.peekAtom() === "i64")
-      throw new UnsupportedTextError("64-bit address types are not supported");
+  /** An optional address type; 32-bit by default. */
+  private address(c: Cursor): AddressType {
+    if (c.maybeKeyword("i64")) return "i64";
+    c.maybeKeyword("i32");
+    return "i32";
+  }
+
+  private sizes(c: Cursor) {
     const min = c.parse(parseU64);
     const max = c.peekIndex() ? c.parse(parseU64) : undefined;
     return { min, max };
   }
 
   private tableType(c: Cursor): TableType {
-    const limits = this.limits(c);
+    const address = this.address(c);
+    const { min, max } = this.sizes(c);
     const type = this.refType(c);
     if (!c.done) throw new UnsupportedTextError("table initializers are not supported");
-    return { type, limits: { ...limits, shared: false } };
+    return { type, limits: limits(min, max, false, address) };
   }
 
   private memoryType(c: Cursor): MemoryType {
-    const limits = this.limits(c);
+    const address = this.address(c);
+    const { min, max } = this.sizes(c);
     const shared = c.maybeKeyword("shared");
     if (c.peekHead() === "pagesize")
       throw new UnsupportedTextError("custom page sizes are not supported");
-    return { limits: { ...limits, shared } };
+    return { limits: limits(min, max, shared, address) };
   }
 
   private globalType(c: Cursor): GlobalType {
@@ -472,6 +482,13 @@ class ModuleParser {
     );
     return Object.keys(present).length > 0 ? { names: present } : {};
   }
+}
+
+/** The offset of an inline segment, at the start of its memory or table. */
+function zero(address: AddressType): ResolvedInstruction[] {
+  return [
+    address === "i64" ? { name: "i64.const", immediate: 0n } : { name: "i32.const", immediate: 0 },
+  ];
 }
 
 function equal(a: FunctionType, b: FunctionType) {

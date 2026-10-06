@@ -1,5 +1,5 @@
 import { Binable, Bool, Byte, record, withByteCode } from "./binable.ts";
-import { U32, vec } from "./immediate.ts";
+import { U32, U64, vec } from "./immediate.ts";
 import type { Tuple } from "./util.ts";
 
 export { i32t, i64t, f32t, f64t, v128t, funcref, externref };
@@ -27,6 +27,8 @@ export {
   printFunctionType,
   type JSValue,
   Limits,
+  type AddressType,
+  addressType,
   valueTypeSet,
 };
 
@@ -105,26 +107,31 @@ const RefType = Binable<RefType>({
 type GlobalType<T = ValueType> = { value: T; mutable: boolean };
 const GlobalType = record<GlobalType>({ value: ValueType, mutable: Bool });
 
-type Limits = { min: number; max?: number; shared: boolean };
+type AddressType = "i32" | "i64";
+/** Limits of a memory or table. A 64-bit address type is recorded as `address: "i64"`, as in the JS API. */
+type Limits = { min: number; max?: number; shared: boolean; address?: "i64" };
 const Limits = Binable<Limits>({
-  toBytes({ min, max, shared }) {
-    if (max === undefined) return [0x00, ...U32.toBytes(min)];
-    let startByte = shared ? 0x03 : 0x01;
-    return [startByte, ...U32.toBytes(min), ...U32.toBytes(max)];
+  toBytes({ min, max, shared, address }) {
+    let flags = (max === undefined ? 0 : 1) | (shared ? 2 : 0) | (address === "i64" ? 4 : 0);
+    let Size = address === "i64" ? U64 : U32;
+    return [flags, ...Size.toBytes(min), ...(max === undefined ? [] : Size.toBytes(max))];
   },
   readBytes(bytes, offset) {
-    let type: number, min: number, max: number | undefined;
-    [type, offset] = Byte.readBytes(bytes, offset);
-    [min, offset] = U32.readBytes(bytes, offset);
-    let shared = type === 0x03;
-    if (type === 0x01 || type === 0x03) {
-      [max, offset] = U32.readBytes(bytes, offset);
-    } else if (type !== 0x00) {
-      throw Error("invalid limit type");
-    }
-    return [{ min, max, shared }, offset];
+    let flags: number, min: number, max: number | undefined;
+    [flags, offset] = Byte.readBytes(bytes, offset);
+    if (flags > 7) throw Error("invalid limit type");
+    let Size = flags & 4 ? U64 : U32;
+    [min, offset] = Size.readBytes(bytes, offset);
+    if (flags & 1) [max, offset] = Size.readBytes(bytes, offset);
+    let limits: Limits = { min, max, shared: (flags & 2) !== 0 };
+    if (flags & 4) limits.address = "i64";
+    return [limits, offset];
   },
 });
+
+function addressType(limits: Limits): AddressType {
+  return limits.address ?? "i32";
+}
 
 type MemoryType = { limits: Limits };
 const MemoryType = record<MemoryType>({ limits: Limits });

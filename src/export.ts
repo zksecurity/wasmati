@@ -1,6 +1,7 @@
 import { Binable, byteEnum, record } from "./binable.ts";
 import { Name, U32 } from "./immediate.ts";
 import {
+  type AddressType,
   FunctionType,
   type Type,
   GlobalType,
@@ -22,7 +23,7 @@ import {
   type CheckedParameters,
 } from "./parameters.ts";
 import type { ImportFunc } from "./func-types.ts";
-import { dataConstructor } from "./memory.ts";
+import { constOffset, dataConstructor, jsLimits, limits } from "./memory.ts";
 
 export { Export, Import, type ExternType, importFunc, importGlobal, importMemory, importTable };
 
@@ -136,18 +137,20 @@ function importMemory(
     min,
     max,
     shared = false,
+    address = "i32",
     module,
     field,
   }: {
     min: number;
     max?: number;
     shared?: boolean;
+    address?: AddressType;
   } & Dependency.ImportPath,
   memory?: WebAssembly.Memory,
   ...content: (number[] | Uint8Array)[]
 ) {
-  let type = { limits: { min, max, shared } };
-  let value = memory ?? new WebAssembly.Memory({ initial: min, maximum: max, shared });
+  let type = { limits: limits(min, max, shared, address) };
+  let value = memory ?? new WebAssembly.Memory(jsLimits({ min, max, shared, address }));
   let memory_: Dependency.ImportMemory = {
     kind: "importMemory",
     module,
@@ -158,7 +161,7 @@ function importMemory(
   };
   let offset = 0;
   for (let init of content) {
-    dataConstructor({ memory: memory_, offset: Dependency.Const.i32(offset) }, init);
+    dataConstructor({ memory: memory_, offset: constOffset(address, offset) }, init);
     offset += init.length;
   }
   return memory_;
@@ -170,16 +173,22 @@ function importTable(
     type,
     min,
     max,
+    address = "i32",
     module,
     field,
-  }: { type: Type<"funcref" | "externref">; min: number; max?: number } & Dependency.ImportPath,
+  }: {
+    type: Type<"funcref" | "externref">;
+    min: number;
+    max?: number;
+    address?: AddressType;
+  } & Dependency.ImportPath,
   value: WebAssembly.Table,
 ): Dependency.ImportTable {
   return {
     kind: "importTable",
     module,
     field,
-    type: { type: type.kind, limits: { min, max, shared: false } },
+    type: { type: type.kind, limits: limits(min, max, false, address) },
     value,
     deps: [],
   };

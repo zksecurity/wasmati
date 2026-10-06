@@ -1,7 +1,7 @@
 import type { Module } from "../module-binable.ts";
 import type { ResolvedInstruction } from "../instruction/base.ts";
 import type { NameMap } from "../name-section.ts";
-import type { FunctionType, GlobalType, TableType, MemoryType } from "../types.ts";
+import type { FunctionType, GlobalType, Limits, TableType, MemoryType } from "../types.ts";
 import { UnsupportedTextError } from "./lexer.ts";
 import { printInstructions, printString, type Names } from "./instructions.ts";
 
@@ -158,8 +158,9 @@ function results(type: FunctionType) {
   return type.results.length === 0 ? [] : [`(result ${type.results.join(" ")})`];
 }
 
-function limits({ min, max }: { min: number; max?: number }) {
-  return max === undefined ? `${min}` : `${min} ${max}`;
+function limits({ min, max, address }: Limits) {
+  const sizes = max === undefined ? `${min}` : `${min} ${max}`;
+  return address === "i64" ? `i64 ${sizes}` : sizes;
 }
 
 function tableType(table: TableType) {

@@ -17,6 +17,7 @@ import {
 } from "../index.ts";
 import type { Module as ModuleValue } from "../module-binable.ts";
 import type { FunctionType, ValueType } from "../types.ts";
+import { jsLimits } from "../memory.ts";
 import { TextSyntaxError, UnsupportedTextError } from "../text/lexer.ts";
 import {
   parseCommand,
@@ -209,6 +210,7 @@ const trapMessages: [string, RegExp][] = [
   ["undefined element", /table index is out of bounds/],
   ["uninitialized element", /null function/],
   ["indirect call type mismatch", /function signature mismatch/],
+  ["out of bounds", /out of bounds/],
 ];
 
 /** A trap matches if V8 reports the same kind of trap as the spec message. */
@@ -236,18 +238,14 @@ function placeholders(module: ModuleValue, imports: WebAssembly.Imports): WebAss
     }
     const { kind, value } = description;
     if (kind === "function") fields[name] = () => {};
-    else if (kind === "memory")
-      fields[name] = new WebAssembly.Memory({
-        initial: value.limits.min,
-        maximum: value.limits.max,
-      });
-    else if (kind === "table")
+    else if (kind === "memory") fields[name] = new WebAssembly.Memory(jsLimits(value.limits));
+    else if (kind === "table") {
+      const element = value.type === "funcref" ? "anyfunc" : "externref";
       fields[name] = new WebAssembly.Table({
-        initial: value.limits.min,
-        maximum: value.limits.max,
-        element: value.type === "funcref" ? "anyfunc" : "externref",
-      });
-    else if (value.value === "v128") throw Error("v128 global placeholders are not supported");
+        ...jsLimits(value.limits),
+        element,
+      } as WebAssembly.TableDescriptor);
+    } else if (value.value === "v128") throw Error("v128 global placeholders are not supported");
     else {
       const type = value.value === "funcref" ? "anyfunc" : value.value;
       const initial = type === "i64" ? 0n : type === "anyfunc" || type === "externref" ? null : 0;
@@ -308,6 +306,10 @@ function spectest(): WebAssembly.ModuleImports {
     global_f32: new WebAssembly.Global({ value: "f32" }, 666.6),
     global_f64: new WebAssembly.Global({ value: "f64" }, 666.6),
     table: new WebAssembly.Table({ initial: 10, maximum: 20, element: "anyfunc" }),
+    table64: new WebAssembly.Table({
+      ...jsLimits({ min: 10, max: 20, shared: false, address: "i64" }),
+      element: "anyfunc",
+    } as WebAssembly.TableDescriptor),
     memory: new WebAssembly.Memory({ initial: 1, maximum: 2 }),
   };
 }

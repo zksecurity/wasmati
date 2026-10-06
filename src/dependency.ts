@@ -42,6 +42,7 @@ export {
   type AnyTable,
   type AnyImport,
   type ImportPath,
+  type Offset,
   type Instruction,
   Const,
 };
@@ -110,9 +111,12 @@ const hasMemory: HasMemory = { kind: "hasMemory", deps: [] };
 type Data = {
   kind: "data";
   init: Byte[];
-  mode: "passive" | { memory: 0; offset: Const.i32 | Const.globalGet<"i32"> };
+  mode: "passive" | { memory: 0; offset: Offset };
   deps: (HasMemory | AnyGlobal | AnyMemory)[];
 };
+
+/** Segment offsets have the address type of their memory or table. */
+type Offset = Const.i32 | Const.i64 | Const.globalGet<"i32"> | Const.globalGet<"i64">;
 
 type Elem = {
   kind: "elem";
@@ -123,7 +127,7 @@ type Elem = {
     | "declarative"
     | {
         table: AnyTable;
-        offset: Const.i32 | Const.globalGet<"i32">;
+        offset: Offset;
       };
   deps: (AnyTable | AnyFunc | AnyGlobal)[];
 };

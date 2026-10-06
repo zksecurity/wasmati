@@ -1,6 +1,6 @@
 import { Binable } from "./binable.ts";
 
-export { vec, withByteLength, Name, U8, U32, I32, I64, S33, F32, F64 };
+export { vec, withByteLength, Name, U8, U32, U64, I32, I64, S33, F32, F64 };
 
 type U8 = number;
 type U32 = number;
@@ -87,6 +87,18 @@ const U32 = Binable<U32>({
   },
   readBytes(bytes, offset): [U32, number] {
     let [x, end] = fromLEB128(bytes, offset, 32, false);
+    return [Number(x), end];
+  },
+});
+
+/** 64-bit sizes and offsets. Values beyond 2^53 cannot be represented exactly and are rejected. */
+const U64 = Binable<number>({
+  toBytes(x: number) {
+    return toULEB128(x);
+  },
+  readBytes(bytes, offset): [number, number] {
+    let [x, end] = fromLEB128(bytes, offset, 64, false);
+    if (x > BigInt(Number.MAX_SAFE_INTEGER)) throw Error(`u64 value ${x} is not supported`);
     return [Number(x), end];
   },
 });
