@@ -12,9 +12,10 @@ import {
   valueTypeLiteral,
   valueTypeLiterals,
 } from "./types.ts";
-import type { JSFunction, ToTypeRecord, ToTypeTuple } from "./func.ts";
+import type { JSFunction, ToTypeTuple } from "./func.ts";
 import type { Tuple } from "./util.ts";
 import * as Dependency from "./dependency.ts";
+import type { Parameters, ParameterEntry } from "./parameters.ts";
 import type { ImportFunc } from "./func-types.ts";
 import { dataConstructor } from "./memory.ts";
 
@@ -73,9 +74,9 @@ const Import = record<Import>({
   description: ImportDescription,
 });
 
-/** Declare a JS import with named arguments and a return type checked against its Wasm results. */
+/** Declare a native JS import with ordered named parameters and a return type checked against its Wasm results. */
 function importFunc<
-  const Args extends Record<string, ValueType> = {},
+  const Args extends readonly ParameterEntry[] = [],
   const Results extends Tuple<ValueType> = []
 >(
   {
@@ -84,23 +85,14 @@ function importFunc<
     out: results_,
   }: {
     name?: string;
-    in: ToTypeRecord<Args>;
+    in: Parameters<Args>;
     out: ToTypeTuple<Results>;
   },
-  run: NoInfer<JSFunction<ImportFunc<Args, Results>>>
-): ImportFunc<Args, Results> {
-  const keys = Object.keys(args_);
-  const params = Object.fromEntries(
-    keys.map((name) => [name, valueTypeLiteral(args_[name])])
-  ) as unknown as Args;
-  let args = Object.values(params);
-  let results = valueTypeLiterals<Results>(results_);
-  let type = { args, results };
-  // Specialize the native import adapter once, rather than constructing entries per call.
-  const fields = keys.map((name, index) => `[${JSON.stringify(name)}]: args[${index}]`).join(", ");
-  const value = new Function("fn", `return (...args) => fn({ ${fields} })`)(run) as Function;
+  run: NoInfer<JSFunction<ImportFunc<Parameters<Args>, Results>>>
+): ImportFunc<Parameters<Args>, Results> {
+  const type = { args: args_.types, results: valueTypeLiterals<Results>(results_) };
   const name = inputName ?? (run.name || undefined);
-  return { kind: "importFunction", params, type, deps: [], value, ...(name === undefined ? {} : { name }) };
+  return { kind: "importFunction", params: args_, type, deps: [], value: run, ...(name === undefined ? {} : { name }) };
 }
 
 function importGlobal<V extends ValueType>(

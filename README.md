@@ -14,16 +14,16 @@ npm i wasmati
 
 ```ts
 // example.ts
-import { i64, func, Module } from "wasmati";
+import { i64, func, params, Module } from "wasmati";
 
-const myMultiply = func({ in: { x: i64, y: i64 }, out: [i64] }, ({ x, y }) => {
+const myMultiply = func({ in: params({ x: i64 }, { y: i64 }), out: [i64] }, ({ x, y }) => {
   i64.mul(x, y);
 });
 
 let module = Module({ exports: { myMultiply } });
-let { exports } = await module.instantiate();
+let { instance } = await module.instantiate();
 
-let result = exports.myMultiply({ x: 5n, y: 20n });
+let result = instance.exports.myMultiply(5n, 20n);
 console.log({ result });
 ```
 
@@ -45,7 +45,7 @@ $ node example.ts
 - **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
 ```ts
-const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
   local.get(x);
   local.get(y);
   i32.add();
@@ -58,7 +58,7 @@ const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
 - Optional syntax sugar to reduce boilerplate assembly like `local.get` and `i32.const`
 
 ```ts
-const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
   i32.add(x, y); // local.get(x), local.get(y) are filled in
   i32.shl($, 2); // $ is the top of the stack; i32.const(2) is filled in
   call(otherFunction);
@@ -66,7 +66,7 @@ const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
 
 // or also
 
-const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
   let z = i32.add(x, y);
   call(otherFunction, { value: i32.shl(z, 2) });
 });
@@ -76,7 +76,7 @@ const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
 
 ```ts
 const myFunction = func(
-  { in: { x: i32, y: i32 }, locals: { u: i64 }, out: [i32] },
+  { in: params({ x: i32 }, { y: i32 }), locals: { u: i64 }, out: [i32] },
   ({ x, y }, { u }) => {
     i32.add(x, u); // type error: Type '"i64"' is not assignable to type '"i32"'.
   }
@@ -97,24 +97,24 @@ Error: i32.add: Expected i32 on the stack, got i64.
 let mem = memory({ min: 10 });
 
 let module = Module({ exports: { myFunction, mem } });
-let { exports } = await module.instantiate();
+let { instance } = await module.instantiate();
 ```
 
 - **Excellent type inference.** Example: Exported function types are inferred from `func` definitions:
 
 ```ts
-exports.myFunction;
-//                 ^ (args: { x: number; y: number }) => number
+instance.exports.myFunction;
+//                 ^ (x: number, y: number) => number
 ```
 
 - **Atomic import declaration.** Imports are declared as types along with their JS values. Abstracts away the global "import object" that is separate from "import declaration".
 
 ```ts
-const consoleLog = importFunc({ in: { x: i32 }, out: [] }, ({ x }) =>
+const consoleLog = importFunc({ in: params({ x: i32 }), out: [] }, (x) =>
   console.log("logging from wasm:", x)
 );
 
-const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
   call(consoleLog, { x });
   i32.add(x, y);
 });
@@ -127,13 +127,15 @@ const myFunction = func({ in: { x: i32, y: i32 }, out: [i32] }, ({ x, y }) => {
 
 - **Name and custom sections.** Parameter and local keys become debug names automatically, and export keys name exported functions, globals, tables and memories. Use `func({ name: "helper", ... }, ...)` or a named callback for internal function names and `Module({ name: "arithmetic", exports })` for the module name. Explicit `Module({ exports, names })` entries override generated names. Read metadata through `module.module.names`; name maps use Wasm indices (including imports), and local indices include parameters. Other custom sections are preserved in `module.module.customSections` and can be supplied as `Module({ exports, customSections })`.
 
-- **Named arguments.** Function parameters and locals are records; callbacks and `call(f, { ... })` retain the exact type of each key. `instantiate()` returns typed named `exports` alongside the native `instance` and compiled `module`. Native `instance.exports.f` takes positional arguments in `Object.keys(signature.in)` order: integer-like keys first in numeric order, then other string keys in insertion order. Named JS adapters are specialized once using the `Function` constructor; no key iteration or argument arrays are needed per exported call. `Module.fromBytes()` recovers parameter keys from name metadata; functions without unique parameter names remain callable through the native instance.
+- **Named parameters, native calls.** Declare ABI order with `in: params({ x: i32 }, { y: i64 })`; the builder callback receives `{ x, y }` with exact local types, and `call(f, { x, y })` emits operands in declaration order. `instantiate()` returns the actual native `instance` with fully inferred positional exports: `instance.exports.f(1, 2n)`. Imports use the same ordered declaration and ordinary positional JS callbacks.
+
+- **Grouped locals.** Declare `locals: { tmp: i64, Y: localArray(v128, 5), Z: localArray(i64, n) }` and receive `{ tmp, Y, Z }` directly in the callback. Literal lengths infer tuples; dynamic lengths infer typed arrays. Wasmati handles flattening and type-based reordering, and emits names such as `Y[0]`, so groups need no slicing or casts.
 
 ### Features that aren't implemented yet
 
 _PRs welcome!_
 
-- **Wasmati build.** We want to add an optional build step which takes as input a file that exports your `Module`, and compiles it to a file which doesn't depend on wasmati at runtime. Instead, it hard-codes the Wasm bytecode as base64 string, correctly imports all dependencies (imports) for the instantiation like the original file did, instantiates the module (top-level await) and exports the module's exports.
+- **Wasmati build.** We want to add an optional build step which takes as input a file that exports your `Module`, and compiles it to a file which doesn't depend on wasmati at runtime. Instead, it hard-codes the Wasm bytecode as base64 string, correctly imports all dependencies (imports) for the instantiation like the original file did, instantiates the module (top-level await) and exports the module's instance.exports.
 
 ```ts
 // example.ts

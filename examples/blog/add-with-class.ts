@@ -1,4 +1,4 @@
-import {
+import { params,
   i32,
   func,
   type Local,
@@ -88,7 +88,7 @@ function isLower(x: Field, y: Field) {
 
 const add = func(
   {
-    in: { zPtr: i32, xPtr: i32, yPtr: i32 },
+    in: params({ zPtr: i32 }, { xPtr: i32 }, { yPtr: i32 }),
     locals: { xi: i32, yi: i32, zi: i32 },
     out: [],
   },
@@ -130,7 +130,7 @@ let module = Module({
   exports: { add, memory: memory({ min: 1 }) },
 });
 let {
-  exports: wasm,
+  instance: { exports: wasm },
 } = await module.instantiate();
 
 let offset = 0;
@@ -165,7 +165,7 @@ function benchWasm(x0: bigint, N: number) {
   let z = fromBigint(0n);
   let x = fromBigint(x0);
   for (let i = 0; i < N; i++) {
-    wasm.add({ zPtr: z, xPtr: z, yPtr: x });
+    wasm.add(z, z, x);
   }
   return toBigint(z);
 }

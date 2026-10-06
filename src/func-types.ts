@@ -1,10 +1,11 @@
 import type * as Dependency from "./dependency.ts";
+import type { Parameters } from "./parameters.ts";
 import { ValueType } from "./types.ts";
 
 export type { Func, ImportFunc, AnyFunc };
 
 type Func<
-  Args extends Record<string, ValueType>,
+  Args extends Parameters,
   Results extends readonly ValueType[]
 > = {
   kind: "function";
@@ -14,11 +15,11 @@ type Func<
   body: Dependency.Instruction[];
   deps: Dependency.t[];
   params: Args;
-  type: { args: ValueType[]; results: Results };
+  type: { args: Args["types"]; results: Results };
 };
 
 type ImportFunc<
-  Args extends Record<string, ValueType>,
+  Args extends Parameters,
   Results extends readonly ValueType[]
 > = {
   module?: string;
@@ -26,12 +27,12 @@ type ImportFunc<
   kind: "importFunction";
   name?: string;
   params: Args;
-  type: { args: ValueType[]; results: Results };
+  type: { args: Args["types"]; results: Results };
   value: Function;
   deps: [];
 };
 
 type AnyFunc<
-  Args extends Record<string, ValueType>,
+  Args extends Parameters,
   Results extends readonly ValueType[]
 > = Func<Args, Results> | ImportFunc<Args, Results>;

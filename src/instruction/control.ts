@@ -192,14 +192,14 @@ function bindControlOps(ctx: LocalContext) {
   return {
     call: <F extends AnyFunc<any, any>>(
       func: F,
-      args?: { [K in keyof F["params"]]: Input<F["params"][K]> }
+      args?: { [K in keyof F["params"]["values"]]: Input<F["params"]["values"][K]> }
     ): Instruction_<F["type"]["args"], F["type"]["results"]> => {
       if (args !== undefined) {
         processStackArgs(
           ctx,
           "call",
           func.type.args,
-          Object.keys(func.params).map((name) => args[name]) as Input<ValueType>[]
+          func.params.names.map((name: string) => args[name]) as Input<ValueType>[]
         );
       }
       return call(ctx, func) as any;

@@ -1,3 +1,5 @@
+export { params, type Parameters } from "./parameters.ts";
+export { localArray, type LocalArray } from "./locals.ts";
 export { Module } from "./module.ts";
 export { NameSection, type NameMap, type IndirectNameMap } from "./name-section.ts";
 export type { CustomSection } from "./module-binable.ts";
@@ -43,7 +45,6 @@ import {
   type Local,
   func as originalFunc,
   type ToTypeTuple,
-  type ToTypeRecord,
 } from "./func.ts";
 import type { Instruction, FunctionTypeInput } from "./instruction/base.ts";
 import {
@@ -149,7 +150,6 @@ export {
 export { Const, Dependency };
 export type {
   ToTypeTuple,
-  ToTypeRecord,
   FunctionTypeInput,
   Label,
   TupleN,

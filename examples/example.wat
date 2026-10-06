@@ -15,7 +15,7 @@
   (import "" "g0" (global $importedGlobal i64))
   (import "" "m0" (memory $memory 1 65536 shared))
   (func $exportedFunc (type 5) (param $x i32) (param $doLog i32) (result i32)
-    (local $_ v128) (local $v v128) (local $y i32)
+    (local $vectors[0] v128) (local $vectors[1] v128) (local $y i32)
     ref.func 6
     call 2
     global.get 1

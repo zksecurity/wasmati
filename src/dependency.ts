@@ -13,6 +13,7 @@ import {
   TableType,
   ValueType,
 } from "./types.ts";
+import type { Parameters } from "./parameters.ts";
 import { Byte } from "./binable.ts";
 
 export {
@@ -69,7 +70,7 @@ function type(type: FunctionType): Type {
 
 type Func = {
   kind: "function";
-  params: Record<string, ValueType>;
+  params: Parameters;
   name?: string;
   localNames?: Record<number, string>;
   type: FunctionType;
@@ -127,7 +128,7 @@ type ImportPath = { module?: string; string?: string };
 type ImportFunc = ImportPath & {
   kind: "importFunction";
   name?: string;
-  params: Record<string, ValueType>;
+  params: Parameters;
   type: FunctionType;
   value: Function;
   deps: [];

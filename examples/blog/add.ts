@@ -1,4 +1,4 @@
-import {
+import { params,
   i32,
   func,
   type Local,
@@ -30,7 +30,7 @@ let P = bigintToLimbs(p);
  */
 const add = func(
   {
-    in: { z: i32, x: i32, y: i32 },
+    in: params({ z: i32 }, { x: i32 }, { y: i32 }),
     locals: { zi: i32 },
     out: [],
   },
@@ -80,10 +80,10 @@ function storeLimb(x: Local<i32>, i: number, s: Input<i32>) {
 let module = Module({
   exports: { add, memory: memory({ min: 1 }) },
 });
-let { exports } = await module.instantiate();
-let wasm = exports;
+let { instance } = await module.instantiate();
+let wasm = instance.exports;
 
-wasm.add satisfies (args: { z: number; x: number; y: number }) => void;
+wasm.add satisfies (z: number, x: number, y: number) => void;
 
 let offset = 0;
 
@@ -117,7 +117,7 @@ function benchWasm(x0: bigint, N: number) {
   let z = fromBigint(0n);
   let x = fromBigint(x0);
   for (let i = 0; i < N; i++) {
-    wasm.add({ z, x: z, y: x });
+    wasm.add(z, z, x);
   }
   return toBigint(z);
 }
