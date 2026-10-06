@@ -1,4 +1,4 @@
-import { Binable, Byte, constant, iso, or, record, tuple, withValidation } from "./binable.ts";
+import { Binable, Byte, record } from "./binable.ts";
 import { U32, vec } from "./immediate.ts";
 import { ConstExpression, Expression } from "./instruction/binable.ts";
 import { FunctionIndex, GlobalType, RefType, TableIndex } from "./types.ts";
@@ -13,33 +13,32 @@ type Data = {
   mode: "passive" | { memory: U32; offset: ConstExpression };
 };
 
-const Offset0 = record({ memory: constant(0), offset: ConstExpression });
-const Offset = record({ memory: U32, offset: ConstExpression });
-
-type ActiveData = {
-  init: Byte[];
-  mode: { memory: 0; offset: ConstExpression };
-};
-const ActiveData = withU32(0, record({ mode: Offset0, init: vec(Byte) }));
-
-type PassiveData = { init: Byte[]; mode: "passive" };
-const PassiveData = withU32(
-  1,
-  record({
-    mode: constant("passive" as const),
-    init: vec(Byte),
-  }),
-);
-
-type ActiveDataMultiMemory = {
-  init: Byte[];
-  mode: { memory: U32; offset: ConstExpression };
-};
-const ActiveDataMultiMemory = withU32(2, record({ mode: Offset, init: vec(Byte) }));
-
-const Data: Binable<Data> = or([ActiveData, PassiveData, ActiveDataMultiMemory], (t: Data) =>
-  t.mode === "passive" ? PassiveData : t.mode.memory === 0 ? ActiveData : ActiveDataMultiMemory,
-);
+/** Data segment kinds: 0 is active in memory 0, 1 is passive, 2 is active in an explicit memory. */
+const Data = Binable<Data>({
+  toBytes({ init, mode }) {
+    const bytes = vec(Byte).toBytes(init);
+    if (mode === "passive") return [...U32.toBytes(1), ...bytes];
+    const offset = ConstExpression.toBytes(mode.offset);
+    if (mode.memory === 0) return [...U32.toBytes(0), ...offset, ...bytes];
+    return [...U32.toBytes(2), ...U32.toBytes(mode.memory), ...offset, ...bytes];
+  },
+  readBytes(bytes, offset) {
+    let kind: number;
+    [kind, offset] = U32.readBytes(bytes, offset);
+    if (kind > 2) throw Error(`malformed data segment kind ${kind}`);
+    let mode: Data["mode"] = "passive";
+    if (kind !== 1) {
+      let memory = 0;
+      if (kind === 2) [memory, offset] = U32.readBytes(bytes, offset);
+      let expression: ConstExpression;
+      [expression, offset] = ConstExpression.readBytes(bytes, offset);
+      mode = { memory, offset: expression };
+    }
+    let init: Byte[];
+    [init, offset] = vec(Byte).readBytes(bytes, offset);
+    return [{ init, mode }, offset];
+  },
+});
 
 type Elem = {
   type: RefType;
@@ -91,6 +90,7 @@ const Elem = Binable<Elem>({
   readBytes(bytes, offset) {
     let code: number;
     [code, offset] = U32.readBytes(bytes, offset);
+    if (code > 7) throw Error(`malformed element segment kind ${code}`);
     let [isPassive, isBit1, isExplicit] = [code & 1, code & 2, code & 4];
     // parse mode / table / offset
     let mode: Elem["mode"];
@@ -119,19 +119,3 @@ const Elem = Binable<Elem>({
     return [{ mode, type, init }, offset];
   },
 });
-
-function withU32<T>(code: number, binable: Binable<T>): Binable<T> {
-  return second(
-    code,
-    withValidation(tuple([U32, binable]), ([code_]) => {
-      if (code !== code_) throw Error(`invalid u32 code, expected ${code}, got ${code_}`);
-    }),
-  );
-}
-
-function second<F, S>(first: F, tuple: Binable<[F, S]>): Binable<S> {
-  return iso<[F, S], S>(tuple, {
-    to: (second) => [first, second],
-    from: ([, second]) => second,
-  });
-}

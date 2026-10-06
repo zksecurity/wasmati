@@ -57,8 +57,8 @@ const Byte = Binable<number>({
     return [b];
   },
   readBytes(bytes, offset) {
-    let byte = bytes[offset];
-    return [byte, offset + 1];
+    if (offset >= bytes.length) throw Error("unexpected end");
+    return [bytes[offset], offset + 1];
   },
 });
 

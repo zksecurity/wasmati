@@ -1,10 +1,8 @@
 import {
-  type Binable,
+  Binable,
   Byte,
   RemainingBytes,
   iso,
-  orDefault,
-  orUndefined,
   record,
   interleavedRecord,
   tuple,
@@ -25,6 +23,7 @@ import {
 import { Export, Import } from "./export.ts";
 import { Data, Elem, Global } from "./memory-binable.ts";
 import { Code, type FinalizedFunc } from "./func.ts";
+import type { ResolvedInstruction } from "./instruction/base.ts";
 
 export { Module, type CustomSection };
 
@@ -117,7 +116,15 @@ const Version = iso(tuple([Byte, Byte, Byte, Byte]), {
   },
 });
 
-const isEmpty = (arr: unknown[]) => arr.length === 0;
+/** A section that may be absent. Presence follows from the section id; a present section must decode. */
+function optional<T>(id: number, section: Binable<T>, empty: T): Binable<T> {
+  const isEmpty = (value: T) => value === undefined || (Array.isArray(value) && value.length === 0);
+  return Binable({
+    toBytes: (value) => (isEmpty(value) ? [] : section.toBytes(value)),
+    readBytes: (bytes, offset) =>
+      bytes[offset] === id ? section.readBytes(bytes, offset) : [empty, offset],
+  });
+}
 
 type Sections = {
   typeSection: TypeSection;
@@ -151,18 +158,18 @@ const sectionIds = {
 
 const Sections = interleavedRecord<Sections, { name: string; data: number[] }>(
   {
-    typeSection: orDefault(TypeSection, [], isEmpty),
-    importSection: orDefault(ImportSection, [], isEmpty),
-    funcSection: orDefault(FuncSection, [], isEmpty),
-    tableSection: orDefault(TableSection, [], isEmpty),
-    memorySection: orDefault(MemorySection, [], isEmpty),
-    globalSection: orDefault(GlobalSection, [], isEmpty),
-    exportSection: orDefault(ExportSection, [], isEmpty),
-    startSection: orUndefined(StartSection),
-    elemSection: orDefault(ElemSection, [], isEmpty),
-    dataCountSection: orUndefined(DataCountSection),
-    codeSection: orDefault(CodeSection, [], isEmpty),
-    dataSection: orDefault(DataSection, [], isEmpty),
+    typeSection: optional(1, TypeSection, []),
+    importSection: optional(2, ImportSection, []),
+    funcSection: optional(3, FuncSection, []),
+    tableSection: optional(4, TableSection, []),
+    memorySection: optional(5, MemorySection, []),
+    globalSection: optional(6, GlobalSection, []),
+    exportSection: optional(7, ExportSection, []),
+    startSection: optional(8, StartSection, undefined),
+    elemSection: optional(9, ElemSection, []),
+    dataCountSection: optional(12, DataCountSection, undefined),
+    codeSection: optional(10, CodeSection, []),
+    dataSection: optional(11, DataSection, []),
   },
   { codec: CustomSection, matches: (bytes, offset) => bytes[offset] === 0 },
 );
@@ -184,8 +191,23 @@ const ParsedModule = withValidation(
     }
     if (dataCountSection !== undefined && dataSection.length !== dataCountSection)
       throw Error("data section length does not match data count section");
+    if (dataCountSection === undefined && codeSection.some(({ body }) => usesDataIndex(body)))
+      throw Error("data count section required");
   },
 );
+
+/** Whether code refers to data segments, which requires a data count section before the code. */
+function usesDataIndex(body: ResolvedInstruction[]): boolean {
+  return body.some(({ name, immediate }) => {
+    if (name === "memory.init" || name === "data.drop") return true;
+    if (name === "block" || name === "loop") return usesDataIndex(immediate.instructions);
+    if (name === "if")
+      return (
+        usesDataIndex(immediate.instructions.if) || usesDataIndex(immediate.instructions.else ?? [])
+      );
+    return false;
+  });
+}
 
 const Module = iso(ParsedModule, {
   to({
