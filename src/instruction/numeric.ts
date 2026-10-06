@@ -1,7 +1,7 @@
-import { i32t, i64t, f32t, f64t } from "../types.js";
-import { memoryInstruction } from "./memory.js";
-import { instruction } from "./stack-args.js";
-import { f32Const, f64Const, i32Const, i64Const } from "./const.js";
+import { i32t, i64t, f32t, f64t } from "../types.ts";
+import { memoryInstruction } from "./memory.ts";
+import { instruction } from "./stack-args.ts";
+import { f32Const, f64Const, i32Const, i64Const } from "./const.ts";
 
 export { i32Ops, i64Ops, f32Ops, f64Ops };
 

@@ -28,7 +28,7 @@ console.log({ result });
 ```
 
 ```
-$ node --experimental-strip-types example.ts
+$ node example.ts
 { result: 100n }
 ```
 

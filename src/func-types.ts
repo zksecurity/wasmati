@@ -1,7 +1,7 @@
-import * as Dependency from "./dependency.js";
-import { ValueType } from "./types.js";
+import type * as Dependency from "./dependency.ts";
+import { ValueType } from "./types.ts";
 
-export { Func, ImportFunc, AnyFunc };
+export type { Func, ImportFunc, AnyFunc };
 
 type Func<
   Args extends readonly ValueType[],

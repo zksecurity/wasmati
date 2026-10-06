@@ -1,6 +1,6 @@
-import { F32, F64, I32, I64 } from "../immediate.js";
-import { baseInstructionWithImmediate } from "./base.js";
-import { i32t, i64t, f32t, f64t } from "../types.js";
+import { F32, F64, I32, I64 } from "../immediate.ts";
+import { baseInstructionWithImmediate } from "./base.ts";
+import { i32t, i64t, f32t, f64t } from "../types.ts";
 
 export { i32Const, i64Const, f32Const, f64Const };
 

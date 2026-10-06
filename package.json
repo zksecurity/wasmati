@@ -10,11 +10,12 @@
     "default": "./build/index.js"
   },
   "scripts": {
-    "test": "node --loader=ts-node/esm examples/example.ts",
-    "test:unit": "node --wasm-wide-arithmetic --test build/test/*.unit-test.js",
+    "test": "node examples/example.ts",
+    "test:unit": "node --wasm-wide-arithmetic --test src/test/*.unit-test.ts",
     "build": "tsc",
     "clean": "rm -rf build",
-    "prepublishOnly": "npm run clean && npm run build && npm test"
+    "prepublishOnly": "npm run clean && npm run build && npm test",
+    "check": "tsc --noEmit && tsc --project examples"
   },
   "files": [
     "src",
@@ -34,9 +35,8 @@
     "ieee754": "^1.2.1"
   },
   "devDependencies": {
-    "@types/node": "^18.15.11",
-    "ts-node": "^10.9.1",
-    "typescript": "^5.1.3",
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2",
     "wabt": "^1.0.36"
   }
 }

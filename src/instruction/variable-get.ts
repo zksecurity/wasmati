@@ -1,7 +1,7 @@
-import * as Dependency from "../dependency.js";
-import { U32 } from "../immediate.js";
-import { baseInstruction } from "./base.js";
-import { Local } from "../types.js";
+import type * as Dependency from "../dependency.ts";
+import { U32 } from "../immediate.ts";
+import { baseInstruction } from "./base.ts";
+import type { Local } from "../types.ts";
 
 export { localGet, globalGet };
 

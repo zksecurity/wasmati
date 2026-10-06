@@ -1,24 +1,24 @@
-import { Binable, byteEnum, record } from "./binable.js";
-import { Name, U32 } from "./immediate.js";
+import { Binable, byteEnum, record } from "./binable.ts";
+import { Name, U32 } from "./immediate.ts";
 import {
   FunctionType,
-  Type,
+  type Type,
   GlobalType,
-  JSValue,
+  type JSValue,
   MemoryType,
   TableType,
   TypeIndex,
   ValueType,
   valueTypeLiteral,
   valueTypeLiterals,
-} from "./types.js";
-import { ToTypeTuple } from "./func.js";
-import { Tuple } from "./util.js";
-import * as Dependency from "./dependency.js";
-import { ImportFunc } from "./func-types.js";
-import { dataConstructor } from "./memory.js";
+} from "./types.ts";
+import type { ToTypeTuple } from "./func.ts";
+import type { Tuple } from "./util.ts";
+import * as Dependency from "./dependency.ts";
+import type { ImportFunc } from "./func-types.ts";
+import { dataConstructor } from "./memory.ts";
 
-export { Export, Import, ExternType, importFunc, importGlobal, importMemory };
+export { Export, Import, type ExternType, importFunc, importGlobal, importMemory };
 
 type ExternType =
   | { kind: "function"; value: FunctionType }

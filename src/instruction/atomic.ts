@@ -1,7 +1,7 @@
-import { Byte } from "../binable.js";
-import { i32t, i64t } from "../types.js";
-import { baseInstruction } from "./base.js";
-import { memoryInstruction as mi } from "./memory.js";
+import { Byte } from "../binable.ts";
+import { i32t, i64t } from "../types.ts";
+import { baseInstruction } from "./base.ts";
+import { memoryInstruction as mi } from "./memory.ts";
 
 export {
   memoryAtomicOps,

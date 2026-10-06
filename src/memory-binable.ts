@@ -7,10 +7,10 @@ import {
   record,
   tuple,
   withValidation,
-} from "./binable.js";
-import { U32, vec } from "./immediate.js";
-import { ConstExpression, Expression } from "./instruction/binable.js";
-import { FunctionIndex, GlobalType, RefType, TableIndex } from "./types.js";
+} from "./binable.ts";
+import { U32, vec } from "./immediate.ts";
+import { ConstExpression, Expression } from "./instruction/binable.ts";
+import { FunctionIndex, GlobalType, RefType, TableIndex } from "./types.ts";
 
 export { Global, Data, Elem };
 

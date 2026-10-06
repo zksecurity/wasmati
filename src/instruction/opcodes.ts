@@ -1,4 +1,4 @@
-export { opcodes, nameToOpcode, InstructionName };
+export { opcodes, nameToOpcode, type InstructionName };
 
 type Opcodes = typeof opcodes;
 type NestedValue<T> = {

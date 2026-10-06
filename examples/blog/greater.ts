@@ -1,4 +1,4 @@
-import { i32, func, Local, if_, return_, Module, memory, local } from "wasmati";
+import { i32, func, type Local, if_, return_, Module, memory, local } from "wasmati";
 
 const n = 9; // number of limbs
 

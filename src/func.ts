@@ -1,32 +1,32 @@
-import { Binable, iso, record, tuple } from "./binable.js";
-import * as Dependency from "./dependency.js";
-import { U32, vec, withByteLength } from "./immediate.js";
-import { ResolvedInstruction } from "./instruction/base.js";
-import { Expression } from "./instruction/binable.js";
+import { Binable, iso, record, tuple } from "./binable.ts";
+import type * as Dependency from "./dependency.ts";
+import { U32, vec, withByteLength } from "./immediate.ts";
+import type { ResolvedInstruction } from "./instruction/base.ts";
+import { Expression } from "./instruction/binable.ts";
 import {
-  LocalContext,
+  type LocalContext,
   StackVar,
   formatStack,
   popStack,
   withContext,
-} from "./local-context.js";
+} from "./local-context.ts";
 import {
   FunctionIndex,
   FunctionType,
-  JSValue,
-  Local,
-  Type,
+  type JSValue,
+  type Local,
+  type Type,
   TypeIndex,
   ValueType,
   valueTypeLiterals,
-} from "./types.js";
-import { Tuple } from "./util.js";
-import { Func } from "./func-types.js";
+} from "./types.ts";
+import type { Tuple } from "./util.ts";
+import type { Func } from "./func-types.ts";
 
 // external
-export { func, Local };
+export { func, type Local };
 // internal
-export { FinalizedFunc, Code, JSFunction, ToTypeTuple };
+export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple };
 
 function func<
   const Args extends Tuple<ValueType>,
