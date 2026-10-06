@@ -9,6 +9,18 @@ permissions:
   contents: read
 
 jobs:
+  format:
+    name: Source formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+
   check:
     name: Types, tests and build
     runs-on: ubuntu-latest

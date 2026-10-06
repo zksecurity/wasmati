@@ -38,7 +38,7 @@ export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple };
 function func<
   const Args extends readonly ParameterEntry[] = [],
   const Results extends Tuple<ValueType> = [],
-  const Locals extends Record<string, LocalDeclaration> = {}
+  const Locals extends Record<string, LocalDeclaration> = {},
 >(
   ctx: LocalContext,
   signature: {
@@ -47,37 +47,47 @@ function func<
     locals?: Locals;
     out: ToTypeTuple<Results>;
   },
-  run: (args: ToLocal<ParameterValues<Args>>, locals: NamedLocals<Locals>, ctx: LocalContext) => void
+  run: (
+    args: ToLocal<ParameterValues<Args>>,
+    locals: NamedLocals<Locals>,
+    ctx: LocalContext,
+  ) => void,
 ): Func<Parameters<Args>, Results> {
-  let {
-    in: args,
-    locals = {} as Locals,
-    out: results,
-  } = signature;
+  let { in: args, locals = {} as Locals, out: results } = signature;
   ctx.stack = [];
   const { names: argNames, types: argsArray } = args;
   const localEntries = Object.entries(locals);
-  const flatLocals = localEntries.flatMap(([name, declaration]) => declaration.kind === "local-array"
-    ? Array.from({ length: declaration.length }, (_, index) => ({ name: `${name}[${index}]`, type: declaration.type.kind }))
-    : [{ name, type: declaration.kind }]);
+  const flatLocals = localEntries.flatMap(([name, declaration]) =>
+    declaration.kind === "local-array"
+      ? Array.from({ length: declaration.length }, (_, index) => ({
+          name: `${name}[${index}]`,
+          type: declaration.type.kind,
+        }))
+      : [{ name, type: declaration.kind }],
+  );
   const localsArray = flatLocals.map(({ type }) => type);
   const resultsArray = valueTypeLiterals<Results>(results);
   const type = { args: argsArray, results: resultsArray };
   const nArgs = argsArray.length;
-  const argsInput = Object.fromEntries(argNames.map((name, index) => [
-    name, { kind: "local", type: argsArray[index], index } satisfies Local,
-  ])) as ToLocal<ParameterValues<Args>>;
+  const argsInput = Object.fromEntries(
+    argNames.map((name, index) => [
+      name,
+      { kind: "local", type: argsArray[index], index } satisfies Local,
+    ]),
+  ) as ToLocal<ParameterValues<Args>>;
   const { sortedLocals, localIndices } = sortLocals(localsArray, nArgs);
   let offset = 0;
-  const localsInput = Object.fromEntries(localEntries.map(([name, declaration]) => {
-    const isArray = declaration.kind === "local-array";
-    const length = isArray ? declaration.length : 1;
-    const values = Array.from({ length }, () => {
-      const j = offset++;
-      return { kind: "local", type: localsArray[j], index: localIndices[j] } satisfies Local;
-    });
-    return [name, isArray ? values : values[0]];
-  })) as NamedLocals<Locals>;
+  const localsInput = Object.fromEntries(
+    localEntries.map(([name, declaration]) => {
+      const isArray = declaration.kind === "local-array";
+      const length = isArray ? declaration.length : 1;
+      const values = Array.from({ length }, () => {
+        const j = offset++;
+        return { kind: "local", type: localsArray[j], index: localIndices[j] } satisfies Local;
+      });
+      return [name, isArray ? values : values[0]];
+    }),
+  ) as NamedLocals<Locals>;
   const localNames = Object.fromEntries([
     ...argNames.map((name, index) => [index, name]),
     ...flatLocals.map(({ name }, j) => [localIndices[j], name]),
@@ -107,10 +117,8 @@ function func<
       popStack(ctx, resultsArray);
       // TODO nice error
       if (ctx.stack.length !== 0)
-        throw Error(
-          `expected stack to be empty, got ${formatStack(ctx.stack)}`
-        );
-    }
+        throw Error(`expected stack to be empty, got ${formatStack(ctx.stack)}`);
+    },
   );
   const name = signature.name ?? (run.name || undefined);
   let func = {
@@ -133,8 +141,8 @@ type JSValues<T extends readonly ValueType[]> = {
 type ReturnValues<T extends readonly ValueType[]> = T extends []
   ? void
   : T extends [ValueType]
-  ? JSValue<T[0]>
-  : JSValues<T>;
+    ? JSValue<T[0]>
+    : JSValues<T>;
 
 type JSFunction<T extends Dependency.AnyFunc> = (
   ...args: JSValues<T["type"]["args"]>
@@ -178,11 +186,10 @@ function sortLocals(locals: ValueType[], offset: number) {
   }
   let localIndices: number[] = [];
   for (let j = 0; j < locals.length; j++) {
-    localIndices[j] =
-      offset + typeOffset[typeIndex[locals[j]]] + offsetWithin[j];
+    localIndices[j] = offset + typeOffset[typeIndex[locals[j]]] + offsetWithin[j];
   }
-  let sortedLocals: ValueType[] = Object.entries(typeIndex).flatMap(
-    ([type, i]) => Array(count[i]).fill(type as ValueType)
+  let sortedLocals: ValueType[] = Object.entries(typeIndex).flatMap(([type, i]) =>
+    Array(count[i]).fill(type as ValueType),
   );
   return { sortedLocals, localIndices };
 }
@@ -197,10 +204,7 @@ const Locals = iso<[number, ValueType][], ValueType[]>(CompressedLocals, {
       count[local] ??= 0;
       count[local]++;
     }
-    return Object.entries(count).map(([kind, count]) => [
-      count,
-      kind as ValueType,
-    ]);
+    return Object.entries(count).map(([kind, count]) => [count, kind as ValueType]);
   },
   from(compressed) {
     let locals: ValueType[] = [];
@@ -212,6 +216,4 @@ const Locals = iso<[number, ValueType][], ValueType[]>(CompressedLocals, {
 });
 
 type Code = { locals: ValueType[]; body: Expression };
-const Code = withByteLength(
-  record({ locals: Locals, body: Expression })
-) satisfies Binable<Code>;
+const Code = withByteLength(record({ locals: Locals, body: Expression })) satisfies Binable<Code>;

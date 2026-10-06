@@ -5,12 +5,7 @@ function roundtrip(x: number) {
   try {
     equal(I32.fromBytes(I32.toBytes(x)), x);
   } catch {
-    console.log(
-      "failing roundtrip",
-      x,
-      I32.fromBytes(I32.toBytes(x)),
-      Math.log2(Math.abs(x))
-    );
+    console.log("failing roundtrip", x, I32.fromBytes(I32.toBytes(x)), Math.log2(Math.abs(x)));
     console.log(I32.toBytes(x));
     equal(I32.fromBytes(I32.toBytes(x)), x);
   }
@@ -19,12 +14,7 @@ function roundtripU(x: number) {
   try {
     equal(U32.fromBytes(U32.toBytes(x)), x);
   } catch {
-    console.log(
-      "failing roundtrip",
-      x,
-      U32.fromBytes(U32.toBytes(x)),
-      Math.log2(Math.abs(x))
-    );
+    console.log("failing roundtrip", x, U32.fromBytes(U32.toBytes(x)), Math.log2(Math.abs(x)));
     console.log(U32.toBytes(x));
     equal(U32.fromBytes(U32.toBytes(x)), x);
   }

@@ -5,12 +5,7 @@ import { formatStack, pushStack } from "../local-context.ts";
 import { popStack } from "../local-context.ts";
 import { emptyContext } from "../local-context.ts";
 import { type LocalContext, StackVar, Unknown } from "../local-context.ts";
-import {
-  type Local,
-  ValueType,
-  valueTypeLiterals,
-  type ValueTypeObjects,
-} from "../types.ts";
+import { type Local, ValueType, valueTypeLiterals, type ValueTypeObjects } from "../types.ts";
 import type { Tuple } from "../util.ts";
 import { type Instruction_, baseInstruction } from "./base.ts";
 import { f32Const, f64Const, i32Const, i64Const } from "./const.ts";
@@ -29,26 +24,21 @@ export {
 type JSNumberValue<T extends ValueType> = T extends "i32"
   ? number
   : T extends "i64"
-  ? bigint
-  : T extends "f32"
-  ? number
-  : T extends "f64"
-  ? number
-  : never;
+    ? bigint
+    : T extends "f32"
+      ? number
+      : T extends "f64"
+        ? number
+        : never;
 
 type Input<T extends ValueType | Unknown> =
-  | StackVar<T>
-  | (T extends ValueType ? Local<T> | AnyGlobal<T> | JSNumberValue<T> : never);
+  StackVar<T> | (T extends ValueType ? Local<T> | AnyGlobal<T> | JSNumberValue<T> : never);
 
 function isLocal(x: Input<any>): x is Local {
   return typeof x === "object" && x !== null && x.kind === "local";
 }
 function isGlobal(x: Input<any>): x is AnyGlobal {
-  return (
-    typeof x === "object" &&
-    x !== null &&
-    (x.kind === "global" || x.kind === "importGlobal")
-  );
+  return typeof x === "object" && x !== null && (x.kind === "global" || x.kind === "importGlobal");
 }
 function isStackVar(x: Input<any>): x is StackVar<ValueType | Unknown> {
   return typeof x === "object" && x !== null && x.kind === "stack-var";
@@ -58,9 +48,9 @@ type Inputs<P extends ValueType[]> = {
   [i in keyof P]: Input<P[i]>;
 };
 
-type InputsAsParameters<Args extends readonly ValueType[]> = ((
-  ...args: [] | Args
-) => any) extends (...args: infer P) => any
+type InputsAsParameters<Args extends readonly ValueType[]> = ((...args: [] | Args) => any) extends (
+  ...args: infer P
+) => any
   ? (
       ...args: {
         [i in keyof P]: Input<P[i] extends ValueType ? P[i] : never>;
@@ -71,13 +61,10 @@ type InputsAsParameters<Args extends readonly ValueType[]> = ((
 /**
  * instruction that is completely fixed
  */
-function instruction<
-  Args extends Tuple<ValueType>,
-  Results extends Tuple<ValueType>
->(
+function instruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueType>>(
   name: InstructionName,
   args: ValueTypeObjects<Args>,
-  results: ValueTypeObjects<Results>
+  results: ValueTypeObjects<Results>,
 ): ((...args: [] | Args) => any) extends (...args: infer P) => any
   ? (
       ctx: LocalContext,
@@ -90,11 +77,9 @@ function instruction<
     in: valueTypeLiterals<Args>(args),
     out: valueTypeLiterals<Results>(results),
   };
-  let createInstr = baseInstruction<undefined, [], [], Args, Results>(
-    name,
-    Undefined,
-    { create: () => instr }
-  );
+  let createInstr = baseInstruction<undefined, [], [], Args, Results>(name, Undefined, {
+    create: () => instr,
+  });
   return function createInstr_(
     ctx: LocalContext,
     ...actualArgs: Input<ValueType>[]
@@ -111,12 +96,12 @@ function instruction<
 function instructionWithArg<
   Args extends Tuple<ValueType>,
   Results extends Tuple<ValueType>,
-  Immediate extends any
+  Immediate extends any,
 >(
   name: InstructionName,
   immediate: Binable<Immediate>,
   args: ValueTypeObjects<Args>,
-  results: ValueTypeObjects<Results>
+  results: ValueTypeObjects<Results>,
 ): ((...args: [] | Args) => any) extends (...args: infer P) => any
   ? (
       ctx: LocalContext,
@@ -151,14 +136,12 @@ function processStackArgs(
   ctx: LocalContext,
   string: string,
   expectedArgs: ValueType[],
-  actualArgs: Input<ValueType | Unknown>[]
+  actualArgs: Input<ValueType | Unknown>[],
 ) {
   if (actualArgs.length === 0) return;
   let n = expectedArgs.length;
   if (actualArgs.length !== n) {
-    throw Error(
-      `${string}: Expected 0 or ${n} arguments, got ${actualArgs.length}.`
-    );
+    throw Error(`${string}: Expected 0 or ${n} arguments, got ${actualArgs.length}.`);
   }
 
   let mustReorder = false;
@@ -174,23 +157,17 @@ function processStackArgs(
     let type = mustReorder ? expectedArgs[n - 1 - i] : expectedArgs[i];
     if (isLocal(x)) {
       if (x.type !== type)
-        throw Error(
-          `${string}: Expected type ${type}, got local of type ${x.type}.`
-        );
+        throw Error(`${string}: Expected type ${type}, got local of type ${x.type}.`);
       if (mustReorder) insertInstruction(ctx, i, localGet.create(ctx, x));
       else localGet(ctx, x);
     } else if (isGlobal(x)) {
       if (x.type.value !== type)
-        throw Error(
-          `${string}: Expected type ${type}, got global of type ${x.type.value}.`
-        );
+        throw Error(`${string}: Expected type ${type}, got global of type ${x.type.value}.`);
       if (mustReorder) insertInstruction(ctx, i, globalGet.create(ctx, x));
       else globalGet(ctx, x);
     } else if (isStackVar(x)) {
       if (x.type !== type && x.type !== Unknown)
-        throw Error(
-          `${string}: Expected argument of type ${type}, got ${x.type}.`
-        );
+        throw Error(`${string}: Expected argument of type ${type}, got ${x.type}.`);
     } else {
       // could be const
       let unsupported = `${string}: Unsupported input for type ${type}, got ${x}.`;
@@ -230,16 +207,11 @@ function processStackArgs(
  * position i in the stack, where i is counted from the top
  * (so i=0 means apply the instruction as usual, i=1 means your output should be put below the current top variable, etc)
  */
-function insertInstruction(
-  ctx: LocalContext,
-  i: number,
-  instr: Dependency.Instruction
-) {
-  if (ctx.frames[0].unreachable)
-    throw Error("Can't insert instruction from unreachable code");
+function insertInstruction(ctx: LocalContext, i: number, instr: Dependency.Instruction) {
+  if (ctx.frames[0].unreachable) throw Error("Can't insert instruction from unreachable code");
   if (ctx.stack.length < i)
     throw Error(
-      `insertInstruction: trying to insert instruction at position ${i} > stack length ${ctx.stack.length}`
+      `insertInstruction: trying to insert instruction at position ${i} > stack length ${ctx.stack.length}`,
     );
   let stack = [...ctx.stack];
   let pseudoCtx: LocalContext = {
@@ -256,9 +228,7 @@ function insertInstruction(
     }
     if (stack.length !== 0)
       throw Error(
-        `Cannot insert constant instruction into stack ${formatStack(
-          stack
-        )} at position ${i}`
+        `Cannot insert constant instruction into stack ${formatStack(stack)} at position ${i}`,
       );
   } else {
     let variable = stack[stack.length - i - 1];
@@ -268,9 +238,7 @@ function insertInstruction(
       toReapply.unshift(instruction);
       if (!stack.find((v) => v.id === variable.id))
         throw Error(
-          `Cannot insert constant instruction into stack ${formatStack(
-            stack
-          )} at position ${i}`
+          `Cannot insert constant instruction into stack ${formatStack(stack)} at position ${i}`,
         );
     }
   }

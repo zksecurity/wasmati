@@ -38,19 +38,23 @@ test("public Module API emits readable module, function and local names", async 
 
 test("decodes WABT names, including imported functions, parameters and locals", async () => {
   const wabt = await wabtFactory();
-  const parsed = wabt.parseWat("named.wat", `
+  const parsed = wabt.parseWat(
+    "named.wat",
+    `
     (module $named
       (import "env" "id" (func $id (param i32) (result i32)))
       (func $add (export "add") (param $x i32) (param $y i32) (result i32)
         (local $tmp i32)
         local.get $x local.get $y i32.add
         local.set $tmp local.get $tmp call $id))
-  `);
+  `,
+  );
   try {
     const { buffer } = parsed.toBinary({ write_debug_names: true });
     const module = Module.fromBytes<{ add: typeof add }>(buffer, { env: { id: (x: number) => x } });
     assert.deepEqual(module.module.names, {
-      module: "named", functions: { 0: "id", 1: "add" },
+      module: "named",
+      functions: { 0: "id", 1: "add" },
       locals: { 0: {}, 1: { 0: "x", 1: "y", 2: "tmp" } },
     });
     assert.deepEqual(Module.fromBytes(module.toBytes()).module.names, module.module.names);
@@ -63,12 +67,18 @@ test("decodes WABT names, including imported functions, parameters and locals", 
 
 test("supports all standard and extended name maps and preserves unknown subsections", () => {
   const names: NameSection = {
-    module: "", functions: { 7: "same", 2: "same" },
+    module: "",
+    functions: { 7: "same", 2: "same" },
     locals: { 7: { 100: "local", 0: "param" } },
-    labels: { 7: { 0: "loop" } }, types: { 3: "type" },
-    tables: { 2: "table" }, memories: { 1: "memory" }, globals: { 0: "global" },
-    elements: { 0: "element" }, data: { 0: "data" },
-    fields: { 3: { 1: "field" } }, tags: { 0: "exception" },
+    labels: { 7: { 0: "loop" } },
+    types: { 3: "type" },
+    tables: { 2: "table" },
+    memories: { 1: "memory" },
+    globals: { 0: "global" },
+    elements: { 0: "element" },
+    data: { 0: "data" },
+    fields: { 3: { 1: "field" } },
+    tags: { 0: "exception" },
     unknown: [{ id: 127, data: [0, 255, 42] }],
   };
   assert.deepEqual(NameSection.fromBytes(NameSection.toBytes(names)), names);
@@ -88,15 +98,29 @@ test("custom sections survive before, between and after standard sections", asyn
   assert.deepEqual(recovered.toBytes(), module.toBytes());
   const { instance } = await recovered.instantiate();
   assert.equal(instance.exports.add(20, 22), 42);
-  assert.throws(() => Module({ exports: {}, customSections: [{ name: "x", data: [], after: 255 }] }).toBytes(), /position/);
+  assert.throws(
+    () => Module({ exports: {}, customSections: [{ name: "x", data: [], after: 255 }] }).toBytes(),
+    /position/,
+  );
 });
 
 test("preserves custom metadata when an empty preceding standard section is omitted", () => {
   const payload = [...Name.toBytes("x"), 42];
   const bytes = Uint8Array.from([
-    0, 97, 115, 109, 1, 0, 0, 0,
-    1, 1, 0, // empty type section
-    0, ...U32.toBytes(payload.length), ...payload,
+    0,
+    97,
+    115,
+    109,
+    1,
+    0,
+    0,
+    0,
+    1,
+    1,
+    0, // empty type section
+    0,
+    ...U32.toBytes(payload.length),
+    ...payload,
   ]);
   assert.equal(WebAssembly.validate(bytes), true);
   const module = Module.fromBytes(bytes);
@@ -107,15 +131,23 @@ test("preserves custom metadata when an empty preceding standard section is omit
 
 test("opaque custom sections can be large or repeated", () => {
   const data = new Array<number>(200_000).fill(42);
-  const module = Module({ exports: {}, customSections: [
-    { name: "x", data }, { name: "x", data: [] },
-  ] });
+  const module = Module({
+    exports: {},
+    customSections: [
+      { name: "x", data },
+      { name: "x", data: [] },
+    ],
+  });
   const bytes = module.toBytes();
   assert.equal(WebAssembly.validate(bytes), true);
   const decoded = Module.fromBytes(bytes);
-  assert.deepEqual(decoded.module.customSections?.map(({ name, data }) => ({ name, data })), [
-    { name: "x", data }, { name: "x", data: [] },
-  ]);
+  assert.deepEqual(
+    decoded.module.customSections?.map(({ name, data }) => ({ name, data })),
+    [
+      { name: "x", data },
+      { name: "x", data: [] },
+    ],
+  );
 });
 
 test("UTF-8 names use byte lengths", () => {
@@ -123,8 +155,12 @@ test("UTF-8 names use byte lengths", () => {
     assert.equal(Name.fromBytes(Name.toBytes(name)), name);
   }
   assert.deepEqual(Name.toBytes("🍚"), [4, 240, 159, 141, 154]);
-  const names = { module: "算術 🍚", functions: { 0: "加算" }, locals: { 0: { 0: "左", 1: "右" } } };
-  const bytes = Module({ exports: { "加算": add }, names }).toBytes();
+  const names = {
+    module: "算術 🍚",
+    functions: { 0: "加算" },
+    locals: { 0: { 0: "左", 1: "右" } },
+  };
+  const bytes = Module({ exports: { 加算: add }, names }).toBytes();
   const compiled = new WebAssembly.Module(bytes);
   assert.equal(WebAssembly.Module.exports(compiled)[0].name, "加算");
   assert.deepEqual(Module.fromBytes(bytes).module.names, names);
@@ -148,25 +184,41 @@ test("malformed optional name metadata is preserved without invalidating the mod
 
 test("duplicate name sections remain opaque and are preserved", () => {
   const data = NameSection.toBytes({ module: "first" });
-  const bytes = Module({ exports: {}, customSections: [
-    { name: "name", data }, { name: "name", data: [] },
-  ] }).toBytes();
+  const bytes = Module({
+    exports: {},
+    customSections: [
+      { name: "name", data },
+      { name: "name", data: [] },
+    ],
+  }).toBytes();
   const module = Module.fromBytes(bytes);
   assert.equal(module.module.names, undefined);
   assert.equal(module.module.customSections?.length, 2);
-  assert.equal(WebAssembly.Module.customSections(new WebAssembly.Module(module.toBytes()), "name").length, 2);
+  assert.equal(
+    WebAssembly.Module.customSections(new WebAssembly.Module(module.toBytes()), "name").length,
+    2,
+  );
 });
 
 test("rejects invalid metadata on encoding and truncated custom-section framing", () => {
   assert.throws(() => NameSection.toBytes({ functions: { [-1]: "x" } }), /index/);
   assert.throws(() => NameSection.toBytes({ unknown: [{ id: 1, data: [] }] }), /subsection id/);
-  assert.throws(() => NameSection.toBytes({ unknown: [{ id: 12, data: [] }, { id: 12, data: [] }] }), /duplicate/);
+  assert.throws(
+    () =>
+      NameSection.toBytes({
+        unknown: [
+          { id: 12, data: [] },
+          { id: 12, data: [] },
+        ],
+      }),
+    /duplicate/,
+  );
   const header = [0, 97, 115, 109, 1, 0, 0, 0];
   for (const section of [[0], [0, 128], [0, 5, 1, 120], [0, 255, 255, 255, 255, 16]]) {
     assert.throws(() => Module.fromBytes(Uint8Array.from([...header, ...section])));
   }
   const payload = [...Name.toBytes("x"), 1, 2];
-  assert.doesNotThrow(() => Module.fromBytes(Uint8Array.from([
-    ...header, 0, ...U32.toBytes(payload.length), ...payload,
-  ])));
+  assert.doesNotThrow(() =>
+    Module.fromBytes(Uint8Array.from([...header, 0, ...U32.toBytes(payload.length), ...payload])),
+  );
 });

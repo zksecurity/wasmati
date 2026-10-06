@@ -1,9 +1,26 @@
-import { localArray, params, Module, call, func, i32, i64, importFunc, local, type Func, type Local, type StackVar } from "../index.ts";
+import {
+  localArray,
+  params,
+  Module,
+  call,
+  func,
+  i32,
+  i64,
+  importFunc,
+  local,
+  type Func,
+  type Local,
+  type StackVar,
+} from "../index.ts";
 
 // Checked by tsc, never executed: negative cases must fail at compile time.
 async function checkNamedFunctionTypes() {
   const mixed = func(
-    { in: params({ small: i32 }, { large: i64 }, { another: i32 }), locals: { scratch: i64, limbs: localArray(i64, 5) }, out: [i64] },
+    {
+      in: params({ small: i32 }, { large: i64 }, { another: i32 }),
+      locals: { scratch: i64, limbs: localArray(i64, 5) },
+      out: [i64],
+    },
     ({ small, large, another }, { scratch, limbs }) => {
       small satisfies Local<i32>;
       another satisfies Local<i32>;

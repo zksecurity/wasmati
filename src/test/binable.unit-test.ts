@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Byte, RemainingBytes, constant, record, sequence, interleavedRecord, orUndefined, withByteCode } from "../binable.ts";
+import {
+  Byte,
+  RemainingBytes,
+  constant,
+  record,
+  sequence,
+  interleavedRecord,
+  orUndefined,
+  withByteCode,
+} from "../binable.ts";
 import { withByteLength } from "../immediate.ts";
 
 test("length-delimited sequences compose with following record fields", () => {
@@ -24,17 +33,27 @@ test("sequences reject elements that consume no bytes or overrun the input", () 
 });
 
 test("interleaved records preserve extra entries around optional fields", () => {
-  const codec = interleavedRecord({
-    first: withByteCode(1, Byte),
-    optional: orUndefined(withByteCode(2, Byte)),
-    last: withByteCode(3, Byte),
-  }, { codec: withByteCode(0, Byte), matches: (bytes, offset) => bytes[offset] === 0 });
+  const codec = interleavedRecord(
+    {
+      first: withByteCode(1, Byte),
+      optional: orUndefined(withByteCode(2, Byte)),
+      last: withByteCode(3, Byte),
+    },
+    { codec: withByteCode(0, Byte), matches: (bytes, offset) => bytes[offset] === 0 },
+  );
   const value = {
     value: { first: 10, optional: undefined, last: 30 },
-    extras: [{ after: undefined, value: 9 }, { after: "first" as const, value: 19 }, { after: "last" as const, value: 39 }],
+    extras: [
+      { after: undefined, value: 9 },
+      { after: "first" as const, value: 19 },
+      { after: "last" as const, value: 39 },
+    ],
   };
   const bytes = [0, 9, 1, 10, 0, 19, 3, 30, 0, 39];
   assert.deepEqual(codec.toBytes(value), bytes);
   assert.deepEqual(codec.fromBytes(bytes), value);
-  assert.deepEqual(codec.toBytes({ ...value, extras: [{ after: "optional", value: 19 }] }), [1, 10, 0, 19, 3, 30]);
+  assert.deepEqual(
+    codec.toBytes({ ...value, extras: [{ after: "optional", value: 19 }] }),
+    [1, 10, 0, 19, 3, 30],
+  );
 });

@@ -3,14 +3,23 @@ import { type Type, type ValueType, valueTypeLiteral } from "./types.ts";
 export { params, type Parameters, type ParameterEntry, type ParameterTypes, type ParameterValues };
 
 type ParameterEntry = Record<string, Type<ValueType>>;
-type IsUnion<T, Whole = T> = T extends Whole ? [Whole] extends [T] ? false : true : never;
-type OneKey<E> = keyof E extends never ? never
-  : [keyof E] extends [string | number] ? IsUnion<keyof E> extends true ? never : E : never;
+type IsUnion<T, Whole = T> = T extends Whole ? ([Whole] extends [T] ? false : true) : never;
+type OneKey<E> = keyof E extends never
+  ? never
+  : [keyof E] extends [string | number]
+    ? IsUnion<keyof E> extends true
+      ? never
+      : E
+    : never;
 type TextKeys<E> = `${Extract<keyof E, string | number>}`;
-type Unique<P extends readonly ParameterEntry[], Seen = never> =
-  P extends readonly [infer H extends ParameterEntry, ...infer R extends readonly ParameterEntry[]]
-    ? Extract<TextKeys<H>, Seen> extends never ? Unique<R, Seen | TextKeys<H>> : never
-    : unknown;
+type Unique<P extends readonly ParameterEntry[], Seen = never> = P extends readonly [
+  infer H extends ParameterEntry,
+  ...infer R extends readonly ParameterEntry[],
+]
+  ? Extract<TextKeys<H>, Seen> extends never
+    ? Unique<R, Seen | TextKeys<H>>
+    : never
+  : unknown;
 type ParameterTypes<P extends readonly ParameterEntry[]> = {
   -readonly [K in keyof P]: P[K][keyof P[K]]["kind"];
 };
@@ -19,7 +28,11 @@ type ParameterValues<P extends readonly ParameterEntry[]> = {
 };
 // Keep only names and value types, rather than carrying entire instruction APIs in inferred signatures.
 type ParameterSchema<P extends readonly ParameterEntry[]> = {
-  [K in keyof P]: { [Name in keyof P[K] as Name extends string | number ? `${Name}` : never]: Type<P[K][Name]["kind"]> };
+  [K in keyof P]: {
+    [Name in keyof P[K] as Name extends string | number ? `${Name}` : never]: Type<
+      P[K][Name]["kind"]
+    >;
+  };
 };
 type Parameters<P extends readonly ParameterEntry[] = readonly ParameterEntry[]> = {
   names: string[];
@@ -48,6 +61,8 @@ function params<const P extends readonly ParameterEntry[]>(
   return {
     names,
     types: types as ParameterTypes<ParameterSchema<P>>,
-    values: Object.fromEntries(names.map((name, index) => [name, types[index]])) as ParameterValues<ParameterSchema<P>>,
+    values: Object.fromEntries(names.map((name, index) => [name, types[index]])) as ParameterValues<
+      ParameterSchema<P>
+    >,
   };
 }

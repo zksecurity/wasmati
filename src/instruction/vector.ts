@@ -1,25 +1,13 @@
 import { F32, F64, U8 } from "../immediate.ts";
 import { baseInstruction } from "./base.ts";
 import { i32t, i64t, f32t, f64t, v128t } from "../types.ts";
-import {
-  memoryLaneInstruction as mli,
-  memoryInstruction as mi,
-} from "./memory.ts";
+import { memoryLaneInstruction as mli, memoryInstruction as mi } from "./memory.ts";
 import { array, Byte } from "../binable.ts";
 import type { TupleN } from "../util.ts";
 import type { LocalContext } from "../local-context.ts";
 import { instruction as i, instructionWithArg as iarg } from "./stack-args.ts";
 
-export {
-  v128Ops,
-  i8x16Ops,
-  i16x8Ops,
-  i32x4Ops,
-  i64x2Ops,
-  f32x4Ops,
-  f64x2Ops,
-  wrapConst,
-};
+export { v128Ops, i8x16Ops, i16x8Ops, i32x4Ops, i64x2Ops, f32x4Ops, f64x2Ops, wrapConst };
 
 type VectorShape = "i8x16" | "i16x8" | "i32x4" | "i64x2" | "f32x4" | "f64x2";
 
@@ -44,7 +32,7 @@ type ShapeType = {
 
 type V128Generic<Shape extends VectorShape> = [
   shape: Shape,
-  value: TupleN<ShapeType[Shape], ShapeLength[Shape]>
+  value: TupleN<ShapeType[Shape], ShapeLength[Shape]>,
 ];
 
 type V128 =
@@ -59,7 +47,7 @@ function toV128Bytes<T extends V128>(...[shape, value]: T): TupleN<number, 16> {
   type Bytes16 = TupleN<number, 16>;
   if (value.length !== shapeLength[shape])
     throw Error(
-      `v128.const: got input of length ${value.length}, but expected length ${shapeLength[shape]} for shape ${shape}.`
+      `v128.const: got input of length ${value.length}, but expected length ${shapeLength[shape]} for shape ${shape}.`,
     );
   switch (shape) {
     case "i8x16":
@@ -84,7 +72,7 @@ const V128 = array(Byte, 16);
 function wrapConst<R>(const_: (...createArgs: V128) => R) {
   return function <Shape extends VectorShape>(
     shape: Shape,
-    value: TupleN<ShapeType[Shape], ShapeLength[Shape]>
+    value: TupleN<ShapeType[Shape], ShapeLength[Shape]>,
   ) {
     return const_(...([shape, value] as V128));
   };
@@ -184,11 +172,7 @@ const i8x16Ops = {
 
   // relaxed
   relaxed_i8x16_swizzle: i("i8x16.relaxed_swizzle", [v128t, v128t], [v128t]),
-  relaxed_laneselect: i(
-    "i8x16.relaxed_laneselect",
-    [v128t, v128t, v128t],
-    [v128t]
-  ),
+  relaxed_laneselect: i("i8x16.relaxed_laneselect", [v128t, v128t, v128t], [v128t]),
 };
 
 const i16x8Ops = {
@@ -247,17 +231,9 @@ const i16x8Ops = {
   extmul_high_i8x16_u: i("i16x8.extmul_high_i8x16_u", [v128t, v128t], [v128t]),
 
   // relaxed
-  relaxed_laneselect: i(
-    "i16x8.relaxed_laneselect",
-    [v128t, v128t, v128t],
-    [v128t]
-  ),
+  relaxed_laneselect: i("i16x8.relaxed_laneselect", [v128t, v128t, v128t], [v128t]),
   relaxed_q15mulr_s: i("i16x8.relaxed_q15mulr_s", [v128t, v128t], [v128t]),
-  relaxed_dot_i8x16_i7x16_s: i(
-    "i16x8.relaxed_dot_i8x16_i7x16_s",
-    [v128t, v128t],
-    [v128t]
-  ),
+  relaxed_dot_i8x16_i7x16_s: i("i16x8.relaxed_dot_i8x16_i7x16_s", [v128t, v128t], [v128t]),
 };
 
 const i32x4Ops = {
@@ -316,25 +292,13 @@ const i32x4Ops = {
   // relaxed
   relaxed_trunc_f32x4_s: i("i32x4.relaxed_trunc_f32x4_s", [v128t], [v128t]),
   relaxed_trunc_f32x4_u: i("i32x4.relaxed_trunc_f32x4_u", [v128t], [v128t]),
-  relaxed_trunc_f64x2_s_zero: i(
-    "i32x4.relaxed_trunc_f64x2_s_zero",
-    [v128t],
-    [v128t]
-  ),
-  relaxed_trunc_f64x2_u_zero: i(
-    "i32x4.relaxed_trunc_f64x2_u_zero",
-    [v128t],
-    [v128t]
-  ),
-  relaxed_laneselect: i(
-    "i32x4.relaxed_laneselect",
-    [v128t, v128t, v128t],
-    [v128t]
-  ),
+  relaxed_trunc_f64x2_s_zero: i("i32x4.relaxed_trunc_f64x2_s_zero", [v128t], [v128t]),
+  relaxed_trunc_f64x2_u_zero: i("i32x4.relaxed_trunc_f64x2_u_zero", [v128t], [v128t]),
+  relaxed_laneselect: i("i32x4.relaxed_laneselect", [v128t, v128t, v128t], [v128t]),
   relaxed_dot_i8x16_i7x16_add_s: i(
     "i32x4.relaxed_dot_i8x16_i7x16_add_s",
     [v128t, v128t, v128t],
-    [v128t]
+    [v128t],
   ),
 };
 
@@ -375,11 +339,7 @@ const i64x2Ops = {
   extmul_high_i32x4_u: i("i64x2.extmul_high_i32x4_u", [v128t, v128t], [v128t]),
 
   // relaxed
-  relaxed_laneselect: i(
-    "i64x2.relaxed_laneselect",
-    [v128t, v128t, v128t],
-    [v128t]
-  ),
+  relaxed_laneselect: i("i64x2.relaxed_laneselect", [v128t, v128t, v128t], [v128t]),
 };
 
 const f32x4Ops = {

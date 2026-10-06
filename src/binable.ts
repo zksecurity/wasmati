@@ -45,8 +45,7 @@ function Binable<T>({
     // spec: fromBytes throws if the input bytes are not all used
     fromBytes([...bytes]) {
       let [value, offset] = readBytes(bytes, 0);
-      if (offset < bytes.length)
-        throw Error("fromBytes: input bytes left over");
+      if (offset < bytes.length) throw Error("fromBytes: input bytes left over");
       return value;
     },
   };
@@ -166,9 +165,7 @@ function record<Types extends Record<string, any>>(binables: {
     },
     readBytes(bytes, start) {
       let [tupleValue, end] = tupleBinable.readBytes(bytes, start);
-      let value = Object.fromEntries(
-        keys.map((key, i) => [key, tupleValue[i]])
-      ) as any;
+      let value = Object.fromEntries(keys.map((key, i) => [key, tupleValue[i]])) as any;
       return [value, end];
     },
   });
@@ -222,10 +219,7 @@ function array<T>(binable: Binable<T>, size: number): Binable<T[]> {
   });
 }
 
-function iso<T, S>(
-  binable: Binable<T>,
-  { to, from }: { to(s: S): T; from(t: T): S }
-): Binable<S> {
+function iso<T, S>(binable: Binable<T>, { to, from }: { to(s: S): T; from(t: T): S }): Binable<S> {
   return Binable({
     toBytes(s: S) {
       return binable.toBytes(to(s));
@@ -273,13 +267,12 @@ function or<Types extends Tuple<any>>(
         [i in keyof Types]: Binable<Types[i]>;
       }[number]
     | number
-    | undefined
+    | undefined,
 ): Binable<Union<Types>> {
   return Binable({
     toBytes(value) {
       let result = distinguish(value);
-      if (result === undefined)
-        throw Error("or: input matches no allowed type");
+      if (result === undefined) throw Error("or: input matches no allowed type");
       let binable = typeof result === "number" ? binables[result] : result;
       return binable.toBytes(value);
     },
@@ -303,7 +296,7 @@ function orUndefined<T>(binable: Binable<T>): Binable<T | undefined> {
 function orDefault<T>(
   binable: Binable<T>,
   defaultValue: T,
-  isDefault: (t: T) => boolean
+  isDefault: (t: T) => boolean,
 ): Binable<T> {
   return iso(orUndefined(binable), {
     to: (t: T) => (isDefault(t) ? undefined : t),
@@ -311,16 +304,14 @@ function orDefault<T>(
   });
 }
 
-function byteEnum<
-  Enum extends Record<number, { kind: string; value: any }>
->(binables: {
+function byteEnum<Enum extends Record<number, { kind: string; value: any }>>(binables: {
   [b in keyof Enum & number]: {
     kind: Enum[b]["kind"];
     value: Binable<Enum[b]["value"]>;
   };
 }): Binable<Enum[keyof Enum & number]> {
   let kindToByte = Object.fromEntries(
-    Object.entries(binables).map(([byte, { kind }]) => [kind, Number(byte)])
+    Object.entries(binables).map(([byte, { kind }]) => [kind, Number(byte)]),
   );
   return Binable({
     toBytes({ kind, value }) {
@@ -331,8 +322,7 @@ function byteEnum<
     readBytes(bytes, offset) {
       let byte = bytes[offset++];
       let entry = binables[byte];
-      if (entry === undefined)
-        throw Error(`byte ${byte} matches none of the possible types`);
+      if (entry === undefined) throw Error(`byte ${byte} matches none of the possible types`);
       let { kind, value: binable } = entry;
       let [value, end] = binable.readBytes(bytes, offset);
       return [{ kind, value }, end];
@@ -349,7 +339,7 @@ function byteEnum<
  */
 function interleavedRecord<Types extends Record<string, any>, Extra>(
   binables: { [K in keyof Types]: Binable<Types[K]> },
-  extra: { codec: Binable<Extra>; matches(bytes: number[], offset: number): boolean }
+  extra: { codec: Binable<Extra>; matches(bytes: number[], offset: number): boolean },
 ): Binable<{
   value: Types;
   extras: { after?: keyof Types | null; value: Extra }[];
@@ -362,12 +352,15 @@ function interleavedRecord<Types extends Record<string, any>, Extra>(
           throw Error(`invalid interleaved record position ${String(entry.after)}`);
         }
       }
-      const at = (after: keyof Types | null | undefined) => extras
-        .filter((entry) => entry.after === after)
-        .flatMap((entry) => extra.codec.toBytes(entry.value));
-      return [at(undefined), ...keys.map((key) => [
-        binables[key].toBytes(value[key]), at(key),
-      ].flat()), at(null)].flat();
+      const at = (after: keyof Types | null | undefined) =>
+        extras
+          .filter((entry) => entry.after === after)
+          .flatMap((entry) => extra.codec.toBytes(entry.value));
+      return [
+        at(undefined),
+        ...keys.map((key) => [binables[key].toBytes(value[key]), at(key)].flat()),
+        at(null),
+      ].flat();
     },
     readBytes(bytes, offset) {
       const value = {} as Types;

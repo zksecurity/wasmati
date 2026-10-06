@@ -1,16 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { params,
-  $,
-  Const,
-  Module,
-  func,
-  global,
-  i32,
-  i64,
-  local,
-  StackVar,
-} from "../index.ts";
+import { params, $, Const, Module, func, global, i32, i64, local, StackVar } from "../index.ts";
 
 const add128 = func(
   { in: params({ aLo: i64 }, { aHi: i64 }, { bLo: i64 }, { bHi: i64 }), out: [i64, i64] },
@@ -73,22 +63,12 @@ function pair(x: bigint): [bigint, bigint] {
 function join(lo: bigint, hi: bigint) {
   return BigInt.asUintN(64, lo) | (BigInt.asUintN(64, hi) << 64n);
 }
-const limbs = [
-  0n,
-  1n,
-  2n,
-  (1n << 63n) - 1n,
-  1n << 63n,
-  (1n << 64n) - 2n,
-  (1n << 64n) - 1n,
-];
+const limbs = [0n, 1n, 2n, (1n << 63n) - 1n, 1n << 63n, (1n << 64n) - 2n, (1n << 64n) - 1n];
 
 test("128-bit addition and subtraction match bigint, including carry, borrow and wraparound", async () => {
   const { instance } = await module.instantiate();
   const { add128, sub128 } = instance.exports;
-  add128 satisfies (
-    aLo: bigint, aHi: bigint, bLo: bigint, bHi: bigint,
-  ) => [bigint, bigint];
+  add128 satisfies (aLo: bigint, aHi: bigint, bLo: bigint, bHi: bigint) => [bigint, bigint];
   for (const aLo of limbs)
     for (const aHi of limbs) {
       for (const bLo of limbs)
@@ -107,24 +87,15 @@ test("signed and unsigned widening multiplication match bigint", async () => {
   mulWideU satisfies (a: bigint, b: bigint) => [bigint, bigint];
   for (const a of limbs)
     for (const b of limbs) {
-      assert.deepEqual(
-        mulWideS(a, b),
-        pair(BigInt.asIntN(64, a) * BigInt.asIntN(64, b)),
-      );
+      assert.deepEqual(mulWideS(a, b), pair(BigInt.asIntN(64, a) * BigInt.asIntN(64, b)));
       assert.deepEqual(mulWideU(a, b), pair(a * b));
       // Negative JS arguments carry the same bits as their unsigned counterparts.
-      assert.deepEqual(
-        mulWideU(BigInt.asIntN(64, a), BigInt.asIntN(64, b)),
-        pair(a * b),
-      );
+      assert.deepEqual(mulWideU(BigInt.asIntN(64, a), BigInt.asIntN(64, b)), pair(a * b));
     }
   // Exercise optimized execution with deterministic inputs spanning all 64 bits.
   let state = 1n;
   function next() {
-    state = BigInt.asUintN(
-      64,
-      state * 6364136223846793005n + 1442695040888963407n,
-    );
+    state = BigInt.asUintN(64, state * 6364136223846793005n + 1442695040888963407n);
     return state;
   }
   for (let i = 0; i < 20_000; i++) {
@@ -133,26 +104,17 @@ test("signed and unsigned widening multiplication match bigint", async () => {
       c = next(),
       d = next();
     assert.deepEqual(mulWideU(a, b), pair(a * b));
-    assert.deepEqual(
-      mulWideS(a, b),
-      pair(BigInt.asIntN(64, a) * BigInt.asIntN(64, b)),
-    );
-    assert.deepEqual(
-      instance.exports.add128(a, b, c, d),
-      pair(join(a, b) + join(c, d)),
-    );
-    assert.deepEqual(
-      instance.exports.sub128(a, b, c, d),
-      pair(join(a, b) - join(c, d)),
-    );
+    assert.deepEqual(mulWideS(a, b), pair(BigInt.asIntN(64, a) * BigInt.asIntN(64, b)));
+    assert.deepEqual(instance.exports.add128(a, b, c, d), pair(join(a, b) + join(c, d)));
+    assert.deepEqual(instance.exports.sub128(a, b, c, d), pair(join(a, b) - join(c, d)));
   }
 });
 
 test("wide results compose with locals, constants, globals and stack operands", async () => {
   const one = global(Const.i64(1n));
   const multiplyAdd = func(
-  { in: params({ a: i64 }, { b: i64 }), locals: { lo: i64, hi: i64 }, out: [i64, i64] },
-  ({ a, b }, { lo, hi }) => {
+    { in: params({ a: i64 }, { b: i64 }), locals: { lo: i64, hi: i64 }, out: [i64, i64] },
+    ({ a, b }, { lo, hi }) => {
       const result: [StackVar<i64>, StackVar<i64>] = i64.mul_wide_u(a, b);
       // High is on top of the stack; save it before low.
       local.set(hi, result[1]);
@@ -160,22 +122,20 @@ test("wide results compose with locals, constants, globals and stack operands", 
       i64.add128(lo, hi, one, 0n);
     },
   );
-  const stackAdd = func(
-  { in: params({ a: i64 }, { b: i64 }), out: [i64, i64] },
-  ({ a, b }) => {
+  const stackAdd = func({ in: params({ a: i64 }, { b: i64 }), out: [i64, i64] }, ({ a, b }) => {
     i64.mul_wide_u(a, b);
     i64.add128($, $, 1n, 0n);
   });
   const stackBelowConstants = func(
-  { in: params({ a: i64 }, { b: i64 }), out: [i64, i64] },
-  ({ a, b }) => {
+    { in: params({ a: i64 }, { b: i64 }), out: [i64, i64] },
+    ({ a, b }) => {
       i64.mul_wide_u(a, b);
       i64.sub128(0n, 0n, $, $);
     },
   );
   const chained = func(
-  { in: params({ a: i64 }, { b: i64 }, { c: i64 }, { d: i64 }), out: [i64, i64] },
-  ({ a, b, c, d }) => {
+    { in: params({ a: i64 }, { b: i64 }, { c: i64 }, { d: i64 }), out: [i64, i64] },
+    ({ a, b, c, d }) => {
       i64.mul_wide_u(a, b);
       i64.mul_wide_u(c, d);
       i64.add128();
@@ -188,10 +148,7 @@ test("wide results compose with locals, constants, globals and stack operands", 
     for (const b of limbs) {
       assert.deepEqual(instance.exports.multiplyAdd(a, b), pair(a * b + 1n));
       assert.deepEqual(instance.exports.stackAdd(a, b), pair(a * b + 1n));
-      assert.deepEqual(
-        instance.exports.stackBelowConstants(a, b),
-        pair(-a * b),
-      );
+      assert.deepEqual(instance.exports.stackBelowConstants(a, b), pair(-a * b));
       assert.deepEqual(instance.exports.chained(a, b, b, a), pair(2n * a * b));
     }
 });
@@ -229,9 +186,7 @@ test("wide arithmetic validates operand counts, operand types and both results",
   );
   assert.throws(
     () =>
-      func(
-  { in: params({ x: i32 }), out: [i64, i64] },
-  ({ x }) => {
+      func({ in: params({ x: i32 }), out: [i64, i64] }, ({ x }) => {
         // @ts-expect-error wide instructions take i64 operands
         i64.mul_wide_s(x, 1n);
       }),

@@ -99,7 +99,7 @@ const Empty = withByteCode(0x40, constant("empty"));
 
 type BlockType = "empty" | ValueType | U32;
 const BlockType = or([Empty, S33, ValueType], (t) =>
-  t === "empty" ? Empty : typeof t === "number" ? S33 : ValueType
+  t === "empty" ? Empty : typeof t === "number" ? S33 : ValueType,
 );
 
 const Block = record({ blockType: BlockType, instructions: Expression });

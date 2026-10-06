@@ -8,8 +8,7 @@ export { localGet, globalGet };
 const localGet = baseInstruction("local.get", U32, {
   create({ locals }, x: Local) {
     let local = locals[x.index];
-    if (local === undefined)
-      throw Error(`local with index ${x.index} not available`);
+    if (local === undefined) throw Error(`local with index ${x.index} not available`);
     return { in: [], out: [local] };
   },
   resolve: (_, x: Local) => x.index,

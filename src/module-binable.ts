@@ -135,39 +135,45 @@ type Sections = {
 };
 
 const sectionIds = {
-  typeSection: 1, importSection: 2, funcSection: 3, tableSection: 4,
-  memorySection: 5, globalSection: 6, exportSection: 7, startSection: 8,
-  elemSection: 9, dataCountSection: 12, codeSection: 10, dataSection: 11,
+  typeSection: 1,
+  importSection: 2,
+  funcSection: 3,
+  tableSection: 4,
+  memorySection: 5,
+  globalSection: 6,
+  exportSection: 7,
+  startSection: 8,
+  elemSection: 9,
+  dataCountSection: 12,
+  codeSection: 10,
+  dataSection: 11,
 } as const;
 
-const Sections = interleavedRecord<Sections, { name: string; data: number[] }>({
-  typeSection: orDefault(TypeSection, [], isEmpty),
-  importSection: orDefault(ImportSection, [], isEmpty),
-  funcSection: orDefault(FuncSection, [], isEmpty),
-  tableSection: orDefault(TableSection, [], isEmpty),
-  memorySection: orDefault(MemorySection, [], isEmpty),
-  globalSection: orDefault(GlobalSection, [], isEmpty),
-  exportSection: orDefault(ExportSection, [], isEmpty),
-  startSection: orUndefined(StartSection),
-  elemSection: orDefault(ElemSection, [], isEmpty),
-  dataCountSection: orUndefined(DataCountSection),
-  codeSection: orDefault(CodeSection, [], isEmpty),
-  dataSection: orDefault(DataSection, [], isEmpty),
-}, { codec: CustomSection, matches: (bytes, offset) => bytes[offset] === 0 });
+const Sections = interleavedRecord<Sections, { name: string; data: number[] }>(
+  {
+    typeSection: orDefault(TypeSection, [], isEmpty),
+    importSection: orDefault(ImportSection, [], isEmpty),
+    funcSection: orDefault(FuncSection, [], isEmpty),
+    tableSection: orDefault(TableSection, [], isEmpty),
+    memorySection: orDefault(MemorySection, [], isEmpty),
+    globalSection: orDefault(GlobalSection, [], isEmpty),
+    exportSection: orDefault(ExportSection, [], isEmpty),
+    startSection: orUndefined(StartSection),
+    elemSection: orDefault(ElemSection, [], isEmpty),
+    dataCountSection: orUndefined(DataCountSection),
+    codeSection: orDefault(CodeSection, [], isEmpty),
+    dataSection: orDefault(DataSection, [], isEmpty),
+  },
+  { codec: CustomSection, matches: (bytes, offset) => bytes[offset] === 0 },
+);
 
-const ParsedModule = withValidation(withPreamble(
-  [0x00, 0x61, 0x73, 0x6d],
-  record({ version: Version, sections: Sections })
-),
+const ParsedModule = withValidation(
+  withPreamble([0x00, 0x61, 0x73, 0x6d], record({ version: Version, sections: Sections })),
   ({
     version,
-    sections: { value: {
-      funcSection,
-      codeSection,
-      memorySection,
-      dataSection,
-      dataCountSection,
-    } },
+    sections: {
+      value: { funcSection, codeSection, memorySection, dataSection, dataCountSection },
+    },
   }) => {
     if (version !== 1) throw Error("unsupported version");
     if (funcSection.length !== codeSection.length) {
@@ -178,7 +184,7 @@ const ParsedModule = withValidation(withPreamble(
     }
     if (dataSection.length !== (dataCountSection ?? 0))
       throw Error("data section length does not match data count section");
-  }
+  },
 );
 
 const Module = iso(ParsedModule, {
@@ -197,7 +203,8 @@ const Module = iso(ParsedModule, {
     customSections,
   }: Module) {
     const extras = (customSections ?? []).map(({ after, ...value }) => {
-      const key = Object.entries(sectionIds).find(([, id]) => id === after)?.[0] as keyof Sections | undefined;
+      const key = Object.entries(sectionIds).find(([, id]) => id === after)?.[0] as
+        keyof Sections | undefined;
       if (after !== undefined && after !== 0 && key === undefined) {
         throw Error(`invalid custom section position ${after}`);
       }
@@ -231,21 +238,27 @@ const Module = iso(ParsedModule, {
       },
     };
   },
-  from({ sections: { extras, value: {
-    typeSection,
-    importSection,
-    funcSection,
-    tableSection,
-    memorySection,
-    globalSection,
-    exportSection,
-    startSection,
-    codeSection,
-    dataSection,
-    elemSection,
-  } } }): Module {
+  from({
+    sections: {
+      extras,
+      value: {
+        typeSection,
+        importSection,
+        funcSection,
+        tableSection,
+        memorySection,
+        globalSection,
+        exportSection,
+        startSection,
+        codeSection,
+        dataSection,
+        elemSection,
+      },
+    },
+  }): Module {
     const customSections = extras.map(({ after, value }) => ({
-      ...value, after: after === undefined || after === null ? 0 : sectionIds[after],
+      ...value,
+      after: after === undefined || after === null ? 0 : sectionIds[after],
     }));
     let names: NameSection | undefined;
     const nameSections = customSections.filter(({ name }) => name === "name");
@@ -259,7 +272,7 @@ const Module = iso(ParsedModule, {
       }
     }
     let importedFunctionsLength = importSection.filter(
-      (i) => i.description.kind === "function"
+      (i) => i.description.kind === "function",
     ).length;
     let funcs = funcSection.map((typeIdx, funcIdx) => {
       let type = typeSection[typeIdx];

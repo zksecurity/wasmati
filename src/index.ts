@@ -3,26 +3,11 @@ export { localArray, type LocalArray } from "./locals.ts";
 export { Module } from "./module.ts";
 export { NameSection, type NameMap, type IndirectNameMap } from "./name-section.ts";
 export type { CustomSection } from "./module-binable.ts";
-import {
-  globalConstructor,
-  refOps,
-  bindLocalOps,
-  bindGlobalOps,
-} from "./instruction/variable.ts";
+import { globalConstructor, refOps, bindLocalOps, bindGlobalOps } from "./instruction/variable.ts";
 import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.ts";
 import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.ts";
-import {
-  bindControlOps,
-  control as controlOps,
-  parametric,
-} from "./instruction/control.ts";
-import {
-  emptyContext,
-  type LocalContext,
-  type Label,
-  StackVar,
-  Unknown,
-} from "./local-context.ts";
+import { bindControlOps, control as controlOps, parametric } from "./instruction/control.ts";
+import { emptyContext, type LocalContext, type Label, StackVar, Unknown } from "./local-context.ts";
 import type { Tuple } from "./util.ts";
 import {
   f32t,
@@ -40,12 +25,7 @@ import {
   type JSValue,
 } from "./types.ts";
 import type { Func, ImportFunc, AnyFunc } from "./func-types.ts";
-import {
-  type JSFunction,
-  type Local,
-  func as originalFunc,
-  type ToTypeTuple,
-} from "./func.ts";
+import { type JSFunction, type Local, func as originalFunc, type ToTypeTuple } from "./func.ts";
 import type { Instruction, FunctionTypeInput } from "./instruction/base.ts";
 import {
   f32x4Ops,
@@ -57,20 +37,9 @@ import {
   v128Ops,
   wrapConst,
 } from "./instruction/vector.ts";
-import {
-  dataConstructor,
-  elemConstructor,
-  memoryConstructor,
-  tableConstructor,
-} from "./memory.ts";
+import { dataConstructor, elemConstructor, memoryConstructor, tableConstructor } from "./memory.ts";
 import * as Dependency from "./dependency.ts";
-import type {
-  Global,
-  ImportGlobal,
-  AnyGlobal,
-  ImportMemory,
-  AnyMemory,
-} from "./dependency.ts";
+import type { Global, ImportGlobal, AnyGlobal, ImportMemory, AnyMemory } from "./dependency.ts";
 import { Const } from "./dependency.ts";
 import { importFunc, importGlobal, importMemory } from "./export.ts";
 import type { TupleN } from "./util.ts";
@@ -115,19 +84,7 @@ export {
   f64x2,
   atomic,
 };
-export {
-  nop,
-  unreachable,
-  block,
-  loop,
-  if_,
-  br,
-  br_if,
-  br_table,
-  return_,
-  call,
-  call_indirect,
-};
+export { nop, unreachable, block, loop, if_, br, br_if, br_table, return_, call, call_indirect };
 
 // other public API
 export { defaultCtx };
@@ -256,11 +213,9 @@ function createInstructions(ctx: LocalContext) {
 
   const { drop, select_poly, select_t } = removeContexts(ctx, parametric);
 
-  const memory = Object.assign(
-    memoryConstructor,
-    removeContexts(ctx, memoryOps),
-    { atomic: memoryAtomic }
-  );
+  const memory = Object.assign(memoryConstructor, removeContexts(ctx, memoryOps), {
+    atomic: memoryAtomic,
+  });
   const data = Object.assign(dataConstructor, removeContexts(ctx, dataOps));
   const table = Object.assign(tableConstructor, removeContexts(ctx, tableOps));
   const elem = Object.assign(elemConstructor, removeContexts(ctx, elemOps));
@@ -313,10 +268,10 @@ function createInstructions(ctx: LocalContext) {
 function removeContexts<
   T extends {
     [K in any]: (ctx: LocalContext, ...args: any) => any;
-  }
+  },
 >(
   ctx: LocalContext,
-  instructions: T
+  instructions: T,
 ): {
   [K in keyof T]: RemoveContext<T[K]>;
 } {
@@ -329,14 +284,16 @@ function removeContexts<
   return result;
 }
 
-type RemoveContext<F extends (ctx: LocalContext, ...args: any) => any> =
-  F extends (ctx: LocalContext, ...args: infer CreateArgs) => infer Return
-    ? (...args: CreateArgs) => Return
-    : never;
+type RemoveContext<F extends (ctx: LocalContext, ...args: any) => any> = F extends (
+  ctx: LocalContext,
+  ...args: infer CreateArgs
+) => infer Return
+  ? (...args: CreateArgs) => Return
+  : never;
 
 function removeContext<Args extends Tuple<any>, Return extends any>(
   ctx: LocalContext,
-  op: (ctx: LocalContext, ...args: Args) => Return
+  op: (ctx: LocalContext, ...args: Args) => Return,
 ): (...args: Args) => Return {
   return (...args: Args) => op(ctx, ...args);
 }

@@ -1,4 +1,12 @@
-import { type Binable, Byte, RemainingBytes, iso, record, sequence, withValidation } from "./binable.ts";
+import {
+  type Binable,
+  Byte,
+  RemainingBytes,
+  iso,
+  record,
+  sequence,
+  withValidation,
+} from "./binable.ts";
 import { Name, U32, vec, withByteLength } from "./immediate.ts";
 
 export { NameSection, type NameMap, type IndirectNameMap };
@@ -23,7 +31,9 @@ type NameSection = {
 };
 
 function indices(map: Record<number, unknown>) {
-  const indices = Object.keys(map).map(Number).sort((a, b) => a - b);
+  const indices = Object.keys(map)
+    .map(Number)
+    .sort((a, b) => a - b);
   for (const index of indices) {
     if (!Number.isInteger(index) || index < 0 || index > 0xffff_ffff || !(String(index) in map)) {
       throw Error(`invalid name index: ${index}`);
@@ -73,7 +83,8 @@ const Subsections = withValidation(sequence(Subsection), (sections) => {
   let previous = -1;
   for (const { id } of sections) {
     if (!Number.isInteger(id) || id < 0 || id > 255) throw Error("invalid name subsection id");
-    if (id <= previous) throw Error("name subsections must be unique and increasing (no duplicates)");
+    if (id <= previous)
+      throw Error("name subsections must be unique and increasing (no duplicates)");
     previous = id;
   }
 });

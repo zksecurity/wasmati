@@ -80,7 +80,7 @@ const if_ = baseInstruction("if", IfBlock, {
     ctx,
     t: FunctionTypeInput,
     runIf: (label: RandomLabel) => void,
-    runElse?: (label: RandomLabel) => void
+    runElse?: (label: RandomLabel) => void,
   ) {
     popStack(ctx, ["i32"]);
     let { type, body, deps } = createExpressionWithType("if", ctx, t, runIf);
@@ -106,12 +106,11 @@ const if_ = baseInstruction("if", IfBlock, {
   resolve(
     [blockType, ...deps],
     ifBody: Dependency.Instruction[],
-    elseBody?: Dependency.Instruction[]
+    elseBody?: Dependency.Instruction[],
   ) {
     let ifDepsLength = ifBody.reduce((acc, i) => acc + i.deps.length, 0);
     let if_ = resolveExpression(deps.slice(0, ifDepsLength), ifBody);
-    let else_ =
-      elseBody && resolveExpression(deps.slice(ifDepsLength), elseBody);
+    let else_ = elseBody && resolveExpression(deps.slice(ifDepsLength), elseBody);
     return { blockType, instructions: { if: if_, else: else_ } };
   },
 });
@@ -192,14 +191,14 @@ function bindControlOps(ctx: LocalContext) {
   return {
     call: <F extends AnyFunc<any, any>>(
       func: F,
-      args?: { [K in keyof F["params"]["values"]]: Input<F["params"]["values"][K]> }
+      args?: { [K in keyof F["params"]["values"]]: Input<F["params"]["values"][K]> },
     ): Instruction_<F["type"]["args"], F["type"]["results"]> => {
       if (args !== undefined) {
         processStackArgs(
           ctx,
           "call",
           func.type.args,
-          func.params.names.map((name: string) => args[name]) as Input<ValueType>[]
+          func.params.names.map((name: string) => args[name]) as Input<ValueType>[],
         );
       }
       return call(ctx, func) as any;
@@ -237,14 +236,9 @@ const select_poly = baseInstruction("select", Undefined, {
     popStack(ctx, ["i32"]);
     let t1 = popUnknown(ctx);
     let t2 = popUnknown(ctx);
-    if (
-      !(
-        (isNumberType(t1) && isNumberType(t2)) ||
-        (isVectorType(t1) && isVectorType(t2))
-      )
-    ) {
+    if (!((isNumberType(t1) && isNumberType(t2)) || (isVectorType(t1) && isVectorType(t2)))) {
       throw Error(
-        `select: polymorphic select can only be applied to number or vector types, got ${t1} and ${t2}.`
+        `select: polymorphic select can only be applied to number or vector types, got ${t1} and ${t2}.`,
       );
     }
     if (!isSameType(t1, t2)) {
@@ -253,10 +247,7 @@ const select_poly = baseInstruction("select", Undefined, {
     let t: ValueType;
     if (t1 !== "unknown") t = t1;
     else if (t2 !== "unknown") t = t2;
-    else
-      throw Error(
-        "polymorphic select with two unknown types is not implemented."
-      );
+    else throw Error("polymorphic select with two unknown types is not implemented.");
     // TODO represent "unknown" in possible input types and remove this hack
     return { in: [] as any as ["i32", ValueType], out: [t] };
   },

@@ -69,16 +69,13 @@ function emptyContext(): LocalContext {
 function withContext(
   ctx: LocalContext,
   override: Partial<LocalContext>,
-  run: (ctx: LocalContext) => void
+  run: (ctx: LocalContext) => void,
 ): LocalContext {
   let oldCtx = { ...ctx };
   Object.assign(ctx, override);
-  if (ctx.frames.length === 0)
-    throw Error("invariant violation: frames must not be empty");
+  if (ctx.frames.length === 0) throw Error("invariant violation: frames must not be empty");
   if (ctx.stack !== ctx.frames[0].stack)
-    throw Error(
-      "invariant violation: stack does not equal the stack on the current top frame"
-    );
+    throw Error("invariant violation: stack does not equal the stack on the current top frame");
   let resultCtx: LocalContext;
   try {
     run(ctx);
@@ -101,10 +98,7 @@ function pushInstruction(ctx: LocalContext, instr: Dependency.Instruction) {
   }
 }
 
-function popStack(
-  { stack, frames }: LocalContext,
-  values: ValueType[]
-): ValueType[] {
+function popStack({ stack, frames }: LocalContext, values: ValueType[]): ValueType[] {
   // TODO nicer errors, which display entire stack vs entire instruction signature
   let n = values.length;
   for (let i = n - 1; i >= 0; i--) {
@@ -114,9 +108,7 @@ function popStack(
       (stackValue === undefined && !frames[0].unreachable) ||
       (stackValue !== undefined && value !== stackValue.type)
     ) {
-      throw Error(
-        `expected ${value} on the stack, got ${stackValue?.type ?? "nothing"}`
-      );
+      throw Error(`expected ${value} on the stack, got ${stackValue?.type ?? "nothing"}`);
     }
   }
   return values;
@@ -133,10 +125,7 @@ function popUnknown({ stack, frames }: LocalContext): ValueType | Unknown {
   return stackValue.type;
 }
 
-function pushStack(
-  { stack }: LocalContext,
-  values: ValueType[]
-): StackVar<ValueType>[] {
+function pushStack({ stack }: LocalContext, values: ValueType[]): StackVar<ValueType>[] {
   let stackVars = values.map(StackVar);
   stack.push(...stackVars);
   return stackVars;
@@ -151,10 +140,7 @@ function labelTypes(frame: ControlFrame) {
   return frame.opcode === "loop" ? frame.startTypes : frame.endTypes;
 }
 
-function getFrameFromLabel(
-  ctx: LocalContext,
-  label: Label | number
-): [number, ControlFrame] {
+function getFrameFromLabel(ctx: LocalContext, label: Label | number): [number, ControlFrame] {
   if (typeof label === "number") {
     let frame = ctx.frames[label];
     if (frame === undefined) throw Error(`no block found for label ${label}`);
@@ -186,13 +172,7 @@ function id() {
 // helpers
 
 function isNumberType(type: ValueType | Unknown) {
-  return (
-    type === "i32" ||
-    type === "i64" ||
-    type === "f32" ||
-    type === "f64" ||
-    type === Unknown
-  );
+  return type === "i32" || type === "i64" || type === "f32" || type === "f64" || type === Unknown;
 }
 
 function isVectorType(type: ValueType | Unknown) {

@@ -3,14 +3,7 @@ import { U32, vec } from "./immediate.ts";
 import type { Tuple } from "./util.ts";
 
 export { i32t, i64t, f32t, f64t, v128t, funcref, externref };
-export {
-  TypeIndex,
-  FunctionIndex,
-  MemoryIndex,
-  TableIndex,
-  ElemIndex,
-  DataIndex,
-};
+export { TypeIndex, FunctionIndex, MemoryIndex, TableIndex, ElemIndex, DataIndex };
 export {
   type ValueTypeObject,
   type RefTypeObject,
@@ -91,8 +84,7 @@ const ValueType = Binable<ValueType>({
   readBytes(bytes, offset) {
     let code = bytes[offset++];
     let type = codeToValueType.get(code);
-    if (type === undefined)
-      throw Error(`Invalid value type code ${code.toString(16)}.`);
+    if (type === undefined) throw Error(`Invalid value type code ${code.toString(16)}.`);
     return [type, offset];
   },
 });
@@ -104,8 +96,7 @@ const RefType = Binable<RefType>({
   },
   readBytes(bytes, offset) {
     let [type, end] = ValueType.readBytes(bytes, offset);
-    if (type !== "funcref" && type !== "externref")
-      throw Error("invalid reftype");
+    if (type !== "funcref" && type !== "externref") throw Error("invalid reftype");
     return [type, end];
   },
 });
@@ -145,7 +136,7 @@ const ResultType = vec(ValueType);
 type FunctionType = { args: ValueType[]; results: ValueType[] };
 const FunctionType = withByteCode(
   0x60,
-  record<FunctionType>({ args: ResultType, results: ResultType })
+  record<FunctionType>({ args: ResultType, results: ResultType }),
 );
 
 type TypeIndex = U32;
@@ -171,7 +162,7 @@ function invertRecord<K extends string, V>(record: Record<K, V>): Map<V, K> {
 
 function functionTypeEquals(
   { args: fArgs, results: fResults }: FunctionType,
-  { args: gArgs, results: gResults }: FunctionType
+  { args: gArgs, results: gResults }: FunctionType,
 ) {
   let nArgs = fArgs.length;
   let nResults = fResults.length;
@@ -194,15 +185,15 @@ function printFunctionType({ args, results }: FunctionType) {
 type JSValue<T> = T extends "i32"
   ? number
   : T extends "f32"
-  ? number
-  : T extends "f64"
-  ? number
-  : T extends "i64"
-  ? bigint
-  : T extends "v128"
-  ? never
-  : T extends "funcref"
-  ? Function | null
-  : T extends "externref"
-  ? unknown
-  : never;
+    ? number
+    : T extends "f64"
+      ? number
+      : T extends "i64"
+        ? bigint
+        : T extends "v128"
+          ? never
+          : T extends "funcref"
+            ? Function | null
+            : T extends "externref"
+              ? unknown
+              : never;

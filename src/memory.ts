@@ -2,12 +2,7 @@ import { Const } from "./dependency.ts";
 import * as Dependency from "./dependency.ts";
 import { RefType, type RefTypeObject, valueTypeLiteral } from "./types.ts";
 
-export {
-  memoryConstructor,
-  dataConstructor,
-  tableConstructor,
-  elemConstructor,
-};
+export { memoryConstructor, dataConstructor, tableConstructor, elemConstructor };
 
 function memoryConstructor(
   {
@@ -41,7 +36,7 @@ function dataConstructor(
         offset: Const.i32 | Const.globalGet<"i32">;
       }
     | "passive",
-  [...init]: number[] | Uint8Array
+  [...init]: number[] | Uint8Array,
 ): Dependency.Data {
   if (mode === "passive") {
     return { kind: "data", init, mode, deps: [] };
@@ -73,7 +68,7 @@ function tableConstructor(
     min: number;
     max?: number;
   },
-  content?: (Const.refFunc | Const.refNull<RefType>)[]
+  content?: (Const.refFunc | Const.refNull<RefType>)[],
 ): Dependency.Table {
   let table = {
     kind: "table" as const,
@@ -100,7 +95,7 @@ function elemConstructor(
           offset: Const.i32 | Const.globalGet<"i32">;
         };
   },
-  init: (Const.refFunc | Const.refNull<RefType>)[]
+  init: (Const.refFunc | Const.refNull<RefType>)[],
 ): Dependency.Elem {
   let deps = init.flatMap((i) => i.deps as Dependency.Elem["deps"]);
   let result = {

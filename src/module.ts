@@ -41,8 +41,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     pushDependency(dependencies, inputExports[name]);
   }
   if (inputMemory !== undefined) {
-    let memory =
-      "kind" in inputMemory ? inputMemory : memoryConstructor(inputMemory);
+    let memory = "kind" in inputMemory ? inputMemory : memoryConstructor(inputMemory);
     pushDependency(dependencies, memory);
   }
   if (inputStart !== undefined) {
@@ -50,9 +49,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   }
   let dependencyByKind: {
     [K in Dependency.t["kind"]]: (Dependency.t & { kind: K })[];
-  } = Object.fromEntries(
-    Dependency.dependencyKinds.map((key) => [key, []])
-  ) as any;
+  } = Object.fromEntries(Dependency.dependencyKinds.map((key) => [key, []])) as any;
   for (let dep of dependencies) {
     (dependencyByKind[dep.kind] as Dependency.t[]).push(dep);
   }
@@ -107,26 +104,22 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   // index globals
   let nImportGlobals = dependencyByKind.importGlobal.length;
   dependencyByKind.global.forEach((global, globalIdx) =>
-    depToIndex.set(global, globalIdx + nImportGlobals)
+    depToIndex.set(global, globalIdx + nImportGlobals),
   );
   // index tables
   let nImportTables = dependencyByKind.importTable.length;
   dependencyByKind.table.forEach((table, tableIdx) =>
-    depToIndex.set(table, tableIdx + nImportTables)
+    depToIndex.set(table, tableIdx + nImportTables),
   );
   // index elems
-  dependencyByKind.elem.forEach((elem, elemIdx) =>
-    depToIndex.set(elem, elemIdx)
-  );
+  dependencyByKind.elem.forEach((elem, elemIdx) => depToIndex.set(elem, elemIdx));
   // index memories
   let nImportMemories = dependencyByKind.importMemory.length;
   dependencyByKind.memory.forEach((memory, memoryIdx) =>
-    depToIndex.set(memory, memoryIdx + nImportMemories)
+    depToIndex.set(memory, memoryIdx + nImportMemories),
   );
   // index datas
-  dependencyByKind.data.forEach((data, dataIdx) =>
-    depToIndex.set(data, dataIdx)
-  );
+  dependencyByKind.data.forEach((data, dataIdx) => depToIndex.set(data, dataIdx));
 
   // finalize functions
   let funcs: FinalizedFunc[] = funcs0.map(({ typeIdx, funcIdx, ...func }) => {
@@ -192,18 +185,28 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   dependencyByKind.importFunction.forEach((func, index) => {
     const debugName = func.name ?? func.string;
     if (debugName !== undefined) (generated.functions ??= {})[index] = debugName;
-    (generated.locals ??= {})[index] = Object.fromEntries(func.params.names.map((name, index) => [index, name]));
+    (generated.locals ??= {})[index] = Object.fromEntries(
+      func.params.names.map((name, index) => [index, name]),
+    );
   });
   const exportNameMaps = {
-    function: "functions", global: "globals", table: "tables", memory: "memories",
+    function: "functions",
+    global: "globals",
+    table: "tables",
+    memory: "memories",
   } as const;
-  for (const { name, description: { kind, value } } of exports) {
-    const map: NameMap = generated[exportNameMaps[kind]] ??= {};
+  for (const {
+    name,
+    description: { kind, value },
+  } of exports) {
+    const map: NameMap = (generated[exportNameMaps[kind]] ??= {});
     map[value] ??= name;
   }
-  imports.filter((imp) => imp.description.kind === "function").forEach((entry, index) => {
-    (generated.functions ??= {})[index] ??= entry.name;
-  });
+  imports
+    .filter((imp) => imp.description.kind === "function")
+    .forEach((entry, index) => {
+      (generated.functions ??= {})[index] ??= entry.name;
+    });
   // Explicit metadata overrides inferred entries, preserving other generated names.
   const mergedNames: NameSection = { ...generated, ...names };
   for (const key of Object.values(exportNameMaps)) {
@@ -236,17 +239,20 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
 
 function createModule<Exports extends Record<string, Dependency.Export>>(
   binableModule: BinableModule,
-  importMap: WebAssembly.Imports
+  importMap: WebAssembly.Imports,
 ) {
   let module = {
     module: binableModule,
     importMap,
     /** Instantiate Wasm with inferred native export signatures; exports are the actual Wasm functions. */
     async instantiate() {
-      return await WebAssembly.instantiate(
-        Uint8Array.from(BinableModule.toBytes(binableModule)), importMap
-      ) as {
-        instance: WebAssembly.Instance & { exports: { [K in keyof Exports]: ModuleExport<Exports[K]> } };
+      return (await WebAssembly.instantiate(
+        Uint8Array.from(BinableModule.toBytes(binableModule)),
+        importMap,
+      )) as {
+        instance: WebAssembly.Instance & {
+          exports: { [K in keyof Exports]: ModuleExport<Exports[K]> };
+        };
         module: WebAssembly.Module;
       };
     },
@@ -258,34 +264,30 @@ function createModule<Exports extends Record<string, Dependency.Export>>(
   return module;
 }
 
-type ModuleExport<Export extends Dependency.Export> =
-  Export extends Dependency.AnyFunc
-    ? JSFunction<Export>
-    : Export extends Dependency.AnyGlobal
+type ModuleExport<Export extends Dependency.Export> = Export extends Dependency.AnyFunc
+  ? JSFunction<Export>
+  : Export extends Dependency.AnyGlobal
     ? {
         value: JSValue<Export["type"]["value"]>;
         valueOf(): JSValue<Export["type"]["value"]>;
       }
     : Export extends Dependency.AnyMemory
-    ? WebAssembly.Memory
-    : Export extends Dependency.AnyTable
-    ? WebAssembly.Table
-    : unknown;
+      ? WebAssembly.Memory
+      : Export extends Dependency.AnyTable
+        ? WebAssembly.Table
+        : unknown;
 
 const Module = Object.assign(ModuleConstructor, {
   fromBytes<Exports extends Record<string, Dependency.Export>>(
     bytes: Uint8Array,
-    importMap: WebAssembly.Imports = {}
+    importMap: WebAssembly.Imports = {},
   ) {
     let binableModule = BinableModule.fromBytes(bytes);
     return createModule<Exports>(binableModule, importMap);
   },
 });
 
-function pushDependency(
-  existing: Set<Dependency.anyDependency>,
-  dep: Dependency.anyDependency
-) {
+function pushDependency(existing: Set<Dependency.anyDependency>, dep: Dependency.anyDependency) {
   if (existing.has(dep)) return;
   existing.add(dep);
   for (let dep_ of dep.deps) {
@@ -306,7 +308,7 @@ function addImport(
   { kind, module = "", string, value }: Dependency.AnyImport,
   description: Import["description"],
   i: number,
-  importMap: WebAssembly.Imports
+  importMap: WebAssembly.Imports,
 ): Import {
   let prefix = {
     importFunction: "f",
@@ -319,7 +321,7 @@ function addImport(
   let importModule = (importMap[module] ??= {});
   if (string in importModule && importModule[string] !== value) {
     throw Error(
-      `Overwriting import "${module}" > "${string}" with different value. Use the same value twice instead.`
+      `Overwriting import "${module}" > "${string}" with different value. Use the same value twice instead.`,
     );
   }
   importModule[string] = value;
@@ -331,8 +333,7 @@ function checkMemory(dependencyByKind: {
   memory: Dependency.Memory[];
   hasMemory: Dependency.HasMemory[];
 }): MemoryType | undefined {
-  let nMemoriesTotal =
-    dependencyByKind.importMemory.length + dependencyByKind.memory.length;
+  let nMemoriesTotal = dependencyByKind.importMemory.length + dependencyByKind.memory.length;
   if (nMemoriesTotal === 0) {
     if (dependencyByKind.hasMemory.length > 0) {
       throw Error(`Module(): The module depends on the existence of a memory, but no memory was found. You can add a memory like this:

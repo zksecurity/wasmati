@@ -4,10 +4,7 @@ import { ValueType } from "./types.ts";
 
 export type { Func, ImportFunc, AnyFunc };
 
-type Func<
-  Args extends Parameters,
-  Results extends readonly ValueType[]
-> = {
+type Func<Args extends Parameters, Results extends readonly ValueType[]> = {
   kind: "function";
   name?: string;
   localNames?: Record<number, string>;
@@ -18,10 +15,7 @@ type Func<
   type: { args: Args["types"]; results: Results };
 };
 
-type ImportFunc<
-  Args extends Parameters,
-  Results extends readonly ValueType[]
-> = {
+type ImportFunc<Args extends Parameters, Results extends readonly ValueType[]> = {
   module?: string;
   string?: string;
   kind: "importFunction";
@@ -32,7 +26,5 @@ type ImportFunc<
   deps: [];
 };
 
-type AnyFunc<
-  Args extends Parameters,
-  Results extends readonly ValueType[]
-> = Func<Args, Results> | ImportFunc<Args, Results>;
+type AnyFunc<Args extends Parameters, Results extends readonly ValueType[]> =
+  Func<Args, Results> | ImportFunc<Args, Results>;
