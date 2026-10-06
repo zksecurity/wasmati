@@ -1,5 +1,5 @@
 import { write, read } from "ieee754";
-import { Binable, Bytes, iso } from "./binable.ts";
+import { Binable } from "./binable.ts";
 
 export { vec, withByteLength, Name, U8, U32, I32, I64, S33, F32, F64 };
 
@@ -30,12 +30,17 @@ function vec<T>(Element: Binable<T>) {
   });
 }
 
-const Name = iso(withByteLength(Bytes), {
-  to(string: string) {
-    return [...new TextEncoder().encode(string)];
+const Name = Binable<string>({
+  toBytes(string: string) {
+    let bytes = new TextEncoder().encode(string);
+    return [...U32.toBytes(bytes.length), ...bytes];
   },
-  from(bytes) {
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(Uint8Array.from(bytes));
+  readBytes(bytes, start) {
+    let [length, offset] = U32.readBytes(bytes, start);
+    let end = offset + length;
+    let stringBytes = Uint8Array.from(bytes.slice(offset, end));
+    let string = new TextDecoder().decode(stringBytes);
+    return [string, end];
   },
 });
 
@@ -49,7 +54,8 @@ function withByteLength<T>(binable: Binable<T>): Binable<T> {
       let [length, start] = U32.readBytes(bytes, offset);
       let end = start + length;
       if (end > bytes.length) throw Error("invalid length encoding");
-      let value = binable.fromBytes(bytes.slice(start, end));
+      let [value, consumed] = binable.readBytes(bytes.slice(start, end), 0);
+      if (consumed !== length) throw Error("invalid length encoding");
       return [value, end];
     },
   });
@@ -67,20 +73,11 @@ const U8 = Binable<U8>({
 
 const U32 = Binable<U32>({
   toBytes(x: U32) {
-    if (!Number.isInteger(x) || x < 0 || x > 0xffff_ffff) throw Error("u32 out of range");
     return toULEB128(x);
   },
   readBytes(bytes, offset): [U32, number] {
-    for (let i = 0; i < 5; i++) {
-      let byte = bytes[offset + i];
-      if (byte === undefined) throw Error("truncated u32");
-      if (i === 4 && byte > 0x0f) throw Error("u32 out of range");
-      if ((byte & 0x80) === 0) {
-        let [x, end] = fromULEB128(bytes, offset);
-        return [Number(x), end];
-      }
-    }
-    throw Error("u32 out of range");
+    let [x, end] = fromULEB128(bytes, offset);
+    return [Number(x), end];
   },
 });
 

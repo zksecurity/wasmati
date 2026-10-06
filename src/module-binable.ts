@@ -1,12 +1,12 @@
 import {
-  Binable,
+  type Binable,
   Byte,
   Bytes,
   iso,
   orDefault,
   orUndefined,
   record,
-  sequence,
+  interleavedRecord,
   tuple,
   withByteCode,
   withPreamble,
@@ -56,8 +56,6 @@ function section<T>(code: number, b: Binable<T>) {
   return withByteCode(code, withByteLength(b));
 }
 // 0: CustomSection
-const RawSection = record({ id: Byte, data: withByteLength(Bytes) });
-const RawSections = sequence(RawSection);
 const CustomPayload = record({ name: Name, data: Bytes });
 const CustomSection = section(0, CustomPayload);
 
@@ -139,90 +137,62 @@ type ParsedModule = {
   customSections?: CustomSection[];
 };
 
-const StandardModule = withPreamble(
-  [0x00, 0x61, 0x73, 0x6d],
-  record<Omit<ParsedModule, "names" | "customSections">>({
-    version: Version,
-    typeSection: orDefault(TypeSection, [], isEmpty),
-    importSection: orDefault(ImportSection, [], isEmpty),
-    funcSection: orDefault(FuncSection, [], isEmpty),
-    tableSection: orDefault(TableSection, [], isEmpty),
-    memorySection: orDefault(MemorySection, [], isEmpty),
-    globalSection: orDefault(GlobalSection, [], isEmpty),
-    exportSection: orDefault(ExportSection, [], isEmpty),
-    startSection: orUndefined(StartSection),
-    elemSection: orDefault(ElemSection, [], isEmpty),
-    dataCountSection: orUndefined(DataCountSection),
-    codeSection: orDefault(CodeSection, [], isEmpty),
-    dataSection: orDefault(DataSection, [], isEmpty),
-  })
-);
+const sectionIds = {
+  typeSection: 1, importSection: 2, funcSection: 3, tableSection: 4,
+  memorySection: 5, globalSection: 6, exportSection: 7, startSection: 8,
+  elemSection: 9, dataCountSection: 12, codeSection: 10, dataSection: 11,
+} as const;
+type Sections = Omit<ParsedModule, "version" | "names" | "customSections">;
 
-// Custom sections may occur anywhere. Keep the standard-section codecs above
-// responsible for their existing parsing, ordering and validation.
-let ParsedModule = Binable<ParsedModule>({
-  toBytes(value) {
-    const standard = StandardModule.toBytes(value);
-    const customs = value.customSections ?? [];
-    if (customs.length === 0 && value.names === undefined) return standard;
-    const [standardSections] = RawSections.readBytes(standard, 8);
-    const order = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 10, 11];
-    const placed = customs.map((section) => {
-      if (section.after === undefined) return section;
-      const rank = order.indexOf(section.after);
-      if (rank < 0) throw Error(`invalid custom section position ${section.after}`);
-      // Encoding omits empty standard sections. Preserve custom metadata at
-      // the same boundary even when its preceding empty section disappears.
-      const preceding = standardSections.filter(({ id }) => order.indexOf(id) <= rank);
-      return { ...section, after: preceding.at(-1)?.id ?? 0 };
+const Sections = interleavedRecord<Sections, { name: string; data: number[] }>({
+  typeSection: orDefault(TypeSection, [], isEmpty),
+  importSection: orDefault(ImportSection, [], isEmpty),
+  funcSection: orDefault(FuncSection, [], isEmpty),
+  tableSection: orDefault(TableSection, [], isEmpty),
+  memorySection: orDefault(MemorySection, [], isEmpty),
+  globalSection: orDefault(GlobalSection, [], isEmpty),
+  exportSection: orDefault(ExportSection, [], isEmpty),
+  startSection: orUndefined(StartSection),
+  elemSection: orDefault(ElemSection, [], isEmpty),
+  dataCountSection: orUndefined(DataCountSection),
+  codeSection: orDefault(CodeSection, [], isEmpty),
+  dataSection: orDefault(DataSection, [], isEmpty),
+}, { codec: CustomSection, matches: (bytes, offset) => bytes[offset] === 0 });
+
+let ParsedModule = iso(withPreamble(
+  [0x00, 0x61, 0x73, 0x6d],
+  record({ version: Version, sections: Sections })
+), {
+  to(module: ParsedModule) {
+    const extras = (module.customSections ?? []).map(({ after, ...value }) => {
+      const key = Object.entries(sectionIds).find(([, id]) => id === after)?.[0] as keyof Sections | undefined;
+      if (after !== undefined && after !== 0 && key === undefined) {
+        throw Error(`invalid custom section position ${after}`);
+      }
+      return { after: after === undefined ? null : key, value };
     });
-    let bytes = standard.slice(0, 8);
-    const append = (after: number | undefined) => {
-      for (const section of placed) {
-        if (section.after !== after) continue;
-        bytes = bytes.concat(CustomSection.toBytes(section));
-      }
-    };
-    append(0);
-    for (const standardSection of standardSections) {
-      const { id } = standardSection;
-      bytes = bytes.concat(RawSection.toBytes(standardSection));
-      append(id);
+    if (module.names !== undefined) {
+      extras.push({ after: null, value: { name: "name", data: NameSection.toBytes(module.names) } });
     }
-    append(undefined);
-    if (value.names !== undefined) {
-      bytes = bytes.concat(CustomSection.toBytes({ name: "name", data: NameSection.toBytes(value.names) }));
-    }
-    return bytes;
+    return { version: module.version, sections: { value: module, extras } };
   },
-  readBytes(bytes, offset) {
-    let standard = bytes.slice(offset, offset + 8);
-    const customSections: CustomSection[] = [];
-    let after = 0;
-    const [sections, end] = RawSections.readBytes(bytes, offset + 8);
-    for (const section of sections) {
-      const { id, data } = section;
-      if (id !== 0) {
-        standard = standard.concat(RawSection.toBytes(section));
-        after = id;
-      } else {
-        customSections.push({ ...CustomPayload.fromBytes(data), after });
-      }
-    }
-    const value: ParsedModule = StandardModule.fromBytes(standard);
-    const nameSections = customSections.filter((section) => section.name === "name");
+  from({ version, sections: { value, extras } }): ParsedModule {
+    const module: ParsedModule = { version, ...value };
+    const customs = extras.map(({ after, value }) => ({
+      ...value, after: after === undefined || after === null ? 0 : sectionIds[after],
+    }));
+    const nameSections = customs.filter(({ name }) => name === "name");
     if (nameSections.length === 1) {
       const section = nameSections[0];
       try {
-        value.names = NameSection.fromBytes(section.data);
-        customSections.splice(customSections.indexOf(section), 1);
+        module.names = NameSection.fromBytes(section.data);
+        customs.splice(customs.indexOf(section), 1);
       } catch {
-        // Malformed optional metadata must not prevent reading a valid module.
-        // Preserve its original payload as an opaque custom section instead.
+        // Invalid optional metadata remains an opaque custom section.
       }
     }
-    if (customSections.length > 0) value.customSections = customSections;
-    return [value, end];
+    if (customs.length > 0) module.customSections = customs;
+    return module;
   },
 });
 

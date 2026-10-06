@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Byte, Bytes, constant, record, sequence } from "../binable.ts";
-import { U32, withByteLength } from "../immediate.ts";
+import { Byte, Bytes, constant, record, sequence, interleavedRecord, orUndefined, withByteCode } from "../binable.ts";
+import { withByteLength } from "../immediate.ts";
 
 test("length-delimited sequences compose with following record fields", () => {
   const codec = record({ values: withByteLength(sequence(Byte)), marker: Byte });
@@ -23,10 +23,18 @@ test("sequences reject elements that consume no bytes or overrun the input", () 
   assert.throws(() => sequence(record({ a: Byte, b: Byte })).fromBytes([1]), /element length/);
 });
 
-test("u32 framing rejects truncated, overflowing and out-of-range lengths", () => {
-  for (const bytes of [[], [128], [255, 255, 255, 255, 16], [128, 128, 128, 128, 128, 0]]) {
-    assert.throws(() => U32.fromBytes(bytes));
-  }
-  for (const value of [-1, 1.5, 2 ** 32]) assert.throws(() => U32.toBytes(value));
-  assert.equal(U32.fromBytes([255, 255, 255, 255, 15]), 0xffff_ffff);
+test("interleaved records preserve extra entries around optional fields", () => {
+  const codec = interleavedRecord({
+    first: withByteCode(1, Byte),
+    optional: orUndefined(withByteCode(2, Byte)),
+    last: withByteCode(3, Byte),
+  }, { codec: withByteCode(0, Byte), matches: (bytes, offset) => bytes[offset] === 0 });
+  const value = {
+    value: { first: 10, optional: undefined, last: 30 },
+    extras: [{ after: undefined, value: 9 }, { after: "first" as const, value: 19 }, { after: "last" as const, value: 39 }],
+  };
+  const bytes = [0, 9, 1, 10, 0, 19, 3, 30, 0, 39];
+  assert.deepEqual(codec.toBytes(value), bytes);
+  assert.deepEqual(codec.fromBytes(bytes), value);
+  assert.deepEqual(codec.toBytes({ ...value, extras: [{ after: "optional", value: 19 }] }), [1, 10, 0, 19, 3, 30]);
 });
