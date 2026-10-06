@@ -23,7 +23,7 @@ test("WAT reaches named wasmati builders directly, with folded operands in stack
   assert.equal((instance.exports.mix as Function)(2n), 81n);
   assert.equal(instance.exports.alias, instance.exports.subtract);
   const generated = decompileModule(parsed);
-  assert.match(generated, /params\(\{ x: i32 \}, \{ y: i32 \}\)/);
+  assert.match(generated, /in: \[\{ x: i32 \}, \{ y: i32 \}\]/);
   assert.match(generated, /local.get\(x\)/);
   assert.doesNotMatch(generated, /fromBytes|resolveArgs/);
   const canonical = Wat.fromText(Wat.toText(parsed));
