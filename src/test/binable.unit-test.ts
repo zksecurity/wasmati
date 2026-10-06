@@ -8,9 +8,19 @@ import {
   sequence,
   interleavedRecord,
   orUndefined,
+  or,
   withByteCode,
 } from "../binable.ts";
 import { withByteLength } from "../immediate.ts";
+
+test("alternatives accept numeric selectors for both encoding and decoding", () => {
+  const codec = or([withByteCode(1, Byte), withByteCode(2, Byte)], (value) => (value < 10 ? 0 : 1));
+  assert.deepEqual(codec.toBytes(3), [1, 3]);
+  assert.deepEqual(codec.toBytes(20), [2, 20]);
+  assert.equal(codec.fromBytes([1, 3]), 3);
+  assert.equal(codec.fromBytes([2, 20]), 20);
+  assert.throws(() => codec.fromBytes([1, 20]));
+});
 
 test("length-delimited sequences compose with following record fields", () => {
   const codec = record({ values: withByteLength(sequence(Byte)), marker: Byte });
