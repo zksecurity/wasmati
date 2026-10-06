@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   Module,
-  params,
   i32,
   funcref,
   importFunc,
@@ -12,8 +11,8 @@ import {
 } from "../index.ts";
 
 test("optional import paths retain automatic defaults and link all import kinds", async () => {
-  const first = importFunc({ module: "env", in: params({ x: i32 }), out: [i32] }, (x) => x + 1);
-  const second = importFunc({ field: "double", in: params({ x: i32 }), out: [i32] }, (x) => x * 2);
+  const first = importFunc({ module: "env", in: [{ x: i32 }], out: [i32] }, (x) => x + 1);
+  const second = importFunc({ field: "double", in: [{ x: i32 }], out: [i32] }, (x) => x * 2);
   const counter = new WebAssembly.Global({ value: "i32", mutable: true }, 10);
   const global = importGlobal(i32, counter, { mutable: true, module: "state", field: "counter" });
   const memory = importMemory({ min: 1, module: "state" });
@@ -41,7 +40,7 @@ test("optional import paths retain automatic defaults and link all import kinds"
 });
 
 test("explicit empty import fields override generated names", async () => {
-  const empty = importFunc({ module: "", field: "", in: params(), out: [i32] }, () => 42);
+  const empty = importFunc({ module: "", field: "", in: [], out: [i32] }, () => 42);
   const module = Module({ exports: { empty } });
   assert.equal(module.module.imports[0].name, "");
   const { instance } = await module.instantiate();

@@ -26,7 +26,6 @@ import {
   local,
   loop,
   memory,
-  params,
   ref,
   select,
   table,
@@ -35,23 +34,23 @@ import {
 
 export default function createModule(imports: WebAssembly.Imports = {}) {
   const consoleLog64 = importFunc(
-    { module: "", field: "f0", name: "consoleLog64", in: params({ value: i64 }), out: [] },
+    { module: "", field: "f0", name: "consoleLog64", in: [{ value: i64 }], out: [] },
     imports[""]?.["f0"] as (arg0: bigint) => void,
   );
   const consoleLog = importFunc(
-    { module: "", field: "f1", name: "consoleLog", in: params({ value: i32 }), out: [] },
+    { module: "", field: "f1", name: "consoleLog", in: [{ value: i32 }], out: [] },
     imports[""]?.["f1"] as (arg0: number) => void,
   );
   const consoleLogFunc = importFunc(
-    { module: "", field: "f2", name: "consoleLogFunc", in: params({ value: funcref }), out: [] },
+    { module: "", field: "f2", name: "consoleLogFunc", in: [{ value: funcref }], out: [] },
     imports[""]?.["f2"] as (arg0: Function | null) => void,
   );
   const consoleLogF64 = importFunc(
-    { module: "", field: "f3", name: "consoleLogF64", in: params({ value: f64 }), out: [] },
+    { module: "", field: "f3", name: "consoleLogF64", in: [{ value: f64 }], out: [] },
     imports[""]?.["f3"] as (arg0: number) => void,
   );
   const f4 = importFunc(
-    { module: "", field: "f4", name: "f4", in: params(), out: [] },
+    { module: "", field: "f4", name: "f4", in: [], out: [] },
     imports[""]?.["f4"] as () => void,
   );
   const importedGlobal = importGlobal(i64, imports[""]?.["g0"] as WebAssembly.Global, {
@@ -65,21 +64,17 @@ export default function createModule(imports: WebAssembly.Imports = {}) {
   );
   const exportedFunc = declareFunc({
     name: "exportedFunc",
-    in: params({ x: i32 }, { doLog: i32 }),
+    in: [{ x: i32 }, { doLog: i32 }],
     locals: { ["vectors[0]"]: v128, ["vectors[1]"]: v128, y: i32 },
     out: [i32],
   });
   const myFunc = declareFunc({
     name: "myFunc",
-    in: params({ x: i32 }, { y: i32 }),
+    in: [{ x: i32 }, { y: i32 }],
     locals: { tmp: i32, i: i32 },
     out: [i32],
   });
-  const fma = declareFunc({
-    name: "fma",
-    in: params({ x: f64 }, { y: f64 }, { z: f64 }),
-    out: [f64],
-  });
+  const fma = declareFunc({ name: "fma", in: [{ x: f64 }, { y: f64 }, { z: f64 }], out: [f64] });
   const global1 = global(Const.refFunc(myFunc), { mutable: false });
   const global2 = global(Const.f64(0), { mutable: true });
   const table0 = table({ type: funcref, ...{ min: 4, shared: false } });

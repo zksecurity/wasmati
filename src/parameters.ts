@@ -1,6 +1,15 @@
 import { type Type, type ValueType, valueTypeLiteral } from "./types.ts";
 
-export { params, type Parameters, type ParameterEntry, type ParameterTypes, type ParameterValues };
+export {
+  createParameters,
+  type Parameters,
+  type ParameterEntry,
+  type ParameterInput,
+  type ParameterSchema,
+  type CheckedParameters,
+  type ParameterTypes,
+  type ParameterValues,
+};
 
 type ParameterEntry = Record<string, ValueType>;
 type ParameterInput = Record<string, Type<ValueType>>;
@@ -22,10 +31,10 @@ type Unique<P extends readonly ParameterInput[], Seen = never> = P extends reado
     : never
   : unknown;
 type ParameterTypes<P extends readonly ParameterEntry[]> = {
-  -readonly [K in keyof P]: P[K][keyof P[K]];
+  -readonly [K in keyof P]: Extract<P[K][keyof P[K]], ValueType>;
 };
 type ParameterValues<P extends readonly ParameterEntry[]> = {
-  [E in P[number] as keyof E]: E[keyof E];
+  [E in P[number] as keyof E]: Extract<E[keyof E], ValueType>;
 };
 // Keep only names and value types, rather than carrying entire instruction APIs in inferred signatures.
 type ParameterSchema<P extends readonly ParameterInput[]> = {
@@ -40,21 +49,23 @@ type Parameters<P extends readonly ParameterEntry[] = readonly ParameterEntry[]>
   values: ParameterValues<P>;
 };
 
-/**
- * Declare parameters in ABI order, with one named type per entry: params({ x: i32 }, { y: i64 }).
- * The ordered tuple retains native JS argument types and arity; names supply callback keys and Wasm metadata.
- * Empty/multi-key entries and duplicate names are rejected. params() declares an empty signature.
- */
-function params<const P extends readonly ParameterInput[]>(
-  ...entries: P & { [K in keyof P]: OneKey<P[K]> } & Unique<P>
+/** Require one named type per entry, with no repeated names in an ordered tuple. */
+type CheckedParameters<P extends readonly ParameterInput[]> = P & {
+  [K in keyof P]: OneKey<P[K]>;
+} & Unique<P>;
+
+/** Build function metadata from ordered parameter inputs; validate names for callers from untyped JS. */
+function createParameters<const P extends readonly ParameterInput[]>(
+  entries: P,
 ): Parameters<ParameterSchema<P>> {
   const names: string[] = [];
   const types: ValueType[] = [];
   for (const entry of entries) {
     const keys = Object.keys(entry);
-    if (keys.length !== 1) throw Error("params: each entry must have exactly one name");
+    if (keys.length !== 1)
+      throw Error("function parameters: each entry must have exactly one name");
     const name = keys[0];
-    if (names.includes(name)) throw Error(`params: duplicate name ${name}`);
+    if (names.includes(name)) throw Error(`function parameters: duplicate name ${name}`);
     names.push(name);
     types.push(valueTypeLiteral(entry[name]));
   }

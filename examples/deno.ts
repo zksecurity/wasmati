@@ -1,7 +1,7 @@
 // Deno example - run with `deno run examples/deno.ts`
-import { params, i64, func, Module } from "npm:wasmati";
+import { i64, func, Module } from "npm:wasmati";
 
-const myFunction = func({ in: params({ x: i64 }, { y: i64 }), out: [i64] }, ({ x, y }) => {
+const myFunction = func({ in: [{ x: i64 }, { y: i64 }], out: [i64] }, ({ x, y }) => {
   i64.mul(x, y);
 });
 

@@ -1,5 +1,4 @@
 import {
-  params,
   i32,
   func,
   type Local,
@@ -89,7 +88,7 @@ function isLower(x: Field, y: Field) {
 
 const add = func(
   {
-    in: params({ zPtr: i32 }, { xPtr: i32 }, { yPtr: i32 }),
+    in: [{ zPtr: i32 }, { xPtr: i32 }, { yPtr: i32 }],
     locals: { xi: i32, yi: i32, zi: i32 },
     out: [],
   },

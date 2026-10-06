@@ -21,7 +21,13 @@ import {
   valueTypeLiterals,
 } from "./types.ts";
 import type { Tuple } from "./util.ts";
-import type { Parameters, ParameterEntry, ParameterValues } from "./parameters.ts";
+import {
+  createParameters,
+  type ParameterInput,
+  type ParameterSchema,
+  type CheckedParameters,
+  type ParameterValues,
+} from "./parameters.ts";
 import type { LocalDeclaration, NamedLocals } from "./locals.ts";
 import type { Func } from "./func-types.ts";
 
@@ -32,28 +38,29 @@ export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple };
 
 /**
  * Declare named parameters and locals, preserving each key's Wasm type in the callback.
- * Parameter order follows the params() declaration. Local names follow their indices after grouping by type.
+ * Parameter order follows the input array. Local names follow their indices after grouping by type.
  * An explicit signature.name or a named callback supplies the internal function's debug name; exports provide a fallback.
  */
 function func<
-  const Args extends readonly ParameterEntry[] = [],
+  const Args extends readonly ParameterInput[] = [],
   const Results extends Tuple<ValueType> = [],
   const Locals extends Record<string, LocalDeclaration> = {},
 >(
   ctx: LocalContext,
   signature: {
     name?: string;
-    in: Parameters<Args>;
+    in: CheckedParameters<Args>;
     locals?: Locals;
     out: ToTypeTuple<Results>;
   },
   run: (
-    args: ToLocal<ParameterValues<Args>>,
+    args: ToLocal<ParameterValues<ParameterSchema<Args>>>,
     locals: NamedLocals<Locals>,
     ctx: LocalContext,
   ) => void,
-): Func<Args, Results> {
-  let { in: args, locals = {} as Locals, out: results } = signature;
+): Func<ParameterSchema<Args>, Results> {
+  let { in: entries, locals = {} as Locals, out: results } = signature;
+  const args = createParameters<Args>(entries);
   ctx.stack = [];
   const { names: argNames, types: argsArray } = args;
   const localEntries = Object.entries(locals);
@@ -74,7 +81,7 @@ function func<
       name,
       { kind: "local", type: argsArray[index], index } satisfies Local,
     ]),
-  ) as ToLocal<ParameterValues<Args>>;
+  ) as ToLocal<ParameterValues<ParameterSchema<Args>>>;
   const { sortedLocals, localIndices } = sortLocals(localsArray, nArgs);
   let offset = 0;
   const localsInput = Object.fromEntries(
@@ -141,22 +148,23 @@ function func<
  * Every declaration must be defined exactly once before constructing its Module.
  */
 function declareFunc<
-  const Args extends readonly ParameterEntry[] = [],
+  const Args extends readonly ParameterInput[] = [],
   const Results extends Tuple<ValueType> = [],
   const Locals extends Record<string, LocalDeclaration> = {},
 >(
   ctx: LocalContext,
   signature: {
     name?: string;
-    in: Parameters<Args>;
+    in: CheckedParameters<Args>;
     locals?: Locals;
     out: ToTypeTuple<Results>;
   },
 ) {
-  const declaration: Func<Args, Results> = {
+  const args = createParameters<Args>(signature.in);
+  const declaration: Func<ParameterSchema<Args>, Results> = {
     kind: "function",
-    params: signature.in,
-    type: { args: signature.in.types, results: valueTypeLiterals<Results>(signature.out) },
+    params: args,
+    type: { args: args.types, results: valueTypeLiterals<Results>(signature.out) },
     name: signature.name,
     locals: [],
     body: [],
@@ -166,13 +174,13 @@ function declareFunc<
   return Object.assign(declaration, {
     define(
       run: (
-        args: ToLocal<ParameterValues<Args>>,
+        args: ToLocal<ParameterValues<ParameterSchema<Args>>>,
         locals: NamedLocals<Locals>,
         ctx: LocalContext,
       ) => void,
     ) {
       if (declaration.defined) throw Error("declareFunc: function is already defined");
-      Object.assign(declaration, func(ctx, signature, run));
+      Object.assign(declaration, func<Args, Results, Locals>(ctx, signature, run));
     },
   });
 }
