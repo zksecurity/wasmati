@@ -101,3 +101,22 @@ test("missing modules, incorrect results, incorrect traps and earlier failures c
   assert.equal(result.failures.length, 6);
   assert.match(result.failures[5].message, /no module instance/);
 });
+
+test("traps must match the expected message, and link errors are not invalidity", async () => {
+  const result = await runWast(`(module
+    (func (export "unreachable") unreachable)
+    (func (export "div") (param i32) (result i32) (i32.div_u (i32.const 1) (local.get 0))))
+    (assert_trap (invoke "div" (i32.const 0)) "integer divide by zero")
+    (assert_trap (invoke "unreachable") "integer divide by zero")
+    (assert_trap (invoke "unreachable") "some unknown trap")
+    (assert_invalid (module (import "nowhere" "f" (func)) (func (result i32) i64.const 1)) "type mismatch")
+    (assert_invalid (module (import "nowhere" "f" (func))) "type mismatch")`);
+  assert.deepEqual(
+    result.failures.map((failure) => [failure.command, failure.message]),
+    [
+      [3, 'expected trap "integer divide by zero", got "unreachable"'],
+      [4, 'unknown trap message "some unknown trap"'],
+      [6, "expected failure, but it succeeded"],
+    ],
+  );
+});
