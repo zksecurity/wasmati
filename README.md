@@ -14,9 +14,9 @@ npm i wasmati
 
 ```ts
 // example.ts
-import { i64, func, params, Module } from "wasmati";
+import { i64, func, Module } from "wasmati";
 
-const myMultiply = func({ in: params({ x: i64 }, { y: i64 }), out: [i64] }, ({ x, y }) => {
+const myMultiply = func({ in: [{ x: i64 }, { y: i64 }], out: [i64] }, ({ x, y }) => {
   i64.mul(x, y);
 });
 
@@ -45,7 +45,7 @@ $ node example.ts
 - **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
 ```ts
-const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => {
   local.get(x);
   local.get(y);
   i32.add();
@@ -58,7 +58,7 @@ const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x
 - Optional syntax sugar to reduce boilerplate assembly like `local.get` and `i32.const`
 
 ```ts
-const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => {
   i32.add(x, y); // local.get(x), local.get(y) are filled in
   i32.shl($, 2); // $ is the top of the stack; i32.const(2) is filled in
   call(otherFunction);
@@ -66,7 +66,7 @@ const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x
 
 // or also
 
-const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => {
   let z = i32.add(x, y);
   call(otherFunction, { value: i32.shl(z, 2) });
 });
@@ -76,7 +76,7 @@ const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x
 
 ```ts
 const myFunction = func(
-  { in: params({ x: i32 }, { y: i32 }), locals: { u: i64 }, out: [i32] },
+  { in: [{ x: i32 }, { y: i32 }], locals: { u: i64 }, out: [i32] },
   ({ x, y }, { u }) => {
     i32.add(x, u); // type error: Type '"i64"' is not assignable to type '"i32"'.
   }
@@ -110,11 +110,11 @@ instance.exports.myFunction;
 - **Atomic import declaration.** Imports are declared as types along with their JS values. Abstracts away the global "import object" that is separate from "import declaration".
 
 ```ts
-const consoleLog = importFunc({ in: params({ x: i32 }), out: [] }, (x) =>
+const consoleLog = importFunc({ in: [{ x: i32 }], out: [] }, (x) =>
   console.log("logging from wasm:", x)
 );
 
-const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
+const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => {
   call(consoleLog, { x });
   i32.add(x, y);
 });
@@ -126,7 +126,7 @@ const myFunction = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
   - Generate stack-style wasmati TypeScript with `decompile(bytes)` or `wasmati decompile input.wasm -o output.ts` (omit `-o` to write to stdout). The generated default export builds a `Module` from a `WebAssembly.Imports` object.
 
-- Named parameters and debug names. `in: params({ x: i32 }, { y: i64 })` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback.
+- Named parameters and debug names. `in: [{ x: i32 }, { y: i64 }]` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback.
 
 ### Features that aren't implemented yet
 

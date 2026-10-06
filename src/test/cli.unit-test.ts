@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
-import { Module, func, params, i32, local } from "../index.ts";
+import { Module, func, i32, local } from "../index.ts";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 const importPath = fileURLToPath(new URL("../index.ts", import.meta.url));
@@ -18,7 +18,7 @@ test("CLI writes executable TypeScript to stdout or the selected output file", a
   const directory = await mkdtemp(join(tmpdir(), "wasmati-cli-"));
   try {
     const input = join(directory, "input.wasm");
-    const add = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
+    const add = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => {
       local.get(x);
       local.get(y);
       i32.add();

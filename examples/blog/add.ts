@@ -1,5 +1,4 @@
 import {
-  params,
   i32,
   func,
   type Local,
@@ -31,7 +30,7 @@ let P = bigintToLimbs(p);
  */
 const add = func(
   {
-    in: params({ z: i32 }, { x: i32 }, { y: i32 }),
+    in: [{ z: i32 }, { x: i32 }, { y: i32 }],
     locals: { zi: i32 },
     out: [],
   },

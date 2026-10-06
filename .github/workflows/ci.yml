@@ -48,3 +48,35 @@ jobs:
           npm run test:unit
       - name: Build package
         run: npm run build
+
+  publish:
+    name: Publish version bump to npm
+    needs: [format, check]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: npm-publish-${{ github.sha }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 27.0.0-nightly20261006fcfb7ecc0b
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Check for an unpublished version bump
+        id: release
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: node .github/scripts/check-release.ts
+      - name: Install dependencies
+        if: steps.release.outputs.publish == 'true'
+        run: npm ci
+      - name: Publish with npm trusted publishing
+        if: steps.release.outputs.publish == 'true'
+        run: npm publish --access public --tag "${{ steps.release.outputs.tag }}"

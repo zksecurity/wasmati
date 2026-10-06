@@ -128,7 +128,7 @@ class Source {
       .map((b, i) => `${property(b.key)}: ${this.use(locals[i])}`)
       .join(", ");
     const name = this.module.names?.functions?.[index];
-    return `{ ${path === undefined ? "" : `module: ${literal(path.module)}, field: ${literal(path.field)}, `}${name === undefined ? "" : `name: ${literal(name)}, `}in: ${this.use("params")}(${input}), ${locals.length ? `locals: { ${localEntries} }, ` : ""}out: [${type.results.map((t) => this.use(t)).join(", ")}] }`;
+    return `{ ${path === undefined ? "" : `module: ${literal(path.module)}, field: ${literal(path.field)}, `}${name === undefined ? "" : `name: ${literal(name)}, `}in: [${input}], ${locals.length ? `locals: { ${localEntries} }, ` : ""}out: [${type.results.map((t) => this.use(t)).join(", ")}] }`;
   }
 
   emit(): string {

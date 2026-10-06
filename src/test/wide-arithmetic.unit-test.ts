@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { params, $, Const, Module, func, global, i32, i64, local, StackVar } from "../index.ts";
+import { $, Const, Module, func, global, i32, i64, local, StackVar } from "../index.ts";
 
 const add128 = func(
-  { in: params({ aLo: i64 }, { aHi: i64 }, { bLo: i64 }, { bHi: i64 }), out: [i64, i64] },
+  { in: [{ aLo: i64 }, { aHi: i64 }, { bLo: i64 }, { bHi: i64 }], out: [i64, i64] },
   ({ aLo, aHi, bLo, bHi }) => {
     i64.add128(aLo, aHi, bLo, bHi);
   },
 );
 const sub128 = func(
-  { in: params({ aLo: i64 }, { aHi: i64 }, { bLo: i64 }, { bHi: i64 }), out: [i64, i64] },
+  { in: [{ aLo: i64 }, { aHi: i64 }, { bLo: i64 }, { bHi: i64 }], out: [i64, i64] },
   ({ aLo, aHi, bLo, bHi }) => {
     local.get(aLo);
     local.get(aHi);
@@ -18,10 +18,10 @@ const sub128 = func(
     i64.sub128();
   },
 );
-const mulWideS = func({ in: params({ a: i64 }, { b: i64 }), out: [i64, i64] }, ({ a, b }) => {
+const mulWideS = func({ in: [{ a: i64 }, { b: i64 }], out: [i64, i64] }, ({ a, b }) => {
   i64.mul_wide_s(a, b);
 });
-const mulWideU = func({ in: params({ a: i64 }, { b: i64 }), out: [i64, i64] }, ({ a, b }) => {
+const mulWideU = func({ in: [{ a: i64 }, { b: i64 }], out: [i64, i64] }, ({ a, b }) => {
   local.get(a);
   local.get(b);
   i64.mul_wide_u();
@@ -113,7 +113,7 @@ test("signed and unsigned widening multiplication match bigint", async () => {
 test("wide results compose with locals, constants, globals and stack operands", async () => {
   const one = global(Const.i64(1n));
   const multiplyAdd = func(
-    { in: params({ a: i64 }, { b: i64 }), locals: { lo: i64, hi: i64 }, out: [i64, i64] },
+    { in: [{ a: i64 }, { b: i64 }], locals: { lo: i64, hi: i64 }, out: [i64, i64] },
     ({ a, b }, { lo, hi }) => {
       const result: [StackVar<i64>, StackVar<i64>] = i64.mul_wide_u(a, b);
       // High is on top of the stack; save it before low.
@@ -122,19 +122,19 @@ test("wide results compose with locals, constants, globals and stack operands", 
       i64.add128(lo, hi, one, 0n);
     },
   );
-  const stackAdd = func({ in: params({ a: i64 }, { b: i64 }), out: [i64, i64] }, ({ a, b }) => {
+  const stackAdd = func({ in: [{ a: i64 }, { b: i64 }], out: [i64, i64] }, ({ a, b }) => {
     i64.mul_wide_u(a, b);
     i64.add128($, $, 1n, 0n);
   });
   const stackBelowConstants = func(
-    { in: params({ a: i64 }, { b: i64 }), out: [i64, i64] },
+    { in: [{ a: i64 }, { b: i64 }], out: [i64, i64] },
     ({ a, b }) => {
       i64.mul_wide_u(a, b);
       i64.sub128(0n, 0n, $, $);
     },
   );
   const chained = func(
-    { in: params({ a: i64 }, { b: i64 }, { c: i64 }, { d: i64 }), out: [i64, i64] },
+    { in: [{ a: i64 }, { b: i64 }, { c: i64 }, { d: i64 }], out: [i64, i64] },
     ({ a, b, c, d }) => {
       i64.mul_wide_u(a, b);
       i64.mul_wide_u(c, d);
@@ -170,7 +170,7 @@ test("decoded wide arithmetic modules execute", async () => {
 test("wide arithmetic validates operand counts, operand types and both results", () => {
   assert.throws(
     () =>
-      func({ in: params(), out: [i64, i64] }, () => {
+      func({ in: [], out: [i64, i64] }, () => {
         // @ts-expect-error widening multiply requires either zero or two operands
         i64.mul_wide_u(1n);
       }),
@@ -178,7 +178,7 @@ test("wide arithmetic validates operand counts, operand types and both results",
   );
   assert.throws(
     () =>
-      func({ in: params(), out: [i64, i64] }, () => {
+      func({ in: [], out: [i64, i64] }, () => {
         // @ts-expect-error 128-bit addition requires either zero or four operands
         i64.add128(1n, 2n);
       }),
@@ -186,7 +186,7 @@ test("wide arithmetic validates operand counts, operand types and both results",
   );
   assert.throws(
     () =>
-      func({ in: params({ x: i32 }), out: [i64, i64] }, ({ x }) => {
+      func({ in: [{ x: i32 }], out: [i64, i64] }, ({ x }) => {
         // @ts-expect-error wide instructions take i64 operands
         i64.mul_wide_s(x, 1n);
       }),
@@ -194,7 +194,7 @@ test("wide arithmetic validates operand counts, operand types and both results",
   );
   assert.throws(
     () =>
-      func({ in: params(), out: [i64, i64] }, () => {
+      func({ in: [], out: [i64, i64] }, () => {
         i32.const(1);
         i64.const(2n);
         i64.mul_wide_u();
@@ -203,7 +203,7 @@ test("wide arithmetic validates operand counts, operand types and both results",
   );
   assert.throws(
     () =>
-      func({ in: params(), out: [i64] }, () => {
+      func({ in: [], out: [i64] }, () => {
         i64.mul_wide_u(1n, 2n);
       }),
     /expected stack to be empty/,

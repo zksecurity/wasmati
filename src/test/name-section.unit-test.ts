@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import wabtFactory from "wabt";
-import { params, Module, NameSection, func, i32 } from "../index.ts";
+import { Module, NameSection, func, i32 } from "../index.ts";
 import { Name, U32 } from "../immediate.ts";
 
-const add = func({ in: params({ x: i32 }, { y: i32 }), out: [i32] }, ({ x, y }) => {
+const add = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => {
   i32.add(x, y);
 });
 

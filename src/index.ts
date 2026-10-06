@@ -1,4 +1,4 @@
-export { params, type Parameters } from "./parameters.ts";
+export { type Parameters } from "./parameters.ts";
 export { localArray, type LocalArray } from "./locals.ts";
 export { Module } from "./module.ts";
 export { NameSection, type NameMap, type IndirectNameMap } from "./name-section.ts";

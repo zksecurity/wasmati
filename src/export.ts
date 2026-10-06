@@ -15,7 +15,12 @@ import {
 import type { JSFunction, ToTypeTuple } from "./func.ts";
 import type { Tuple } from "./util.ts";
 import * as Dependency from "./dependency.ts";
-import type { Parameters, ParameterEntry } from "./parameters.ts";
+import {
+  createParameters,
+  type ParameterInput,
+  type ParameterSchema,
+  type CheckedParameters,
+} from "./parameters.ts";
 import type { ImportFunc } from "./func-types.ts";
 import { dataConstructor } from "./memory.ts";
 
@@ -76,22 +81,23 @@ const Import = record<Import>({
 
 /** Declare a typed native JS import. module/field optionally override its automatically assigned import path. */
 function importFunc<
-  const Args extends readonly ParameterEntry[] = [],
+  const Args extends readonly ParameterInput[] = [],
   const Results extends Tuple<ValueType> = [],
 >(
   {
     name: inputName,
-    in: args_,
+    in: entries,
     out: results_,
     module,
     field,
   }: {
     name?: string;
-    in: Parameters<Args>;
+    in: CheckedParameters<Args>;
     out: ToTypeTuple<Results>;
   } & Dependency.ImportPath,
-  run: NoInfer<JSFunction<ImportFunc<Parameters<Args>, Results>>>,
-): ImportFunc<Parameters<Args>, Results> {
+  run: NoInfer<JSFunction<ImportFunc<ParameterSchema<Args>, Results>>>,
+): ImportFunc<ParameterSchema<Args>, Results> {
+  const args_ = createParameters<Args>(entries);
   const type = { args: args_.types, results: valueTypeLiterals<Results>(results_) };
   const name = inputName ?? (run.name || undefined);
   return {

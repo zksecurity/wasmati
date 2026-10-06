@@ -1,8 +1,18 @@
 import { type Type, type ValueType, valueTypeLiteral } from "./types.ts";
 
-export { params, type Parameters, type ParameterEntry, type ParameterTypes, type ParameterValues };
+export {
+  createParameters,
+  type Parameters,
+  type ParameterEntry,
+  type ParameterInput,
+  type ParameterSchema,
+  type CheckedParameters,
+  type ParameterTypes,
+  type ParameterValues,
+};
 
-type ParameterEntry = Record<string, Type<ValueType>>;
+type ParameterEntry = Record<string, ValueType>;
+type ParameterInput = Record<string, Type<ValueType>>;
 type IsUnion<T, Whole = T> = T extends Whole ? ([Whole] extends [T] ? false : true) : never;
 type OneKey<E> = keyof E extends never
   ? never
@@ -12,49 +22,50 @@ type OneKey<E> = keyof E extends never
       : E
     : never;
 type TextKeys<E> = `${Extract<keyof E, string | number>}`;
-type Unique<P extends readonly ParameterEntry[], Seen = never> = P extends readonly [
-  infer H extends ParameterEntry,
-  ...infer R extends readonly ParameterEntry[],
+type Unique<P extends readonly ParameterInput[], Seen = never> = P extends readonly [
+  infer H extends ParameterInput,
+  ...infer R extends readonly ParameterInput[],
 ]
   ? Extract<TextKeys<H>, Seen> extends never
     ? Unique<R, Seen | TextKeys<H>>
     : never
   : unknown;
 type ParameterTypes<P extends readonly ParameterEntry[]> = {
-  -readonly [K in keyof P]: P[K][keyof P[K]]["kind"];
+  -readonly [K in keyof P]: Extract<P[K][keyof P[K]], ValueType>;
 };
 type ParameterValues<P extends readonly ParameterEntry[]> = {
-  [E in P[number] as keyof E]: E[keyof E]["kind"];
+  [E in P[number] as keyof E]: Extract<E[keyof E], ValueType>;
 };
 // Keep only names and value types, rather than carrying entire instruction APIs in inferred signatures.
-type ParameterSchema<P extends readonly ParameterEntry[]> = {
+type ParameterSchema<P extends readonly ParameterInput[]> = {
   [K in keyof P]: {
-    [Name in keyof P[K] as Name extends string | number ? `${Name}` : never]: Type<
-      P[K][Name]["kind"]
-    >;
+    [Name in keyof P[K] as Name extends string | number ? `${Name}` : never]: P[K][Name]["kind"];
   };
 };
+/** Parameter metadata for an ordered schema such as [{ x: "i32" }, { y: "i64" }]. */
 type Parameters<P extends readonly ParameterEntry[] = readonly ParameterEntry[]> = {
   names: string[];
   types: ParameterTypes<P>;
   values: ParameterValues<P>;
 };
 
-/**
- * Declare parameters in ABI order, with one named type per entry: params({ x: i32 }, { y: i64 }).
- * The ordered tuple retains native JS argument types and arity; names supply callback keys and Wasm metadata.
- * Empty/multi-key entries and duplicate names are rejected. params() declares an empty signature.
- */
-function params<const P extends readonly ParameterEntry[]>(
-  ...entries: P & { [K in keyof P]: OneKey<P[K]> } & Unique<P>
+/** Require one named type per entry, with no repeated names in an ordered tuple. */
+type CheckedParameters<P extends readonly ParameterInput[]> = P & {
+  [K in keyof P]: OneKey<P[K]>;
+} & Unique<P>;
+
+/** Build function metadata from ordered parameter inputs; validate names for callers from untyped JS. */
+function createParameters<const P extends readonly ParameterInput[]>(
+  entries: P,
 ): Parameters<ParameterSchema<P>> {
   const names: string[] = [];
   const types: ValueType[] = [];
   for (const entry of entries) {
     const keys = Object.keys(entry);
-    if (keys.length !== 1) throw Error("params: each entry must have exactly one name");
+    if (keys.length !== 1)
+      throw Error("function parameters: each entry must have exactly one name");
     const name = keys[0];
-    if (names.includes(name)) throw Error(`params: duplicate name ${name}`);
+    if (names.includes(name)) throw Error(`function parameters: duplicate name ${name}`);
     names.push(name);
     types.push(valueTypeLiteral(entry[name]));
   }
