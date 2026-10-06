@@ -41,20 +41,12 @@ const wabt = await Wabt();
 
 let log = (...args: any) => console.log("logging from wasm:", ...args);
 
-let consoleLog = importFunc({ name: "consoleLog", in: params({ value: i32 }), out: [] }, (value) =>
-  log(value),
-);
-let consoleLog64 = importFunc(
-  { name: "consoleLog64", in: params({ value: i64 }), out: [] },
-  (value) => log(value),
-);
-let consoleLogF64 = importFunc(
-  { name: "consoleLogF64", in: params({ value: f64 }), out: [] },
-  (value) => log(value),
-);
+let consoleLog = importFunc({ name: "consoleLog", in: params({ value: i32 }), out: [] }, log);
+let consoleLog64 = importFunc({ name: "consoleLog64", in: params({ value: i64 }), out: [] }, log);
+let consoleLogF64 = importFunc({ name: "consoleLogF64", in: params({ value: f64 }), out: [] }, log);
 let consoleLogFunc = importFunc(
   { name: "consoleLogFunc", in: params({ value: funcref }), out: [] },
-  (value) => log(value),
+  log,
 );
 
 let mem = importMemory(
