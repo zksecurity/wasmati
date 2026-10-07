@@ -41,6 +41,7 @@ import {
   baseInstruction,
   type BaseInstruction,
   checkAllowed,
+  emitSimple,
   type FunctionTypeInput,
   type FunctionTypeReference,
   functionTypeOf,
@@ -191,13 +192,23 @@ const br = baseInstruction("br", LabelIndex, {
   },
 });
 
-const br_if = baseInstruction("br_if", LabelIndex, {
+const brIf = baseInstruction("br_if", LabelIndex, {
   create(ctx, label: Label | number, { likely }: BranchHint = {}) {
     let [i, frame] = getFrameFromLabel(ctx, label);
     let types = labelTypes(frame);
     return { in: [...types, "i32"], out: types, resolveArgs: [i], likely };
   },
 });
+const i32Operand: ValueType[] = ["i32"];
+
+/** Branches to labels without values are simple instructions. */
+function br_if(ctx: LocalContext, label: Label | number, hint: BranchHint = {}) {
+  let [i, frame] = getFrameFromLabel(ctx, label);
+  if (labelTypes(frame).length > 0) return brIf(ctx, label, hint);
+  if (hint.likely !== undefined)
+    ctx.code.hints.push({ position: ctx.code.length, likely: hint.likely });
+  emitSimple(ctx, brIf.instruction, i32Operand, undefined, i);
+}
 
 const LabelTable = record({ indices: vec(LabelIndex), defaultIndex: LabelIndex });
 const br_table = baseInstruction("br_table", LabelTable, {
@@ -473,14 +484,14 @@ const control = {
 
 // parametric instructions
 
-const drop = baseInstruction("drop", Undefined, {
-  create(ctx: LocalContext) {
-    popUnknown(ctx);
-    // TODO represent "unknown" in possible input types and remove this hack
-    return { in: [] as any as [ValueType], out: [] };
-  },
-  resolve: () => undefined,
-});
+const dropInstruction = baseInstruction("drop", Undefined, { create: notBuilt }).instruction;
+const noOperands: ValueType[] = [];
+
+/** Drop the value on the stack, of any type. */
+function drop(ctx: LocalContext) {
+  popUnknown(ctx);
+  emitSimple(ctx, dropInstruction, noOperands, undefined);
+}
 
 const select_poly = baseInstruction("select", Undefined, {
   create(ctx: LocalContext) {
