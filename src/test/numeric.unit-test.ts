@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { func, global, Const, i32, i64, f32, f64, v128, i32x4, i64x2, Module } from "../index.ts";
+import {
+  func,
+  global,
+  Const,
+  i32,
+  i64,
+  f32,
+  f64,
+  v128,
+  i8x16,
+  i32x4,
+  i64x2,
+  Module,
+} from "../index.ts";
 import { F32, F64 } from "../immediate.ts";
 
 test("signed and unsigned greater-than use distinct instructions for i32 and i64", async () => {
@@ -58,4 +71,33 @@ test("vector constants accept signed lanes and initialize globals", async () => 
   const { instance } = await Module({ exports: { lane } }).instantiate();
   assert.equal(instance.exports.lane(), -1);
   assert.throws(() => Const.v128("i8x16", [256, ...Array(15).fill(0)] as any), /fit/);
+});
+
+test("constant expressions combine integers with add, sub and mul", async () => {
+  const base = global(Const.i32(10));
+  const offset = global(
+    Const.i32.add(Const.globalGet(base), Const.i32.mul(Const.i32(3), Const.i32(4))),
+  );
+  const wide = global(Const.i64.sub(Const.i64(1), Const.i64(2)));
+  const read = func({ in: [], out: [i32] }, () => global.get(offset));
+  const readWide = func({ in: [], out: [i64] }, () => global.get(wide));
+  const module = Module({ exports: { read, readWide } });
+  assert.deepEqual(
+    module.module.globals[1].init.map((i) => i.name),
+    ["global.get", "i32.const", "i32.const", "i32.mul", "i32.add"],
+  );
+  const { instance } = await module.instantiate();
+  assert.equal(instance.exports.read(), 22);
+  assert.equal(instance.exports.readWide(), -1n);
+});
+
+test("i8x16.relaxed_swizzle is named after its instruction", async () => {
+  const swizzle = func({ in: [], out: [i32] }, () => {
+    v128.const("i8x16", [7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    v128.const("i8x16", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    i8x16.relaxed_swizzle();
+    i8x16.extract_lane_u(0);
+  });
+  const { instance } = await Module({ exports: { swizzle } }).instantiate();
+  assert.equal(instance.exports.swizzle(), 7);
 });
