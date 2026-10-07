@@ -95,3 +95,18 @@ test("sizes and offsets beyond 2^53 are exact bigints, and numbers otherwise", a
   const { instance } = await (await buildTextModule(parsed)).instantiate();
   assert.throws(() => (instance.exports.load as Function)(0n), /out of bounds/);
 });
+
+test("sizes have the address type of their memory or table, i32 by default", async () => {
+  const size32 = func({ in: [], out: [i32] }, () => i32.add(memory.size(), 1));
+  const memory32 = Module({ exports: { size32 }, memory: memory({ min: 2 }) });
+  assert.equal((await memory32.instantiate()).instance.exports.size32(), 3);
+
+  const mem64 = memory({ min: 1, address: "i64" });
+  const table64 = table({ type: funcref, min: 2, address: "i64" });
+  const sizes64 = func({ in: [], out: [i64, i64] }, () => {
+    i64.add(memory.size(mem64), 1n);
+    i64.add(table.size(table64), 1n);
+  });
+  const { instance } = await Module({ exports: { sizes64 } }).instantiate();
+  assert.deepEqual(instance.exports.sizes64(), [2n, 3n]);
+});
