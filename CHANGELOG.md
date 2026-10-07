@@ -22,7 +22,7 @@ wasmati supports all of WebAssembly 3.0, verified by running the official spec t
 - **Block instructions take optional options first, then their bodies.** `block`, `loop`, `if_` (`control.if`) and `try_table` no longer take `null` as their type: write `block(() => ...)`, or `block({ in, out }, () => ...)`.
 - **`i8x16.relaxed_i8x16_swizzle` is renamed to `i8x16.relaxed_swizzle`.**
 - **`memory.atomic.wait32` takes an `i64` timeout**, as in the spec; it took an `i32`.
-- **Operands that are instruction results must be the latest values on the stack, in the order they are passed**, as in `i32.sub(a, b)` with `a` computed before `b`, or `call(f, { a: i32.const(1), b: i32.const(2) })` in parameter order. Results are pushed when they are computed, so other orders, or using a result twice, silently produced wrong code; they now throw. Numbers, locals and globals may still come in any order.
+- **Operands that are instruction results must be the latest values on the stack, in the order they are passed**, as in `i32.sub(a, b)` with `a` computed before `b`, or `call(f, { a: i32.const(1), b: i32.const(2) })` in parameter order. Results are pushed when they are computed, so other orders, or using a result twice, silently produced wrong code; they now throw. Numbers, locals and globals may still come in any order: wasmati inserts them where they belong, and throws if a local or global would be read before a write that comes after earlier operands.
 - **Dependency types changed**: memories and tables record their address type, and imports record whether they are async. This only affects code that creates dependency objects without the builder API.
 - **The decompiler's output changed** to use the new APIs.
 
@@ -53,6 +53,7 @@ wasmati supports all of WebAssembly 3.0, verified by running the official spec t
 
 - `i32.gt_s` and `i64.gt_s` emitted unsigned comparisons.
 - Errors about the stack name the instruction or function, like `i32.add: expected i32 on the stack, got i64`.
+- Numbers, locals and globals passed after instruction results were inserted in the wrong place after `drop`, `select` and branches on references, could be read before writes that came after earlier operands, and globals among them were missing from the module.
 - Encoding fixes found by the spec suite, among them element segment flags, local declarations, and the order of globals that read other globals.
 - Libraries can export wasmati values with inferred types and emit declarations: every type in wasmati's public signatures is exported, and declarations of struct types and declared functions no longer spell out instruction namespaces like `i64`.
 

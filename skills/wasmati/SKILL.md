@@ -79,7 +79,7 @@ const { instance } = await Module({ exports: { f } }).instantiate();
 instance.exports.f(5); // ((5 * 2) + 5) << 1 = 30
 ```
 
-Both styles produce the same instructions, in the order the calls run. An instruction's result is pushed when its call runs, so operands that are instruction results must be the latest values on the stack, in the order the operands are passed: compute them in that order, and use each once. wasmati throws otherwise. Some instructions take named operands, like `call(f, { x, y })` and `struct.new(type, { a, b })`, where the order is the declared order of the parameters or fields. The stack style matches the text format and the spec; the expression style reads like code. Mix them freely. TypeScript checks operand types too: an `i64` local where `i32.add` expects an `i32` is a type error.
+Both styles produce the same instructions, in the order the calls run. An instruction's result is pushed when its call runs, so operands that are instruction results must be the latest values on the stack, in the order the operands are passed: compute them in that order, and use each once. wasmati throws otherwise. Numbers, locals and globals can come in any position: wasmati inserts their instructions where they belong, as in `i32.sub(5, x)` with `x` computed first. Some instructions take named operands, like `call(f, { x, y })` and `struct.new(type, { a, b })`, where the order is the declared order of the parameters or fields. The stack style matches the text format and the spec; the expression style reads like code. Mix them freely. TypeScript checks operand types too: an `i64` local where `i32.add` expects an `i32` is a type error.
 
 ## Control flow
 
