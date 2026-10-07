@@ -6,7 +6,7 @@ _Write low-level WebAssembly, from JavaScript_
 
 - 🥷 You want to create low-level, hand-optimized Wasm libraries? wasmati is the tool to do so effectively.
 - 🚀 You want to sprinkle some Wasm in your JS app, to speed up critical parts? wasmati gives you a JS-native way to achieve that.
-- 🌱 You want the latest Wasm features? wasmati supports all of WebAssembly 3.0 and every proposal at phase 4 or 5, and keeps up with new ones. Proposals at earlier phases follow once they see major adoption in engines.
+- 🌱 You want the latest Wasm features? wasmati supports all of Wasm 3.0 plus proposals at phase 4 or 5, and keeps up with new ones.
 - ⚠️ You want to compile Wasm modules from a high-level language, like Rust or C? wasmati is not for you.
 
 ```sh
@@ -37,7 +37,7 @@ $ node example.ts
 
 - Works in all modern browsers, `node` and `deno`
 
-- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of [WebAssembly 3.0](https://webassembly.github.io/spec/core/) are supported, including garbage collection, typed function references, tail calls, exception handling, memory64, multiple memories, extended constant expressions, relaxed SIMD and JS string builtins (`jsString`, `stringConstant`). In addition, wasmati supports all standardized and nearly standardized (phase 4 and 5) proposals that are not part of that spec:
+- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of [WebAssembly 3.0](https://webassembly.github.io/spec/core/) are supported. In addition, wasmati supports all phase 4 and 5 proposals not part of that spec:
 
   - [threads and atomics](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)
   - [wide arithmetic](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md)
@@ -129,11 +129,9 @@ const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y })
   - Internal representation of modules / funcs / etc is a readable JSON object
     - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
-  - Convert to/from the WebAssembly text format with `module.toWat()`, `Module.fromWat(text)`
-  - Generate stack-style wasmati TypeScript with `decompile(bytesOrWat)` or `wasmati decompile input.wasm -o output.ts` (omit `-o` to write to stdout). The generated default export builds a `Module` from a `WebAssembly.Imports` object.
-  - Convert files on the command line with `wasmati wat input.wasm` and `wasmati wasm input.wat -o output.wasm`. All commands take either format as input.
-
-- Named parameters and debug names. `in: [{ x: i32 }, { y: i64 }]` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback.
+  - Convert to/from WAT text format with `module.toWat()`, `Module.fromWat(text)`, preserving variable and function names
+  - Generate wasmati TS from Wasm with `decompile(bytesOrWat)` or `wasmati decompile input.wasm -o output.ts` (omit `-o` to write to stdout). The generated default export builds a `Module` from a `WebAssembly.Imports` object.
+  - Convert between wasm and wat with `wasmati wat input.wasm` and `wasmati wasm input.wat -o output.wasm`.
 
 ## Build: Wasm without the wasmati runtime
 
@@ -164,7 +162,7 @@ The build writes:
 
 A built file may only export its `Module`. Code that the app shares with imports, like state, belongs in another module, which both import. The build rejects imports that it can't move faithfully, such as functions that use variables of an enclosing function, and imports with an explicit `module` path must lead to the same value from the built file.
 
-Built modules run in Node from 22.19 and 24.5, and in Deno from 2.1, which implement the ESM integration of Wasm. In browsers, bundle them. Bundlers do not provide JS string builtins, so map their module, `wasm:js-string`, to the polyfill. [examples/build](examples/build) has both configurations, which CI tests in Chrome:
+Built modules run in all Node versions starting from 22.19 and 24.5, and in Deno from 2.1, which implement the ESM integration of Wasm. In browsers, bundle them. Bundlers do not provide JS string builtins, so map their module, `wasm:js-string`, to the polyfill. [examples/build](examples/build) shows two configurations, which CI tests in Chrome:
 
 - **Vite** with [`vite-plugin-wasm`](https://github.com/Menci/vite-plugin-wasm), building for the `esnext` target:
 
@@ -186,7 +184,7 @@ export default {
 
 ## Documentation
 
-- [The wasmati skill](skills/wasmati/SKILL.md): detailed docs of the API, written for coding agents and readable by humans. It ships with the package, at `node_modules/wasmati/skills/wasmati/SKILL.md`.
+- [The wasmati skill](skills/wasmati/SKILL.md): detailed docs written for coding agents and readable by humans. Also ships with the npm package.
 - [The changelog](CHANGELOG.md), with migration notes for breaking changes.
 
 ## Ideas
