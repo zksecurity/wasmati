@@ -3,7 +3,15 @@ import { Byte, Undefined } from "../binable.ts";
 import { F32, F64, I32, I64, U8, type U64 } from "../immediate.ts";
 import { lookupInstruction, type ResolvedInstruction } from "../instruction/base.ts";
 import { Block, type Catch, IfBlock, TryTable } from "../instruction/binable.ts";
-import { HeapType, refType, type IndexSpace, type ValueType } from "../types.ts";
+import {
+  type AbstractHeapType,
+  HeapType,
+  refType,
+  shorthands,
+  type IndexSpace,
+  type StorageType,
+  type ValueType,
+} from "../types.ts";
 import { Cursor } from "./cursor.ts";
 import { TextSyntaxError, UnsupportedTextError } from "./lexer.ts";
 import {
@@ -50,14 +58,12 @@ const valueTypes = new Set<string>([
   "f32",
   "f64",
   "v128",
-  "funcref",
-  "externref",
-  "exnref",
+  ...Object.keys(shorthands),
 ]);
+const abstractHeapTypes = new Set<string>(Object.values(shorthands));
 // Valid instructions of features that wasmati's module representation does not support yet.
 const unsupported =
   /^(throw|try_table|rethrow|struct\.|array\.|ref\.(i31|test|cast|eq)$|i31\.|any\.|extern\.|br_on_cast|[a-z0-9]+\.relaxed_)/;
-const gcHeapTypes = /^(any|eq|i31|struct|array|none|nofunc|noextern|noexn)$/;
 
 /** Resolves a type index or identifier, for references to defined types. */
 type TypeIndex = (c: Cursor) => number;
@@ -74,8 +80,6 @@ function parseValueType(c: Cursor, typeIndex: TypeIndex): ValueType {
   const node = c.peek();
   const type = c.atom();
   if (valueTypes.has(type)) return type as ValueType;
-  if (/^(any|eq|i31|struct|array|none|nofunc|noextern|noexn|null\w*)ref$/.test(type))
-    throw new UnsupportedTextError(`value type ${type} is not supported`);
   return c.fail(`unknown value type ${type}`, node);
 }
 
@@ -83,8 +87,7 @@ function parseHeapType(c: Cursor, typeIndex: TypeIndex): HeapType {
   if (c.peekIndex()) return typeIndex(c);
   const node = c.peek();
   const heap = c.atom();
-  if (heap === "func" || heap === "extern" || heap === "exn") return heap;
-  if (gcHeapTypes.test(heap)) throw new UnsupportedTextError(`heap type ${heap} is not supported`);
+  if (abstractHeapTypes.has(heap)) return heap as AbstractHeapType;
   return c.fail(`unknown heap type ${heap}`, node);
 }
 
@@ -93,7 +96,7 @@ function printHeapType(heap: HeapType, names: Names): string {
   return typeof heap === "number" ? (names.id("type", heap) ?? String(heap)) : heap;
 }
 
-function printValueType(type: ValueType, names: Names): string {
+function printValueType(type: StorageType, names: Names): string {
   if (typeof type !== "object") return type;
   return `(ref ${type.nullable ? "null " : ""}${printHeapType(type.ref, names)})`;
 }

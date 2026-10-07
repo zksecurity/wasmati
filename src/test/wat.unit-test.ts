@@ -141,9 +141,9 @@ test("present but malformed fields, duplicate names and unresolved labels reject
   ])
     assert.throws(() => parseWat(source), source);
   for (const source of [
-    "(module (type (struct)))",
+    "(module (func ref.i31))",
     "(module (func struct.new 0))",
-    "(module (type (array i32)))",
+    "(module (func struct.new 0))",
   ])
     assert.throws(() => parseWat(source), UnsupportedTextError, source);
 });

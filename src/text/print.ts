@@ -1,8 +1,10 @@
 import type { Module } from "../module-binable.ts";
 import type { ResolvedInstruction } from "../instruction/base.ts";
 import type { NameMap } from "../name-section.ts";
-import type {
-  FunctionType,
+import {
+  type FieldType,
+  isFunctionType,
+  type FunctionType,
   GlobalType,
   Limits,
   TableType,
@@ -49,7 +51,7 @@ function printWat(module: Module): string {
 
   // A function's type, with inline parameters that carry its local names.
   const signature = (typeIdx: number, locals: NameMap = {}, type = module.types[typeIdx]) => {
-    if (type === undefined) return `(type ${typeIdx})`;
+    if (type === undefined || !isFunctionType(type)) return `(type ${typeIdx})`;
     return [
       `(type ${id("type", typeIdx)})`,
       ...type.args.map(
@@ -60,13 +62,31 @@ function printWat(module: Module): string {
     ].join(" ");
   };
 
-  module.types.forEach((func, i) =>
-    field(
-      "type",
-      label("type", i),
-      `(${["func", ...params(func, moduleNames), ...results(func, moduleNames)].join(" ")})`,
-    ),
-  );
+  // Types, in their recursion groups; a type outside of rec forms a group of its own.
+  const definition = (typeIdx: number) => {
+    const type = module.types[typeIdx];
+    const fieldType = ({ type, mutable }: FieldType) =>
+      mutable ? `(mut ${printValueType(type, moduleNames)})` : printValueType(type, moduleNames);
+    const fieldIds = identifiers(names.fields?.[typeIdx]);
+    const composite =
+      "struct" in type
+        ? `(${["struct", ...type.struct.map((f, i) => `(field ${optional(fieldIds[i])}${fieldType(f)})`)].join(" ")})`
+        : "array" in type
+          ? `(array ${fieldType(type.array)})`
+          : `(${["func", ...params(type, moduleNames), ...results(type, moduleNames)].join(" ")})`;
+    if (type.final !== false && type.supertype === undefined) return composite;
+    const supertype = type.supertype === undefined ? [] : [id("type", type.supertype as number)];
+    const final = type.final === false ? [] : ["final"];
+    return `(${["sub", ...final, ...supertype, composite].join(" ")})`;
+  };
+  const typeField = (i: number) =>
+    `(${["type", label("type", i), definition(i)].filter((p) => p !== "").join(" ")})`;
+  let start = 0;
+  for (const size of module.recGroups ?? module.types.map(() => 1)) {
+    const members = Array.from({ length: size }, (_, i) => typeField(start + i));
+    fields.push(size === 1 ? members[0] : `(${["rec", ...members].join(" ")})`);
+    start += size;
+  }
   const next = { function: 0, table: 0, memory: 0, global: 0, tag: 0 };
   for (const { module: from, name, description } of module.imports) {
     const index = next[description.kind]++;

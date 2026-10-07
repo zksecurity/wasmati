@@ -11,14 +11,16 @@ import {
   withContext,
 } from "./local-context.ts";
 import {
+  type DefinedType,
   FunctionIndex,
   FunctionType,
+  functionTypeEquals,
+  isFunctionType,
   type JSValue,
   type Local,
   type Type,
   TypeIndex,
   ValueType,
-  printValueType,
   typeEquals,
   valueTypeLiterals,
 } from "./types.ts";
@@ -36,7 +38,7 @@ import type { Func } from "./func-types.ts";
 // external
 export { func, declareFunc, type Local };
 // internal
-export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple };
+export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple, explicitType };
 
 /**
  * Declare named parameters and locals, preserving each key's Wasm type in the callback.
@@ -54,6 +56,8 @@ function func<
     in: CheckedParameters<Args>;
     locals?: Locals;
     out: ToTypeTuple<Results>;
+    /** An explicit function type, such as a subtype; it must match the signature. */
+    type?: DefinedType;
   },
   run: (
     args: ToLocal<ParameterValues<ParameterSchema<Args>>>,
@@ -136,6 +140,7 @@ function func<
     ...(name === undefined ? {} : { name }),
     localNames,
     type,
+    ...explicitType(signature.type, type),
     body,
     deps,
     locals: sortedLocals,
@@ -160,13 +165,17 @@ function declareFunc<
     in: CheckedParameters<Args>;
     locals?: Locals;
     out: ToTypeTuple<Results>;
+    /** An explicit function type, such as a subtype; it must match the signature. */
+    type?: DefinedType;
   },
 ) {
   const args = createParameters<Args>(signature.in);
+  const type = { args: args.types, results: valueTypeLiterals<Results>(signature.out) };
   const declaration: Func<ParameterSchema<Args>, Results> = {
     kind: "function",
     params: args,
-    type: { args: args.types, results: valueTypeLiterals<Results>(signature.out) },
+    type,
+    ...explicitType(signature.type, type),
     name: signature.name,
     locals: [],
     body: [],
@@ -218,21 +227,25 @@ type FinalizedFunc = {
 
 // helper
 
+/** An explicit function type must have the function's signature. */
+function explicitType(definedType: DefinedType | undefined, signature: FunctionType) {
+  if (definedType === undefined) return {};
+  if (!isFunctionType(definedType.type) || !functionTypeEquals(definedType.type, signature))
+    throw Error("func: the type does not match the signature");
+  return { definedType };
+}
+
+/** Locals are grouped by type, which must compare by type equivalence, not by printed names. */
 function sortLocals(locals: ValueType[], offset: number) {
-  let typeIndex: Record<string, number> = {};
   let types: ValueType[] = [];
-  let nextIndex = 0;
   let count: number[] = [];
+  let groups: number[] = [];
   let offsetWithin: number[] = [];
   for (let local of locals) {
-    let key = printValueType(local);
-    if (typeIndex[key] === undefined) {
-      typeIndex[key] = nextIndex;
-      types.push(local);
-      nextIndex++;
-    }
-    let i = typeIndex[key];
+    let i = types.findIndex((type) => typeEquals(type, local));
+    if (i === -1) i = types.push(local) - 1;
     count[i] ??= 0;
+    groups.push(i);
     offsetWithin.push(count[i]);
     count[i]++;
   }
@@ -240,10 +253,7 @@ function sortLocals(locals: ValueType[], offset: number) {
   for (let i = 1; i < count.length; i++) {
     typeOffset[i] = count[i - 1] + typeOffset[i - 1];
   }
-  let localIndices: number[] = [];
-  for (let j = 0; j < locals.length; j++) {
-    localIndices[j] = offset + typeOffset[typeIndex[printValueType(locals[j])]] + offsetWithin[j];
-  }
+  let localIndices = locals.map((_, j) => offset + typeOffset[groups[j]] + offsetWithin[j]);
   let sortedLocals: ValueType[] = types.flatMap((type, i) => Array(count[i]).fill(type));
   return { sortedLocals, localIndices };
 }

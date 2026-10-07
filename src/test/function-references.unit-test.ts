@@ -25,6 +25,7 @@ import { printWat } from "../text/print.ts";
 import { decompileModule } from "../decompile.ts";
 import { Module as BinaryModule } from "../module-binable.ts";
 import { buildTextModule } from "./text-helpers.ts";
+import type { FunctionType } from "../types.ts";
 
 const unary = { in: [i32], out: [i32] };
 
@@ -118,7 +119,7 @@ test("typed references roundtrip through text, binary and decompiled builders", 
       (local $r (ref null $f))
       (local.set $r (call $force (table.get $t (i32.const 0))))
       (return_call_ref $f (i32.const 41) (local.get $r))))`);
-  assert.deepEqual(parsed.types[1].args, [{ ref: 0, nullable: true }]);
+  assert.deepEqual((parsed.types[1] as FunctionType).args, [{ ref: 0, nullable: true }]);
   assert.deepEqual(parsed.tables[0].init, [{ name: "ref.func", immediate: 0 }]);
   assert.match(
     printWat(parsed),

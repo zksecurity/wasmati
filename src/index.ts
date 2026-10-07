@@ -24,6 +24,15 @@ import {
   funcref,
   externref,
   exnref,
+  anyref,
+  eqref,
+  i31ref,
+  structref,
+  arrayref,
+  nullref,
+  nullfuncref,
+  nullexternref,
+  nullexnref,
   ValueType,
   type ValueTypeObject,
   RefType,
@@ -130,12 +139,22 @@ export {
 export { defaultCtx };
 export { declareFunc, func, type Func, importFunc, type ImportFunc, type AnyFunc };
 export { importTable, importTag, tagConstructor as tag };
+export { struct, array, funcType, rec, mut, i8, i16 } from "./type-definitions.ts";
 export { importMemory, type ImportMemory, type AnyMemory };
 export { type Global, importGlobal, type ImportGlobal, type AnyGlobal };
 export {
   funcref,
   externref,
   exnref,
+  anyref,
+  eqref,
+  i31ref,
+  structref,
+  arrayref,
+  nullref,
+  nullfuncref,
+  nullexternref,
+  nullexnref,
   refTypeConstructor as refType,
   type Local,
   $,

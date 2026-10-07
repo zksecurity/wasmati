@@ -2,6 +2,7 @@ import { Binable, byteEnum, record } from "./binable.ts";
 import { Name, U32, type U64 } from "./immediate.ts";
 import {
   type AddressType,
+  type DefinedType,
   FunctionType,
   TagType,
   isRefType,
@@ -17,7 +18,7 @@ import {
   valueTypeLiterals,
   type ValueTypeObject,
 } from "./types.ts";
-import type { JSFunction, ToTypeTuple } from "./func.ts";
+import { explicitType, type JSFunction, type ToTypeTuple } from "./func.ts";
 import type { Tuple } from "./util.ts";
 import * as Dependency from "./dependency.ts";
 import {
@@ -107,12 +108,15 @@ function importFunc<
     name: inputName,
     in: entries,
     out: results_,
+    type: definedType,
     module,
     field,
   }: {
     name?: string;
     in: CheckedParameters<Args>;
     out: ToTypeTuple<Results>;
+    /** An explicit function type, such as a subtype; it must match the signature. */
+    type?: DefinedType;
   } & Dependency.ImportPath,
   run: NoInfer<JSFunction<ImportFunc<ParameterSchema<Args>, Results>>>,
 ): ImportFunc<ParameterSchema<Args>, Results> {
@@ -125,6 +129,7 @@ function importFunc<
     field,
     params: args_,
     type,
+    ...explicitType(definedType, type),
     deps: [],
     value: run,
     ...(name === undefined ? {} : { name }),
@@ -145,18 +150,23 @@ function importGlobal<V extends ValueType>(
   if (!isRefType(kind) && isObject)
     throw new WebAssembly.LinkError(`importGlobal: expected a global or a number, got ${value}`);
   // The JS API creates globals of numbers, vectors, funcref and externref only.
-  if (typeof kind === "object" || kind === "exnref")
+  if (typeof kind === "object" || (isRefType(kind) && kind !== "funcref" && kind !== "externref"))
     throw new WebAssembly.LinkError(
       `importGlobal: a global of type ${printValueType(kind)} must be a WebAssembly.Global`,
     );
-  let valueType: WebAssembly.ValueType = kind === "funcref" ? "anyfunc" : kind;
+  let valueType = (kind === "funcref" ? "anyfunc" : kind) as WebAssembly.ValueType;
   let value_ = new WebAssembly.Global({ value: valueType, mutable }, value);
   return { kind: "importGlobal", module, field, type: globalType, deps: [], value: value_ };
 }
 
 /** Import an exception tag, by default a new WebAssembly.Tag with the given parameter types. */
 function importTag(
-  { in: args = [], module, field }: { in?: ValueTypeObject[] } & Dependency.ImportPath,
+  {
+    in: args = [],
+    type: definedType,
+    module,
+    field,
+  }: { in?: ValueTypeObject[]; type?: DefinedType } & Dependency.ImportPath,
   value?: WebAssembly.Tag,
 ): Dependency.ImportTag {
   let type = { args: valueTypeLiterals(args), results: [] };
@@ -164,7 +174,15 @@ function importTag(
     t === "funcref" ? "anyfunc" : t,
   ) as WebAssembly.ValueType[];
   let tag = value ?? new WebAssembly.Tag({ parameters });
-  return { kind: "importTag", module, field, type, value: tag, deps: [] };
+  return {
+    kind: "importTag",
+    module,
+    field,
+    type,
+    ...explicitType(definedType, type),
+    value: tag,
+    deps: [],
+  };
 }
 
 function importMemory<A extends AddressType = "i32">(

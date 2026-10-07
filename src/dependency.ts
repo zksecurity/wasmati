@@ -7,13 +7,16 @@
 
 import {
   type AddressType,
+  type DefinedType,
   FunctionType,
   GlobalType,
   MemoryType,
   referenced,
+  referencedTypes,
   refType,
   RefType,
   TableType,
+  type TypeDefinition,
   ValueType,
 } from "./types.ts";
 import type { Parameters } from "./parameters.ts";
@@ -59,7 +62,7 @@ export {
   type Instruction,
   Const,
 };
-export { hasRefTo, hasMemory, dependencyKinds, kindToExportKind };
+export { hasRefTo, hasMemory, dependencyKinds, kindToExportKind, typeOf };
 
 type anyDependency = { kind: string; deps: anyDependency[] };
 
@@ -82,9 +85,15 @@ type t =
   | ImportTable
   | ImportMemory;
 
-type Type = { kind: "type"; type: FunctionType; deps: [] };
-function type(type: FunctionType): Type {
-  return { kind: "type", type, deps: [] };
+/** A defined type. Function types that are only described by their signature form a group of their own. */
+type Type = DefinedType;
+function type(type: TypeDefinition): Type {
+  return { kind: "type", type, deps: referencedTypes(type) };
+}
+
+/** The defined type of a function: declared explicitly, or given by its signature. */
+function typeOf(func: AnyFunc | AnyTag): Type {
+  return func.definedType ?? type(func.type);
 }
 
 type Func = {
@@ -93,6 +102,8 @@ type Func = {
   name?: string;
   localNames?: Record<number, string>;
   type: FunctionType;
+  /** An explicit type, such as a subtype or a type of a recursion group. */
+  definedType?: DefinedType;
   locals: ValueType[];
   body: Instruction[];
   deps: t[];
@@ -166,8 +177,10 @@ type ImportFunc = ImportPath & {
   name?: string;
   params: Parameters;
   type: FunctionType;
+  /** An explicit type, such as a subtype or a type of a recursion group. */
+  definedType?: DefinedType;
   value: Function;
-  deps: [];
+  deps: DefinedType[];
 };
 type ImportGlobal<T = ValueType> = ImportPath & {
   kind: "importGlobal";
@@ -191,10 +204,11 @@ type ImportMemory<A extends AddressType = AddressType> = ImportPath & {
 };
 
 /** An exception tag, whose type lists the values an exception carries. */
-type Tag = { kind: "tag"; type: FunctionType; deps: [] };
+type Tag = { kind: "tag"; type: FunctionType; definedType?: DefinedType; deps: [] };
 type ImportTag = ImportPath & {
   kind: "importTag";
   type: FunctionType;
+  definedType?: DefinedType;
   value: WebAssembly.Tag;
   deps: [];
 };

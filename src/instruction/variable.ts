@@ -1,8 +1,10 @@
 import { Undefined } from "../binable.ts";
 import { Const } from "../dependency.ts";
 import * as Dependency from "../dependency.ts";
-import { baseInstruction, type FunctionTypeInput, typeFromInput } from "./base.ts";
+import { baseInstruction, type FunctionTypeInput, functionTypeOf } from "./base.ts";
 import {
+  type AbstractHeapType,
+  type DefinedType,
   FunctionIndex,
   GlobalIndex,
   HeapType,
@@ -107,7 +109,7 @@ function globalConstructor<T extends ValueType>(
   let value = type === undefined ? initType : valueTypeLiteral(type);
   // Function references default to funcref, but may initialize a global of their precise type.
   if (init.string === "ref.func")
-    initType = refType((init.deps[0] as Dependency.AnyFunc).type, false) as T;
+    initType = refType(Dependency.typeOf(init.deps[0] as Dependency.AnyFunc), false) as T;
   if (!isSubtype(initType, value))
     throw Error(
       `global: initializer of type ${printValueType(initType)} does not fit type ${printValueType(value)}`,
@@ -115,12 +117,20 @@ function globalConstructor<T extends ValueType>(
   return { kind: "global", type: { value, mutable }, init, deps };
 }
 
-/** The type of references to func, extern, or a function type; non-null unless `nullable` is set. */
+/**
+ * The type of references to an abstract heap type, a defined type, or a function signature; non-null
+ * unless `nullable` is set.
+ */
 function refTypeConstructor(
-  heap: "func" | "extern" | FunctionTypeInput,
+  heap: AbstractHeapType | DefinedType | FunctionTypeInput,
   { nullable = false } = {},
 ): Type<RefType> {
-  return { kind: refType(typeof heap === "string" ? heap : typeFromInput(heap), nullable) };
+  if (typeof heap === "string") return { kind: refType(heap, nullable) };
+  return { kind: refType(functionTypeOrDefined(heap), nullable) };
+}
+
+function functionTypeOrDefined(heap: DefinedType | FunctionTypeInput): DefinedType {
+  return heap !== null && "kind" in heap ? heap : functionTypeOf(heap).defined;
 }
 
 /** The reference on top of the stack, or unknown in unreachable code. */
@@ -158,7 +168,7 @@ const refOps = {
     create(_, func: Dependency.AnyFunc) {
       return {
         in: [],
-        out: [refType(func.type, false)],
+        out: [refType(Dependency.typeOf(func), false)],
         deps: [func, Dependency.hasRefTo(func)],
       };
     },

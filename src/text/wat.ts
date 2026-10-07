@@ -5,7 +5,12 @@ import type { ResolvedInstruction } from "../instruction/base.ts";
 import type { NameMap, NameSection } from "../name-section.ts";
 import {
   type AddressType,
+  type CompositeType,
+  type FieldType,
   type FunctionType,
+  isFunctionType,
+  type StorageType,
+  type TypeDefinition,
   type GlobalType,
   type IndexSpace,
   isRefType,
@@ -90,12 +95,17 @@ class ModuleParser {
 
   /** Type definitions can refer to later types, and other fields to all of them. */
   private typeDefinitions: (() => void)[] = [];
+  /** Sizes of the recursion groups, in order; a type outside of rec is a group of its own. */
+  private groups: number[] = [];
+  /** Field identifiers of struct types, by type index. */
+  private fieldIds = new Map<number, Map<string, number>>();
 
   parse(c: Cursor, name: string | undefined): Module {
     const definitions = c.until((c) => this.field(c.list()));
     for (const define of this.typeDefinitions) define();
     for (const define of definitions) define();
-    return { ...this.module, ...this.names(name) };
+    const recGroups = this.groups.some((size) => size !== 1) ? { recGroups: this.groups } : {};
+    return { ...this.module, ...recGroups, ...this.names(name) };
   }
 
   // First pass: assign indices and identifiers, and return the second pass for the field.
@@ -104,7 +114,9 @@ class ModuleParser {
     const kind = c.atom();
     switch (kind) {
       case "type":
-        return this.type(c);
+        this.typeField(c);
+        this.groups.push(1);
+        return () => {};
       case "import": {
         const path = { module: c.name(), name: c.name() };
         const description = c.list();
@@ -135,8 +147,11 @@ class ModuleParser {
         const index = this.allocate(c, "data");
         return () => this.data(c, index);
       }
-      case "rec":
-        throw new UnsupportedTextError(`${kind} fields are not supported`);
+      case "rec": {
+        const types = c.until((c) => this.typeField(c.list("type")));
+        this.groups.push(types.length);
+        return () => {};
+      }
       default:
         return c.fail(`unknown module field ${kind}`);
     }
@@ -153,18 +168,72 @@ class ModuleParser {
     return index;
   }
 
-  private type(c: Cursor) {
+  /** `(type $id? (sub final? x? comptype))` or `(type $id? comptype)`, read once all types are named. */
+  private typeField(c: Cursor) {
     const index = this.allocate(c, "type");
-    const head = c.peekHead();
-    if (head === "sub" || head === "struct" || head === "array" || head === "rec")
-      throw new UnsupportedTextError(`${head} types are not supported`);
     this.typeDefinitions.push(() => {
-      const func = c.list("func");
-      this.module.types[index] = this.signature(func, true).type;
-      func.end();
+      this.module.types[index] = this.typeDefinition(c, index);
       c.end();
     });
-    return () => {};
+  }
+
+  private typeDefinition(c: Cursor, index: number): TypeDefinition {
+    const sub = c.maybeList("sub");
+    if (sub === undefined) {
+      const composite = c.list();
+      const type = this.compositeType(composite, index);
+      composite.end();
+      return type;
+    }
+    const final = sub.maybeKeyword("final");
+    const supertypes = [];
+    while (sub.peekIndex()) supertypes.push(this.index(sub, "type"));
+    if (supertypes.length > 1)
+      throw new UnsupportedTextError("multiple supertypes are not supported");
+    const composite = sub.list();
+    const type: TypeDefinition = this.compositeType(composite, index);
+    composite.end();
+    sub.end();
+    if (!final) type.final = false;
+    if (supertypes.length === 1) type.supertype = supertypes[0];
+    return type;
+  }
+
+  /** `(func ...)`, `(struct (field $id? fieldtype)*)` or `(array fieldtype)`. */
+  private compositeType(c: Cursor, index: number): CompositeType {
+    const kind = c.atom();
+    if (kind === "func") return this.signature(c, true).type;
+    if (kind === "array") return { array: this.fieldType(c) };
+    if (kind !== "struct") return c.fail(`unknown composite type ${kind}`);
+    const ids = new Map<string, number>();
+    const struct: FieldType[] = [];
+    c.lists("field", (field) => {
+      const node = field.peek();
+      const id = field.identifier();
+      const types = field.until((f) => this.fieldType(f));
+      if (id !== undefined) {
+        if (types.length !== 1) field.fail("a named field has one type");
+        if (ids.has(id)) field.fail(`duplicate field $${id}`, node);
+        ids.set(id, struct.length);
+      }
+      struct.push(...types);
+    });
+    if (ids.size > 0) this.fieldIds.set(index, ids);
+    return { struct };
+  }
+
+  /** A storage type, made mutable by `(mut ...)`. */
+  private fieldType(c: Cursor): FieldType {
+    const mutable = c.maybeList("mut");
+    const type = this.storageType(mutable ?? c);
+    mutable?.end();
+    return { type, mutable: mutable !== undefined };
+  }
+
+  private storageType(c: Cursor): StorageType {
+    if (c.maybeKeyword("i8")) return "i8";
+    if (c.maybeKeyword("i16")) return "i16";
+    return this.valueType(c);
   }
 
   /** A function, table, memory or global, imported or defined, with inline exports. */
@@ -440,17 +509,30 @@ class ModuleParser {
     if (explicit === undefined) return { index: this.findType(type), type, names };
     // A bare reference to a missing type is invalid rather than malformed.
     const referenced = this.module.types[explicit];
-    if (referenced === undefined && !inline) return { index: explicit, type, names };
-    if (referenced === undefined) c.fail(`unknown type ${explicit}`);
+    if ((referenced === undefined || !isFunctionType(referenced)) && !inline)
+      return { index: explicit, type, names };
+    if (referenced === undefined || !isFunctionType(referenced))
+      c.fail(`type ${explicit} is not a function type`);
     if (inline && !equal(referenced, type))
       c.fail("inline function type does not match the referenced type");
     return { index: explicit, type: referenced, names };
   }
 
+  /** The first final function type of its own group with this signature, or a new one at the end. */
   private findType(type: FunctionType): number {
-    const index = this.module.types.findIndex((other) => equal(other, type));
+    const singletons = new Set<number>();
+    this.groups.reduce((start, size) => (size === 1 && singletons.add(start), start + size), 0);
+    const index = this.module.types.findIndex(
+      (other, i) =>
+        singletons.has(i) &&
+        isFunctionType(other) &&
+        other.final !== false &&
+        other.supertype === undefined &&
+        equal(other, type),
+    );
     if (index !== -1) return index;
     this.counts.type++;
+    this.groups.push(1);
     return this.module.types.push(type) - 1;
   }
 
@@ -502,6 +584,15 @@ class ModuleParser {
       functions: map("function"),
       locals: Object.keys(this.locals).length > 0 ? this.locals : undefined,
       types: map("type"),
+      fields:
+        this.fieldIds.size === 0
+          ? undefined
+          : Object.fromEntries(
+              [...this.fieldIds].map(([type, ids]) => [
+                type,
+                Object.fromEntries([...ids].map(([name, field]) => [field, name])),
+              ]),
+            ),
       tables: map("table"),
       memories: map("memory"),
       tags: map("tag"),

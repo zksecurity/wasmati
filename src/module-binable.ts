@@ -15,6 +15,9 @@ import { NameSection } from "./name-section.ts";
 import {
   FunctionIndex,
   FunctionType,
+  isFunctionType,
+  RecType,
+  TypeDefinition,
   GlobalType,
   MemoryType,
   TagType,
@@ -38,7 +41,9 @@ type CustomSection = {
 };
 
 type Module = {
-  types: FunctionType[];
+  types: TypeDefinition[];
+  /** Sizes of the recursion groups that partition types, if any group is not a single type. */
+  recGroups?: number[];
   funcs: FinalizedFunc[];
   tables: Table[];
   memories: MemoryType[];
@@ -54,6 +59,14 @@ type Module = {
   customSections?: CustomSection[];
 };
 
+/** Split types into their recursion groups; without groups, each type forms a group of its own. */
+function groupTypes(types: TypeDefinition[], recGroups = types.map(() => 1)): TypeDefinition[][] {
+  let start = 0;
+  let groups = recGroups.map((size) => types.slice(start, (start += size)));
+  if (start !== types.length) throw Error("recursion groups do not partition the types");
+  return groups;
+}
+
 function section<T>(code: number, b: Binable<T>) {
   return withByteCode(code, withByteLength(b));
 }
@@ -62,8 +75,9 @@ const CustomPayload = record({ name: Name, data: RemainingBytes });
 const CustomSection = section(0, CustomPayload);
 
 // 1: TypeSection
-type TypeSection = FunctionType[];
-let TypeSection = section<TypeSection>(1, vec(FunctionType));
+/** Recursion groups of type definitions. */
+type TypeSection = TypeDefinition[][];
+let TypeSection = section<TypeSection>(1, vec(RecType));
 
 // 2: ImportSection
 type ImportSection = Import[];
@@ -225,6 +239,7 @@ const Module = iso(ParsedModule, {
     tables,
     memories,
     tags,
+    recGroups,
     globals,
     exports,
     start,
@@ -252,7 +267,7 @@ const Module = iso(ParsedModule, {
       sections: {
         extras,
         value: {
-          typeSection: types,
+          typeSection: groupTypes(types, recGroups),
           importSection: imports,
           funcSection,
           tableSection: tables,
@@ -306,8 +321,11 @@ const Module = iso(ParsedModule, {
     let importedFunctionsLength = importSection.filter(
       (i) => i.description.kind === "function",
     ).length;
+    let types = typeSection.flat();
     let funcs = funcSection.map((typeIdx, funcIdx) => {
-      let type = typeSection[typeIdx];
+      let type = types[typeIdx];
+      if (type === undefined || !isFunctionType(type))
+        throw Error(`function ${funcIdx} does not have a function type`);
       let { locals, body } = codeSection[funcIdx];
       return {
         funcIdx: importedFunctionsLength + funcIdx,
@@ -319,7 +337,10 @@ const Module = iso(ParsedModule, {
     });
     let exports: Export[] = exportSection;
     return {
-      types: typeSection,
+      types,
+      ...(typeSection.some((group) => group.length !== 1)
+        ? { recGroups: typeSection.map((group) => group.length) }
+        : {}),
       imports: importSection,
       funcs,
       tables: tableSection,
