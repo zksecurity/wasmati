@@ -48,8 +48,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
     "prettier": "^3.9.9",
-    "typescript": "^7.0.2",
-    "wabt": "^1.0.36"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "meriyah": "^7.4.0"

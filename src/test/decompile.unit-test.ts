@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import wabtFactory from "wabt";
+import { Module as BinaryModule } from "../module-binable.ts";
+import { parseWat } from "../text/wat.ts";
 import {
   decompile,
   Module,
@@ -25,23 +26,12 @@ import {
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const importPath = fileURLToPath(new URL("../index.ts", import.meta.url));
-const wabt = await wabtFactory();
 
+/** Rebuild a module in the text format, by default with the names of its identifiers. */
 async function rebuild(wat: string, imports: WebAssembly.Imports = {}, debugNames = true) {
-  const parsed = wabt.parseWat("input.wat", wat, {
-    threads: true,
-    simd: true,
-    bulk_memory: true,
-    reference_types: true,
-    multi_value: true,
-  });
-  let bytes: Uint8Array;
-  try {
-    bytes = parsed.toBinary({ write_debug_names: debugNames }).buffer;
-  } finally {
-    parsed.destroy();
-  }
-  return rebuildBytes(bytes, imports);
+  const { names, ...module } = parseWat(wat);
+  const parsed = debugNames && names !== undefined ? { ...module, names } : module;
+  return rebuildBytes(Uint8Array.from(BinaryModule.toBytes(parsed)), imports);
 }
 
 async function rebuildBytes(bytes: Uint8Array, imports: WebAssembly.Imports = {}) {

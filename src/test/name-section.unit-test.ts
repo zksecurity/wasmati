@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import wabtFactory from "wabt";
 import { Module, NameSection, func, i32 } from "../index.ts";
 import { Name, U32 } from "../immediate.ts";
 
@@ -23,46 +22,36 @@ test("public Module API emits readable module, function and local names", async 
   assert.deepEqual(Module.fromBytes(bytes).module.names, names);
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.add(20, 22), 42);
-  const wabt = await wabtFactory();
-  const decoded = wabt.readWasm(bytes, { readDebugNames: true });
-  try {
-    const wat = decoded.toText({ foldExprs: false, inlineExport: false });
-    assert.match(wat, /\$arithmetic/);
-    assert.match(wat, /\$sum/);
-    assert.match(wat, /\$left/);
-    assert.match(wat, /\$right/);
-  } finally {
-    decoded.destroy();
-  }
+  const wat = Module.fromBytes(bytes).toWat();
+  assert.match(wat, /\$arithmetic/);
+  assert.match(wat, /\$sum/);
+  assert.match(wat, /\$left/);
+  assert.match(wat, /\$right/);
 });
 
+/**
+ * A module that WABT wrote, with names, from:
+ * (module $named
+ *   (import "env" "id" (func $id (param i32) (result i32)))
+ *   (func $add (export "add") (param $x i32) (param $y i32) (result i32)
+ *     (local $tmp i32)
+ *     local.get $x local.get $y i32.add
+ *     local.set $tmp local.get $tmp call $id))
+ */
+const wabtModule =
+  "AGFzbQEAAAABDAJgAX8Bf2ACf38BfwIKAQNlbnYCaWQAAAMCAQEHBwEDYWRkAAEKEQEPAQF/IAAgAWohAiACEAALACsEbmFtZQAGBW5hbWVkAQoCAAJpZAEDYWRkAhACAAABAwABeAEBeQIDdG1w";
+
 test("decodes WABT names, including imported functions, parameters and locals", async () => {
-  const wabt = await wabtFactory();
-  const parsed = wabt.parseWat(
-    "named.wat",
-    `
-    (module $named
-      (import "env" "id" (func $id (param i32) (result i32)))
-      (func $add (export "add") (param $x i32) (param $y i32) (result i32)
-        (local $tmp i32)
-        local.get $x local.get $y i32.add
-        local.set $tmp local.get $tmp call $id))
-  `,
-  );
-  try {
-    const { buffer } = parsed.toBinary({ write_debug_names: true });
-    const module = Module.fromBytes<{ add: typeof add }>(buffer, { env: { id: (x: number) => x } });
-    assert.deepEqual(module.module.names, {
-      module: "named",
-      functions: { 0: "id", 1: "add" },
-      locals: { 0: {}, 1: { 0: "x", 1: "y", 2: "tmp" } },
-    });
-    assert.deepEqual(Module.fromBytes(module.toBytes()).module.names, module.module.names);
-    const { instance } = await module.instantiate();
-    assert.equal(instance.exports.add(20, 22), 42);
-  } finally {
-    parsed.destroy();
-  }
+  const bytes = Uint8Array.from(atob(wabtModule), (char) => char.charCodeAt(0));
+  const module = Module.fromBytes<{ add: typeof add }>(bytes, { env: { id: (x: number) => x } });
+  assert.deepEqual(module.module.names, {
+    module: "named",
+    functions: { 0: "id", 1: "add" },
+    locals: { 0: {}, 1: { 0: "x", 1: "y", 2: "tmp" } },
+  });
+  assert.deepEqual(Module.fromBytes(module.toBytes()).module.names, module.module.names);
+  const { instance } = await module.instantiate();
+  assert.equal(instance.exports.add(20, 22), 42);
 });
 
 test("supports all standard and extended name maps and preserves unknown subsections", () => {
