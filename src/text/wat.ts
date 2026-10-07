@@ -27,7 +27,7 @@ import { parseInstructions, parseValueType, type BlockType, type Scope } from ".
 import { parseU64 } from "./numbers.ts";
 import { limits } from "../memory.ts";
 
-export { parseWat, parseModule };
+export { parseWat, parseModule, sectionIds };
 
 /** Parse a WAT module; the enclosing (module ...) may be omitted. */
 function parseWat(source: string): Module {
@@ -611,6 +611,22 @@ class ModuleParser {
     return Object.keys(present).length > 0 ? { names: present } : {};
   }
 }
+
+const sectionIds: Record<string, number> = {
+  type: 1,
+  import: 2,
+  func: 3,
+  table: 4,
+  memory: 5,
+  global: 6,
+  export: 7,
+  start: 8,
+  elem: 9,
+  code: 10,
+  data: 11,
+  datacount: 12,
+  tag: 13,
+};
 
 /** The offset of an inline segment, at the start of its memory or table. */
 function zero(address: AddressType): ResolvedInstruction[] {
