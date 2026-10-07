@@ -9,7 +9,7 @@
 
 ### Changes
 
-- **Faster builds and encoding**: building montgomery's Pallas field module, 245 KB of code, takes 54 ms instead of 139 the first time, and about 27 ms instead of 90 after that. Encoding it, `module.toBytes()`, copies the code that building wrote: 0.5 ms instead of 55 once warm, and about 4 ms instead of 70 the first time. Modules encode into one growable byte buffer instead of nested arrays, and integers avoid BigInt where they fit. Codecs (`Binable`) have `write` and `encode` methods. `npm run benchmark` measures a module of field arithmetic.
+- **Faster builds and encoding**: building montgomery's Pallas field module, 245 KB of code, takes 51 ms instead of 139 the first time, and about 24 ms instead of 90 after that. Encoding it, `module.toBytes()`, copies the code that building wrote: 0.5 ms instead of 55 once warm, and about 4 ms instead of 70 the first time. Modules encode into one growable byte buffer instead of nested arrays, and integers avoid BigInt where they fit. Codecs (`Binable`) have `write` and `encode` methods. `npm run benchmark` measures a module of field arithmetic.
 - **No side effects**: the package declares `sideEffects: false`, so bundlers leave wasmati out where it is imported but unused.
 
 ## 1.0.0
