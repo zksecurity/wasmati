@@ -1,9 +1,11 @@
 import { Binable } from "./binable.ts";
 
-export { vec, withByteLength, Name, U8, U32, U64, I32, I64, S33, F32, F64 };
+export { vec, withByteLength, Name, U8, U32, U64, I32, I64, S33, F32, F64, uint64 };
 
 type U8 = number;
 type U32 = number;
+/** A 64-bit size or offset: a number where exact, a bigint only beyond 2^53. */
+type U64 = number | bigint;
 type I32 = number;
 type I64 = bigint;
 /**
@@ -91,17 +93,21 @@ const U32 = Binable<U32>({
   },
 });
 
-/** 64-bit sizes and offsets. Values beyond 2^53 cannot be represented exactly and are rejected. */
-const U64 = Binable<number>({
-  toBytes(x: number) {
+/** 64-bit sizes and offsets. */
+const U64 = Binable<U64>({
+  toBytes(x: U64) {
     return toULEB128(x);
   },
-  readBytes(bytes, offset): [number, number] {
+  readBytes(bytes, offset): [U64, number] {
     let [x, end] = fromLEB128(bytes, offset, 64, false);
-    if (x > BigInt(Number.MAX_SAFE_INTEGER)) throw Error(`u64 value ${x} is not supported`);
-    return [Number(x), end];
+    return [uint64(x), end];
   },
 });
+
+/** The canonical form of a 64-bit size or offset, so that equal values compare equal. */
+function uint64(x: bigint): U64 {
+  return x <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(x) : x;
+}
 
 // Constants accept unsigned bit patterns too; their encoding is the signed interpretation.
 const I32 = Binable<I32>({

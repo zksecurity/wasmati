@@ -15,6 +15,7 @@ import {
 } from "../index.ts";
 import { parseWat } from "../text/wat.ts";
 import { printWat } from "../text/print.ts";
+import { Module as BinaryModule } from "../module-binable.ts";
 import { buildTextModule } from "./text-helpers.ts";
 
 test("instructions on a 64-bit memory take 64-bit addresses and sizes", async () => {
@@ -76,4 +77,21 @@ test("64-bit address types roundtrip through text and decompiled builders", asyn
   assert.deepEqual(parseWat(printWat(parsed)), parsed);
   const { instance } = await (await buildTextModule(parsed)).instantiate();
   assert.equal((instance.exports.f as Function)(0n), 1n);
+});
+
+test("sizes and offsets beyond 2^53 are exact bigints, and numbers otherwise", async () => {
+  const max = 2n ** 64n - 1n;
+  const parsed = parseWat(`(module
+    (table (export "t") i64 1 0xffff_ffff_ffff_ffff funcref)
+    (memory i64 1)
+    (func (export "load") (param i64) (result i32) (i32.load offset=0xffff_ffff_ffff_ffff (local.get 0))))`);
+  assert.deepEqual(parsed.tables[0].limits, { min: 1, max, shared: false, address: "i64" });
+  assert.equal(parsed.funcs[0].body[1].immediate.offset, max);
+  assert.match(printWat(parsed), /offset=18446744073709551615/);
+  assert.deepEqual(parseWat(printWat(parsed)), parsed);
+  const bytes = BinaryModule.toBytes(parsed);
+  assert.deepEqual(BinaryModule.fromBytes(bytes).tables, parsed.tables);
+  assert.deepEqual(table({ type: funcref, min: 1n, max: 2n, address: "i64" }).type.limits.min, 1);
+  const { instance } = await (await buildTextModule(parsed)).instantiate();
+  assert.throws(() => (instance.exports.load as Function)(0n), /out of bounds/);
 });

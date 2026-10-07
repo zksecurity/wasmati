@@ -1,7 +1,7 @@
 import { type Instruction_, baseInstruction } from "./base.ts";
 import * as Dependency from "../dependency.ts";
 import type { LocalContext } from "../local-context.ts";
-import { U32, U64, U8 } from "../immediate.ts";
+import { U32, U64, U8, uint64 } from "../immediate.ts";
 import { type Binable, record, tuple, withValidation } from "../binable.ts";
 import {
   type AddressType,
@@ -164,7 +164,7 @@ const elemOps = {
   }),
 };
 
-type MemArg = { align: U32; offset: number };
+type MemArg = { align: U32; offset: U64 };
 // Alignment flags from 64 select a memory index, which wasmati does not support; from 128 they are malformed.
 const MemArg = withValidation(record({ align: U32, offset: U64 }), ({ align }) => {
   if (align >= 64) throw Error(`unsupported memory alignment flags ${align}`);
@@ -177,7 +177,7 @@ function withNaturalAlign<T>(binable: Binable<T>, bits: number): MemArgImmediate
 }
 
 /** The memory argument of an access: alignment in bytes, offset, and optionally the memory. */
-type MemArgInput = { offset?: number; align?: number; memory?: Dependency.AnyMemory };
+type MemArgInput = { offset?: U64; align?: number; memory?: Dependency.AnyMemory };
 
 /** Operand types of a memory access whose first operand, the address, depends on the memory. */
 type AccessArgs<Args extends readonly ValueType[]> = {
@@ -268,5 +268,5 @@ function memArgFromInput(
   if (!Number.isInteger(alignExponent)) {
     throw Error(`${name}: \`align\` must be power of 2, got ${align}`);
   }
-  return { offset, align: alignExponent };
+  return { offset: uint64(BigInt(offset)), align: alignExponent };
 }

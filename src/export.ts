@@ -1,5 +1,5 @@
 import { Binable, byteEnum, record } from "./binable.ts";
-import { Name, U32 } from "./immediate.ts";
+import { Name, U32, type U64 } from "./immediate.ts";
 import {
   type AddressType,
   FunctionType,
@@ -141,8 +141,8 @@ function importMemory(
     module,
     field,
   }: {
-    min: number;
-    max?: number;
+    min: U64;
+    max?: U64;
     shared?: boolean;
     address?: AddressType;
   } & Dependency.ImportPath,
@@ -178,8 +178,8 @@ function importTable(
     field,
   }: {
     type: Type<"funcref" | "externref">;
-    min: number;
-    max?: number;
+    min: U64;
+    max?: U64;
     address?: AddressType;
   } & Dependency.ImportPath,
   value: WebAssembly.Table,

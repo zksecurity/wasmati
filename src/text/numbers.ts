@@ -1,5 +1,6 @@
 import type { F32, F64 } from "../immediate.ts";
-import { TextSyntaxError, UnsupportedTextError } from "./lexer.ts";
+import { TextSyntaxError } from "./lexer.ts";
+import { uint64, type U64 } from "../immediate.ts";
 
 export { parseU32, parseU64, parseUnsigned, parseInteger, parseFloat, printFloat };
 
@@ -15,13 +16,10 @@ function parseU32(text: string): number {
 
 /**
  * Unsigned 64-bit literal, used for offsets and limits: whether a value fits a 32-bit memory or table
- * is a matter of validation. Values beyond 2^53 only occur with 64-bit memories and tables.
+ * is a matter of validation.
  */
-function parseU64(text: string): number {
-  const value = parseUnsigned(text, 64);
-  if (value > BigInt(Number.MAX_SAFE_INTEGER))
-    throw new UnsupportedTextError(`integer ${text} exceeds the supported range`);
-  return Number(value);
+function parseU64(text: string): U64 {
+  return uint64(parseUnsigned(text, 64));
 }
 
 function parseUnsigned(text: string, bits: 32 | 64): bigint {
