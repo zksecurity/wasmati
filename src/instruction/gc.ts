@@ -453,7 +453,7 @@ const structOps = {
       if (names === undefined)
         throw Error("struct.new: fields by name need a struct with field names");
       let types = structFields(type).map((f) => unpacked(f.type));
-      processStackArgs(ctx, "struct.new", types, namedInputs("struct.new", names, fields));
+      processStackArgs(ctx, "struct.new", types, namedInputs(names, fields));
     }
     return structInstructions.new(ctx, type);
   }),
