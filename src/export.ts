@@ -33,6 +33,8 @@ import type { ImportFunc } from "./func-types.ts";
 import { dataConstructor, jsLimits, limits } from "./memory.ts";
 
 export {
+  asyncExport,
+  type AsyncExport,
   Export,
   Import,
   Imports,
@@ -139,18 +141,29 @@ const Imports = Binable<Import[]>({
 });
 const CompactItem = record({ name: Name, description: ImportDescription });
 
+/**
+ * An async export, `exports: { run: async(run) }`: JS calls it asynchronously (JSPI). Wasm it enters may
+ * wait for async imports, while the export returns a promise of its results. Only Wasm entered through
+ * async exports can call async imports.
+ */
+type AsyncExport<F extends Dependency.Func = Dependency.Func> = { kind: "asyncExport"; func: F };
+
+function asyncExport<F extends Dependency.Func>(func: F): AsyncExport<F> {
+  return { kind: "asyncExport", func };
+}
+
 /** Declare a typed native JS import. module/field optionally override its automatically assigned import path. */
 function importFunc<
   const Args extends readonly ParameterInput[] = [],
   const Results extends Tuple<ValueType> = [],
-  const Suspending extends boolean = false,
+  const Async extends boolean = false,
 >(
   {
     name: inputName,
     in: entries,
     out: results_,
     type: definedType,
-    suspending,
+    async: isAsync,
     module,
     field,
   }: {
@@ -160,13 +173,13 @@ function importFunc<
     /** An explicit function type, such as a subtype; it must match the signature. */
     type?: DefinedType;
     /**
-     * The function may return a promise, which suspends Wasm until it resolves (JSPI). Wasm must be
-     * entered through a promising export.
+     * The function may return a promise: Wasm waits for it, suspended until it resolves (JSPI). Wasm
+     * that calls it must be entered through an async export.
      */
-    suspending?: Suspending;
+    async?: Async;
   } & Dependency.ImportPath,
   run: NoInfer<
-    Suspending extends true
+    Async extends true
       ? AsyncJSFunction<ImportFunc<ParameterSchema<Args>, Results>>
       : JSFunction<ImportFunc<ParameterSchema<Args>, Results>>
   >,
@@ -182,7 +195,8 @@ function importFunc<
     type,
     ...explicitType(definedType, type),
     deps: [],
-    value: suspending ? new WebAssembly.Suspending(run) : run,
+    value: isAsync ? new WebAssembly.Suspending(run) : run,
+    ...(isAsync ? { async: true as const } : {}),
     ...(name === undefined ? {} : { name }),
   };
 }

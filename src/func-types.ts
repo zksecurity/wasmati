@@ -15,7 +15,6 @@ type Func<Args extends readonly ParameterEntry[], Results extends readonly Value
   params: Parameters<Args>;
   type: { args: Parameters<Args>["types"]; results: Results };
   defined: boolean;
-  promising?: true;
 };
 
 type ImportFunc<Args extends readonly ParameterEntry[], Results extends readonly ValueType[]> = {
@@ -26,6 +25,8 @@ type ImportFunc<Args extends readonly ParameterEntry[], Results extends readonly
   params: Parameters<Args>;
   type: { args: Parameters<Args>["types"]; results: Results };
   value: Function | WebAssembly.Suspending;
+  /** An async import, which suspends Wasm until its promise resolves (JSPI). */
+  async?: true;
   deps: [];
 };
 

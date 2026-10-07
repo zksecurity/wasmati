@@ -41,7 +41,7 @@ $ node example.ts
   - [threads and atomics](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)
   - [wide arithmetic](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md)
   - [branch hinting](https://github.com/WebAssembly/branch-hinting/blob/main/proposals/branch-hinting/Overview.md): `br_if(label, { likely: true })`, `if_({ likely: false }, ...)`
-  - [JS Promise Integration](https://github.com/WebAssembly/js-promise-integration/blob/main/proposals/js-promise-integration/Overview.md): async imports with `importFunc({ ..., suspending: true }, async () => ...)`, called from exports declared with `func({ ..., promising: true }, ...)`
+  - [JS Promise Integration](https://github.com/WebAssembly/js-promise-integration/blob/main/proposals/js-promise-integration/Overview.md): Wasm waits for async imports, `importFunc({ ..., async: true }, async () => ...)`, when JS enters it through async exports, `Module({ exports: { run: async(run) } })`, which return promises. `Module` checks that other exports cannot reach async imports.
   - [compact import sections](https://github.com/WebAssembly/compact-import-section/blob/main/proposals/compact-import-section/Overview.md), which wasmati reads
 
   Every module and assertion of the official WebAssembly 3.0 spec test suite runs through wasmati in CI, along with the tests of these proposals: modules are decompiled to wasmati code, rebuilt, and checked against the expected results.

@@ -108,8 +108,6 @@ type Func = {
   body: Instruction[];
   deps: t[];
   defined: boolean;
-  /** Exported through `WebAssembly.promising`, so that it can call suspending imports (JSPI). */
-  promising?: true;
 };
 type HasRefTo = { kind: "hasRefTo"; value: AnyFunc; deps: [] };
 function hasRefTo(value: AnyFunc): HasRefTo {
@@ -173,6 +171,8 @@ type ImportFunc = ImportPath & {
   /** An explicit type, such as a subtype or a type of a recursion group. */
   definedType?: DefinedType;
   value: Function | WebAssembly.Suspending;
+  /** An async import, which suspends Wasm until its promise resolves (JSPI). */
+  async?: true;
   deps: DefinedType[];
 };
 type ImportGlobal<T = ValueType> = ImportPath & {

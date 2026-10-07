@@ -59,7 +59,6 @@ function func<
   const Args extends readonly ParameterInput[] = [],
   const Results extends Tuple<ValueType> = [],
   const Locals extends Record<string, LocalDeclaration> = {},
-  const Promising extends boolean = false,
 >(
   ctx: LocalContext,
   signature: {
@@ -69,15 +68,13 @@ function func<
     out: ToTypeTuple<Results>;
     /** An explicit function type, such as a subtype; it must match the signature. */
     type?: DefinedType;
-    /** Export the function as returning a promise, so that it can call suspending imports (JSPI). */
-    promising?: Promising;
   },
   run: (
     args: ToLocal<ParameterValues<ParameterSchema<Args>>>,
     locals: NamedLocals<Locals>,
     ctx: LocalContext,
   ) => void,
-): Func<ParameterSchema<Args>, Results> & PromisingMarker<Promising> {
+): Func<ParameterSchema<Args>, Results> {
   let { in: entries, locals = {} as Locals, out: results } = signature;
   const args = createParameters<Args>(entries);
   ctx.stack = [];
@@ -158,9 +155,8 @@ function func<
     deps,
     locals: sortedLocals,
     defined: true,
-    ...promisingMarker(signature.promising),
   } satisfies Dependency.Func;
-  return func as typeof func & PromisingMarker<Promising>;
+  return func;
 }
 
 /**
@@ -172,7 +168,6 @@ function declareFunc<
   const Args extends readonly ParameterInput[] = [],
   const Results extends Tuple<ValueType> = [],
   const Locals extends Record<string, LocalDeclaration> = {},
-  const Promising extends boolean = false,
 >(
   ctx: LocalContext,
   signature: {
@@ -182,8 +177,6 @@ function declareFunc<
     out: ToTypeTuple<Results>;
     /** An explicit function type, such as a subtype; it must match the signature. */
     type?: DefinedType;
-    /** Export the function as returning a promise, so that it can call suspending imports (JSPI). */
-    promising?: Promising;
   },
 ) {
   const args = createParameters<Args>(signature.in);
@@ -198,9 +191,8 @@ function declareFunc<
     body: [],
     deps: [],
     defined: false,
-    ...promisingMarker(signature.promising),
   };
-  return Object.assign(declaration as typeof declaration & PromisingMarker<Promising>, {
+  return Object.assign(declaration, {
     define(
       run: (
         args: ToLocal<ParameterValues<ParameterSchema<Args>>>,
@@ -209,7 +201,7 @@ function declareFunc<
       ) => void,
     ) {
       if (declaration.defined) throw Error("declareFunc: function is already defined");
-      Object.assign(declaration, func<Args, Results, Locals, Promising>(ctx, signature, run));
+      Object.assign(declaration, func<Args, Results, Locals>(ctx, signature, run));
     },
   });
 }
@@ -223,13 +215,6 @@ type ReturnValues<T extends readonly ValueType[]> = T extends []
   : T extends [ValueType]
     ? JSValue<T[0]>
     : JSValues<T>;
-
-/** Functions exported through `WebAssembly.promising` are marked, which types their exports. */
-type PromisingMarker<Promising extends boolean> = Promising extends true ? { promising: true } : {};
-
-function promisingMarker(promising: boolean | undefined): { promising?: true } {
-  return promising ? { promising: true } : {};
-}
 
 type JSFunction<T extends Dependency.AnyFunc> = (
   ...args: JSValues<T["type"]["args"]>
