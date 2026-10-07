@@ -43,12 +43,18 @@ type Data = {
 
 /** Data segment kinds: 0 is active in memory 0, 1 is passive, 2 is active in an explicit memory. */
 const Data = Binable<Data>({
-  toBytes({ init, mode }) {
-    const bytes = vec(Byte).toBytes(init);
-    if (mode === "passive") return [...U32.toBytes(1), ...bytes];
-    const offset = ConstExpression.toBytes(mode.offset);
-    if (mode.memory === 0) return [...U32.toBytes(0), ...offset, ...bytes];
-    return [...U32.toBytes(2), ...U32.toBytes(mode.memory), ...offset, ...bytes];
+  write(writer, { init, mode }) {
+    if (mode === "passive") writer.byte(1);
+    else {
+      if (mode.memory === 0) writer.byte(0);
+      else {
+        writer.byte(2);
+        writer.unsigned(mode.memory);
+      }
+      ConstExpression.write(writer, mode.offset);
+    }
+    writer.unsigned(init.length);
+    writer.bytes(init);
   },
   readBytes(bytes, offset) {
     let kind: number;

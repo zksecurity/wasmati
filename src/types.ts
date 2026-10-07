@@ -343,9 +343,9 @@ const codeToHeapType = invertRecord(heapTypeCodes);
 
 /** Heap types: an s33, negative for abstract heap types, a type index otherwise. */
 const HeapType = Binable<HeapType>({
-  toBytes(heap) {
+  write(writer, heap) {
     if (typeof heap === "object") throw Error("HeapType: defined type has no index yet");
-    return S33.toBytes(typeof heap === "number" ? heap : heapTypeCodes[heap]);
+    S33.write(writer, typeof heap === "number" ? heap : heapTypeCodes[heap]);
   },
   readBytes(bytes, offset) {
     let [code, end] = S33.readBytes(bytes, offset);
@@ -358,13 +358,16 @@ const HeapType = Binable<HeapType>({
 
 type ValueTypeObject = { kind: ValueType };
 const ValueType = Binable<ValueType>({
-  toBytes(type) {
-    if (typeof type === "object")
-      return [type.nullable ? 0x63 : 0x64, ...HeapType.toBytes(type.ref)];
-    if (type in shorthands) return S33.toBytes(heapTypeCodes[shorthands[type as Shorthand]]);
-    let code = valueTypeCodes[type as NumberOrVectorType];
-    if (code === undefined) throw Error(`Invalid value type ${type}`);
-    return [code];
+  write(writer, type) {
+    if (typeof type === "object") {
+      writer.byte(type.nullable ? 0x63 : 0x64);
+      HeapType.write(writer, type.ref);
+    } else if (type in shorthands) S33.write(writer, heapTypeCodes[shorthands[type as Shorthand]]);
+    else {
+      let code = valueTypeCodes[type as NumberOrVectorType];
+      if (code === undefined) throw Error(`Invalid value type ${type}`);
+      writer.byte(code);
+    }
   },
   readBytes(bytes, offset) {
     let code = Byte.readBytes(bytes, offset)[0];
@@ -382,8 +385,8 @@ const ValueType = Binable<ValueType>({
 
 type RefTypeObject = { kind: RefType };
 const RefType = Binable<RefType>({
-  toBytes(t) {
-    return ValueType.toBytes(t);
+  write(writer, t) {
+    ValueType.write(writer, t);
   },
   readBytes(bytes, offset) {
     let [type, end] = ValueType.readBytes(bytes, offset);

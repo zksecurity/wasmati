@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Faster encoding**: modules encode into one growable byte buffer instead of nested arrays, and integers avoid BigInt where they fit. `module.toBytes()` of a 245 KB module takes about 20 ms instead of 70. Codecs (`Binable`) have `write` and `encode` methods.
+
 ## 1.0.0
 
 wasmati supports all of WebAssembly 3.0, verified by running the official spec test suite through wasmati in CI, and the standardized proposals beyond it. Modules can be written as WAT, decompiled, and built into `.wasm` files that JS imports without the wasmati runtime.

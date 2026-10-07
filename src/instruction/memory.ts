@@ -195,10 +195,13 @@ const elemOps = {
 type MemArg = { align: U32; offset: U64; memory?: number };
 // Flags from 64 announce a memory index, which precedes the offset; flags from 128 are malformed.
 const MemArg = Binable<MemArg>({
-  toBytes({ align, offset, memory }) {
-    if (memory === undefined || memory === 0)
-      return [...U32.toBytes(align), ...U64.toBytes(offset)];
-    return [...U32.toBytes(align | 64), ...U32.toBytes(memory), ...U64.toBytes(offset)];
+  write(writer, { align, offset, memory }) {
+    if (memory === undefined || memory === 0) U32.write(writer, align);
+    else {
+      U32.write(writer, align | 64);
+      U32.write(writer, memory);
+    }
+    U64.write(writer, offset);
   },
   readBytes(bytes, start) {
     let [flags, offset] = U32.readBytes(bytes, start);

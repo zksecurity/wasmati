@@ -25,14 +25,14 @@ export {
 };
 
 const Instruction = Binable<ResolvedInstruction>({
-  toBytes({ name, immediate }) {
+  write(writer, { name, immediate }) {
     let instr = lookupInstruction(name);
-    let imm: number[] = [];
-    if (instr.immediate !== undefined) {
-      imm = instr.immediate.toBytes(immediate);
+    if (typeof instr.opcode === "number") writer.byte(instr.opcode);
+    else {
+      writer.byte(instr.opcode[0]);
+      writer.unsigned(instr.opcode[1]);
     }
-    if (typeof instr.opcode === "number") return [instr.opcode, ...imm];
-    return [instr.opcode[0], ...U32.toBytes(instr.opcode[1]), ...imm];
+    if (instr.immediate !== undefined) instr.immediate.write(writer, immediate);
   },
   readBytes(bytes, offset) {
     let opcode = bytes[offset++];
@@ -57,22 +57,22 @@ const END = 0x0b;
  * Encodings of expressions that were encoded already, to measure the offsets of branch hints, for
  * the next encoding of the expression only.
  */
-const encodings = new WeakMap<ResolvedInstruction[], number[]>();
+const encodings = new WeakMap<ResolvedInstruction[], Uint8Array>();
 
-function rememberEncoding(expression: ResolvedInstruction[], bytes: number[]) {
+function rememberEncoding(expression: ResolvedInstruction[], bytes: Uint8Array) {
   encodings.set(expression, bytes);
 }
 type Expression = ResolvedInstruction[];
 const Expression = Binable<ResolvedInstruction[]>({
-  toBytes(t) {
+  write(writer, t) {
     let encoded = encodings.get(t);
     if (encoded !== undefined) {
       encodings.delete(t);
-      return encoded;
+      writer.bytes(encoded);
+      return;
     }
-    let instructions = t.map(Instruction.toBytes).flat();
-    instructions.push(END);
-    return instructions;
+    for (let i = 0; i < t.length; i++) Instruction.write(writer, t[i]);
+    writer.byte(END);
   },
   readBytes(bytes, offset) {
     let instructions: ResolvedInstruction[] = [];
@@ -91,13 +91,13 @@ type IfExpression = {
   else?: ResolvedInstruction[];
 };
 const IfExpression = Binable<IfExpression>({
-  toBytes(t) {
-    let instructions = t.if.map(Instruction.toBytes).flat();
+  write(writer, t) {
+    for (let instruction of t.if) Instruction.write(writer, instruction);
     if (t.else !== undefined) {
-      instructions.push(ELSE, ...t.else.map(Instruction.toBytes).flat());
+      writer.byte(ELSE);
+      for (let instruction of t.else) Instruction.write(writer, instruction);
     }
-    instructions.push(END);
-    return instructions;
+    writer.byte(END);
   },
   readBytes(bytes, offset) {
     let t: IfExpression = { if: [], else: undefined };
@@ -137,10 +137,10 @@ type Catch =
   | { kind: "catch_all" | "catch_all_ref"; label: number };
 const catchKinds = ["catch", "catch_ref", "catch_all", "catch_all_ref"] as const;
 const Catch = Binable<Catch>({
-  toBytes(clause) {
-    let code = catchKinds.indexOf(clause.kind);
-    let tag = "tag" in clause ? U32.toBytes(clause.tag) : [];
-    return [code, ...tag, ...U32.toBytes(clause.label)];
+  write(writer, clause) {
+    writer.byte(catchKinds.indexOf(clause.kind));
+    if ("tag" in clause) writer.unsigned(clause.tag);
+    writer.unsigned(clause.label);
   },
   readBytes(bytes, offset) {
     let kind = catchKinds[bytes[offset++]];

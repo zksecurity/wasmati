@@ -2,6 +2,7 @@ import type { Tuple } from "./util.ts";
 
 export {
   Binable,
+  Writer,
   tuple,
   record,
   array,
@@ -27,20 +28,40 @@ export {
 };
 
 type Binable<T> = {
+  /** Append the encoding to a writer. */
+  write(writer: Writer, value: T): void;
   toBytes(value: T): number[];
+  /** The encoding as bytes, written without intermediate arrays. */
+  encode(value: T): Uint8Array<ArrayBuffer>;
   readBytes(bytes: number[], offset: number): [value: T, offset: number];
   fromBytes(bytes: number[] | Uint8Array): T;
 };
 
-function Binable<T>({
-  toBytes,
-  readBytes,
-}: {
-  toBytes(t: T): number[];
-  readBytes(bytes: number[], offset: number): [value: T, offset: number];
-}): Binable<T> {
+/**
+ * A codec, from a function that writes the encoding, or one that returns it. Writing is faster, so
+ * codecs of things that are encoded often, like instructions, write.
+ */
+function Binable<T>(
+  codec: (
+    | { write(writer: Writer, t: T): void; toBytes?: undefined }
+    | { toBytes(t: T): number[]; write?: undefined }
+  ) & {
+    readBytes(bytes: number[], offset: number): [value: T, offset: number];
+  },
+): Binable<T> {
+  let { readBytes } = codec;
+  let write =
+    codec.write ??
+    ((writer: Writer, t: T) => writer.bytes((codec.toBytes as (t: T) => number[])(t)));
+  let encode = (t: T) => {
+    let writer = new Writer();
+    write(writer, t);
+    return writer.result();
+  };
   return {
-    toBytes,
+    write,
+    toBytes: codec.toBytes ?? ((t) => toArray(encode(t))),
+    encode,
     readBytes,
     // spec: fromBytes throws if the input bytes are not all used
     fromBytes([...bytes]) {
@@ -51,10 +72,118 @@ function Binable<T>({
   };
 }
 
+/** The bytes as an array, which a loop creates much faster than `Array.from`. */
+function toArray(bytes: Uint8Array): number[] {
+  let array = new Array<number>(bytes.length);
+  for (let i = 0; i < bytes.length; i++) array[i] = bytes[i];
+  return array;
+}
+
+/** A growable buffer that encodings append to. */
+class Writer {
+  buffer = new Uint8Array(1 << 12);
+  length = 0;
+
+  /** Make room for `n` more bytes. */
+  reserve(n: number) {
+    if (this.length + n <= this.buffer.length) return;
+    let buffer = new Uint8Array(Math.max(2 * this.buffer.length, this.length + n));
+    buffer.set(this.buffer.subarray(0, this.length));
+    this.buffer = buffer;
+  }
+
+  byte(b: number) {
+    if (this.length === this.buffer.length) this.reserve(1);
+    this.buffer[this.length++] = b;
+  }
+
+  bytes(bytes: ArrayLike<number>) {
+    let n = bytes.length;
+    this.reserve(n);
+    let { buffer, length } = this;
+    for (let i = 0; i < n; i++) buffer[length + i] = bytes[i];
+    this.length = length + n;
+  }
+
+  /** An unsigned LEB128 integer below 2^53. */
+  unsigned(x: number) {
+    this.reserve(8);
+    let { buffer } = this;
+    while (x >= 0x80) {
+      buffer[this.length++] = (x % 0x80) | 0x80;
+      x = Math.floor(x / 0x80);
+    }
+    buffer[this.length++] = x;
+  }
+
+  /** A signed LEB128 integer of 32 bits. */
+  signed(x: number) {
+    this.reserve(5);
+    let { buffer } = this;
+    while (true) {
+      let byte = x & 0x7f;
+      x >>= 7;
+      if ((x === 0 && (byte & 0x40) === 0) || (x === -1 && (byte & 0x40) !== 0)) {
+        buffer[this.length++] = byte;
+        return;
+      }
+      buffer[this.length++] = byte | 0x80;
+    }
+  }
+
+  /** A signed LEB128 integer of 64 bits, from its high 32 bits, signed, and its low 32 bits, unsigned. */
+  signed64(high: number, low: number) {
+    this.reserve(10);
+    let { buffer } = this;
+    while (true) {
+      let byte = low & 0x7f;
+      // Shift the 64 bits right by 7, keeping the sign.
+      low = ((low >>> 7) | ((high & 0x7f) << 25)) >>> 0;
+      high >>= 7;
+      let done =
+        (high === 0 && low === 0 && (byte & 0x40) === 0) ||
+        (high === -1 && low === 0xffffffff && (byte & 0x40) !== 0);
+      if (done) {
+        buffer[this.length++] = byte;
+        return;
+      }
+      buffer[this.length++] = byte | 0x80;
+    }
+  }
+
+  /**
+   * Write what `body` writes, preceded by its length in bytes as an unsigned LEB128 integer. The
+   * length takes at most 5 bytes, which are reserved, and the body moves back if it takes fewer.
+   */
+  withLength(body: () => void) {
+    this.reserve(5);
+    let start = this.length;
+    this.length += 5;
+    body();
+    let end = this.length;
+    let length = end - start - 5;
+    let size = 1;
+    while (length >= 0x80 ** size) size++;
+    if (size > 5) throw Error("withLength: length beyond 32 bits");
+    // The body may have grown the buffer; the prefix needs no more room than was reserved.
+    let { buffer } = this;
+    if (size < 5) buffer.copyWithin(start + size, start + 5, end);
+    for (let i = 0; i < size; i++) {
+      buffer[start + i] = (length % 0x80) | (i < size - 1 ? 0x80 : 0);
+      length = Math.floor(length / 0x80);
+    }
+    this.length = end - (5 - size);
+  }
+
+  result(): Uint8Array<ArrayBuffer> {
+    return this.buffer.slice(0, this.length);
+  }
+}
+
 type Byte = number;
 const Byte = Binable<number>({
-  toBytes(b) {
-    return [b];
+  write(writer, b) {
+    writer.byte(b);
   },
   readBytes(bytes, offset) {
     if (offset >= bytes.length) throw Error("unexpected end");
@@ -79,8 +208,8 @@ const RemainingBytes = Binable<number[]>({
  */
 function sequence<T>(element: Binable<T>): Binable<T[]> {
   return Binable({
-    toBytes(values) {
-      return values.flatMap((value) => element.toBytes(value));
+    write(writer, values) {
+      for (let value of values) element.write(writer, value);
     },
     readBytes(bytes, offset) {
       const values: T[] = [];
@@ -97,8 +226,8 @@ function sequence<T>(element: Binable<T>): Binable<T[]> {
 
 type Bool = boolean;
 const Bool = Binable<boolean>({
-  toBytes(b) {
-    return [Number(b)];
+  write(writer, b) {
+    writer.byte(Number(b));
   },
   readBytes(bytes, offset) {
     let byte = bytes[offset];
@@ -111,8 +240,9 @@ const Bool = Binable<boolean>({
 
 function withByteCode<T>(code: number, binable: Binable<T>): Binable<T> {
   return Binable({
-    toBytes(t) {
-      return [code].concat(binable.toBytes(t));
+    write(writer, t) {
+      writer.byte(code);
+      binable.write(writer, t);
     },
     readBytes(bytes, offset) {
       if (bytes[offset++] !== code) throw Error("invalid start byte");
@@ -124,8 +254,9 @@ function withByteCode<T>(code: number, binable: Binable<T>): Binable<T> {
 function withPreamble<T>(preamble: number[], binable: Binable<T>): Binable<T> {
   let length = preamble.length;
   return Binable({
-    toBytes(t) {
-      return preamble.concat(binable.toBytes(t));
+    write(writer, t) {
+      writer.bytes(preamble);
+      binable.write(writer, t);
     },
     readBytes(bytes, offset) {
       for (let i = 0; i < length; i++) {
@@ -138,9 +269,9 @@ function withPreamble<T>(preamble: number[], binable: Binable<T>): Binable<T> {
 
 function withValidation<T>(binable: Binable<T>, validate: (t: T) => void) {
   return Binable<T>({
-    toBytes(t) {
+    write(writer, t) {
       validate(t);
-      return binable.toBytes(t);
+      binable.write(writer, t);
     },
     readBytes(bytes, offset) {
       let [t, end] = binable.readBytes(bytes, offset);
@@ -159,9 +290,8 @@ function record<Types extends Record<string, any>>(binables: {
   let binablesTuple = keys.map((key) => binables[key]) as Tuple<Binable<any>>;
   let tupleBinable = tuple<Tuple<any>>(binablesTuple);
   return Binable({
-    toBytes(t) {
-      let array = keys.map((key) => t[key]) as Tuple<any>;
-      return tupleBinable.toBytes(array);
+    write(writer, t) {
+      for (let i = 0; i < keys.length; i++) binablesTuple[i].write(writer, t[keys[i]]);
     },
     readBytes(bytes, start) {
       let [tupleValue, end] = tupleBinable.readBytes(bytes, start);
@@ -176,13 +306,8 @@ function tuple<Types extends Tuple<any>>(binables: {
 }): Binable<Types> {
   let n = (binables as any[]).length;
   return Binable({
-    toBytes(t) {
-      let bytes: number[] = [];
-      for (let i = 0; i < n; i++) {
-        let subBytes = binables[i].toBytes(t[i]);
-        bytes = bytes.concat(subBytes);
-      }
-      return bytes;
+    write(writer, t) {
+      for (let i = 0; i < n; i++) binables[i].write(writer, t[i]);
     },
     readBytes(bytes, offset) {
       let values: Types[number] = [];
@@ -198,14 +323,9 @@ function tuple<Types extends Tuple<any>>(binables: {
 
 function array<T>(binable: Binable<T>, size: number): Binable<T[]> {
   return Binable({
-    toBytes(ts) {
+    write(writer, ts) {
       if (ts.length !== size) throw Error("array length mismatch");
-      let bytes: number[] = [];
-      for (let i = 0; i < size; i++) {
-        let subBytes = binable.toBytes(ts[i]);
-        bytes.push(...subBytes);
-      }
-      return bytes;
+      for (let i = 0; i < size; i++) binable.write(writer, ts[i]);
     },
     readBytes(bytes, offset) {
       let values: T[] = [];
@@ -221,8 +341,8 @@ function array<T>(binable: Binable<T>, size: number): Binable<T[]> {
 
 function iso<T, S>(binable: Binable<T>, { to, from }: { to(s: S): T; from(t: T): S }): Binable<S> {
   return Binable({
-    toBytes(s: S) {
-      return binable.toBytes(to(s));
+    write(writer, s: S) {
+      binable.write(writer, to(s));
     },
     readBytes(bytes, offset) {
       let [value, end] = binable.readBytes(bytes, offset);
@@ -233,9 +353,7 @@ function iso<T, S>(binable: Binable<T>, { to, from }: { to(s: S): T; from(t: T):
 
 function constant<const C>(c: C) {
   return Binable<C>({
-    toBytes() {
-      return [];
-    },
+    write() {},
     readBytes(_bytes, offset) {
       return [c, offset];
     },
@@ -244,7 +362,7 @@ function constant<const C>(c: C) {
 
 type Zero = never;
 const Zero = Binable<never>({
-  toBytes() {
+  write() {
     throw Error("can not write Zero");
   },
   readBytes() {
@@ -270,11 +388,11 @@ function or<Types extends Tuple<any>>(
     | undefined,
 ): Binable<Union<Types>> {
   return Binable({
-    toBytes(value) {
+    write(writer, value) {
       let result = distinguish(value);
       if (result === undefined) throw Error("or: input matches no allowed type");
       let binable = typeof result === "number" ? binables[result] : result;
-      return binable.toBytes(value);
+      binable.write(writer, value);
     },
     readBytes(bytes, offset) {
       let n = (binables as any[]).length;
@@ -315,10 +433,10 @@ function byteEnum<Enum extends Record<number, { kind: string; value: any }>>(bin
     Object.entries(binables).map(([byte, { kind }]) => [kind, Number(byte)]),
   );
   return Binable({
-    toBytes({ kind, value }) {
+    write(writer, { kind, value }) {
       let byte = kindToByte[kind];
-      let binable = binables[byte].value;
-      return [byte].concat(binable.toBytes(value));
+      writer.byte(byte);
+      binables[byte].value.write(writer, value);
     },
     readBytes(bytes, offset) {
       let byte = bytes[offset++];
@@ -347,21 +465,22 @@ function interleavedRecord<Types extends Record<string, any>, Extra>(
 }> {
   const keys = Object.keys(binables) as (keyof Types)[];
   return Binable({
-    toBytes({ value, extras }) {
+    write(writer, { value, extras }) {
       for (const entry of extras) {
         if (entry.after !== undefined && entry.after !== null && !keys.includes(entry.after)) {
           throw Error(`invalid interleaved record position ${String(entry.after)}`);
         }
       }
-      const at = (after: keyof Types | null | undefined) =>
-        extras
-          .filter((entry) => entry.after === after)
-          .flatMap((entry) => extra.codec.toBytes(entry.value));
-      return [
-        at(undefined),
-        ...keys.map((key) => [binables[key].toBytes(value[key]), at(key)].flat()),
-        at(null),
-      ].flat();
+      const at = (after: keyof Types | null | undefined) => {
+        for (const entry of extras)
+          if (entry.after === after) extra.codec.write(writer, entry.value);
+      };
+      at(undefined);
+      for (const key of keys) {
+        binables[key].write(writer, value[key]);
+        at(key);
+      }
+      at(null);
     },
     readBytes(bytes, offset) {
       const value = {} as Types;

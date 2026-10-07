@@ -142,7 +142,9 @@ const Version = iso(tuple([Byte, Byte, Byte, Byte]), {
 function optional<T>(id: number, section: Binable<T>, empty: T): Binable<T> {
   const isEmpty = (value: T) => value === undefined || (Array.isArray(value) && value.length === 0);
   return Binable({
-    toBytes: (value) => (isEmpty(value) ? [] : section.toBytes(value)),
+    write: (writer, value) => {
+      if (!isEmpty(value)) section.write(writer, value);
+    },
     readBytes: (bytes, offset) =>
       bytes[offset] === id ? section.readBytes(bytes, offset) : [empty, offset],
   });
