@@ -140,12 +140,7 @@ test("present but malformed fields, duplicate names and unresolved labels reject
     "(module (func (i32.const 1 2)))",
   ])
     assert.throws(() => parseWat(source), source);
-  for (const source of [
-    "(module (func ref.i31))",
-    "(module (func struct.new 0))",
-    "(module (func struct.new 0))",
-  ])
-    assert.throws(() => parseWat(source), UnsupportedTextError, source);
+  assert.throws(() => parseWat("(module (func rethrow 0))"), UnsupportedTextError);
 });
 
 test("NaN constants keep exact bits through generated builder code", async () => {

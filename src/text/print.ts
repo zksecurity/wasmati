@@ -36,8 +36,12 @@ function printWat(module: Module): string {
     data: identifiers(names.data),
     tag: identifiers(names.tags),
   };
+  const fieldIds = Object.fromEntries(
+    Object.entries(names.fields ?? {}).map(([type, fields]) => [type, identifiers(fields)]),
+  );
   const moduleNames: Names = {
     id: (space, index) => spaces[space as keyof typeof spaces]?.[index],
+    field: (type, field) => fieldIds[type]?.[field],
   };
   const id = (space: keyof typeof spaces, index: number) =>
     moduleNames.id(space, index) ?? String(index);
@@ -67,10 +71,10 @@ function printWat(module: Module): string {
     const type = module.types[typeIdx];
     const fieldType = ({ type, mutable }: FieldType) =>
       mutable ? `(mut ${printValueType(type, moduleNames)})` : printValueType(type, moduleNames);
-    const fieldIds = identifiers(names.fields?.[typeIdx]);
+    const typeFieldIds = fieldIds[typeIdx] ?? {};
     const composite =
       "struct" in type
-        ? `(${["struct", ...type.struct.map((f, i) => `(field ${optional(fieldIds[i])}${fieldType(f)})`)].join(" ")})`
+        ? `(${["struct", ...type.struct.map((f, i) => `(field ${optional(typeFieldIds[i])}${fieldType(f)})`)].join(" ")})`
         : "array" in type
           ? `(array ${fieldType(type.array)})`
           : `(${["func", ...params(type, moduleNames), ...results(type, moduleNames)].join(" ")})`;
@@ -117,6 +121,7 @@ function printWat(module: Module): string {
       (local, i) => `(local ${optional(localIds[func.type.args.length + i])}${type(local)})`,
     );
     const bodyNames: Names = {
+      ...moduleNames,
       id: (space, index) => (space === "local" ? localIds[index] : moduleNames.id(space, index)),
     };
     const lines = [...declarations, ...printInstructions(func.body, bodyNames)];

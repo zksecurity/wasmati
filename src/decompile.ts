@@ -68,6 +68,8 @@ class Source {
   private tags: string[] = [];
   /** Variables of defined types; simple function types are described by their signature instead. */
   private typeVariables: (string | undefined)[] = [];
+  /** Struct field keys of the builder, by type index. */
+  private fieldKeys: string[][] = [];
   /** Keys of the recursion group being emitted, by type index, for references through `types`. */
   private groupKeys = new Map<number, string>();
   private tables: string[] = [];
@@ -405,6 +407,14 @@ class Source {
     return variable === undefined ? "" : `, type: ${variable}`;
   }
 
+  /** A struct or array type, which always has a variable. */
+  private definedType(index: number): string {
+    const variable = this.typeVariables[index];
+    if (variable === undefined)
+      throw Error(`decompile: type ${index} is not a struct or array type`);
+    return variable;
+  }
+
   /** A function type reference: a defined type, or a signature for simple function types. */
   private functionTypeReference(index: number): string {
     return this.typeVariables[index] ?? this.type(index);
@@ -476,10 +486,11 @@ class Source {
       mutable ? `${this.use("mut")}(${this.valueType(type)})` : this.valueType(type);
     if ("struct" in type) {
       const names = new Names();
-      const fields = type.struct.map((f, i) => {
-        const name = names.take(this.module.names?.fields?.[index]?.[i] ?? `field${i}`);
-        return `${property(name)}: ${field(f)}`;
-      });
+      const keys = type.struct.map((_, i) =>
+        names.take(this.module.names?.fields?.[index]?.[i] ?? `field${i}`),
+      );
+      this.fieldKeys[index] = keys;
+      const fields = type.struct.map((f, i) => `${property(keys[i])}: ${field(f)}`);
       return `${this.use("struct")}({ ${fields.join(", ")} }${suffix})`;
     }
     if ("array" in type) return `${this.use("array")}(${field(type.array)}${suffix})`;
@@ -690,6 +701,48 @@ class Source {
           args = [this.reference(this.tables, imm)];
           break;
         case "atomic.fence":
+          break;
+        case "struct.new":
+        case "struct.new_default":
+        case "array.new":
+        case "array.new_default":
+        case "array.get":
+        case "array.get_s":
+        case "array.get_u":
+        case "array.set":
+        case "array.fill":
+          args = [this.definedType(imm)];
+          break;
+        case "struct.get":
+        case "struct.get_s":
+        case "struct.get_u":
+        case "struct.set":
+          args = [this.definedType(imm[0]), literal(this.fieldKeys[imm[0]][imm[1]])];
+          break;
+        case "array.new_fixed":
+          args = [this.definedType(imm[0]), literal(imm[1])];
+          break;
+        case "array.new_data":
+        case "array.init_data":
+          args = [this.definedType(imm[0]), this.reference(this.datas, imm[1])];
+          break;
+        case "array.new_elem":
+        case "array.init_elem":
+          args = [this.definedType(imm[0]), this.reference(this.elems, imm[1])];
+          break;
+        case "array.copy":
+          args = imm.map((i: number) => this.definedType(i));
+          break;
+        case "ref.test":
+        case "ref.test_null":
+        case "ref.cast":
+        case "ref.cast_null":
+          op = name.replace("_null", "");
+          args = [this.valueType(refType(imm, name.endsWith("_null")))];
+          break;
+        case "br_on_cast":
+        case "br_on_cast_fail":
+          args = [literal(imm.label), this.valueType(imm.from), this.valueType(imm.to)];
           break;
         case "f32.const":
         case "f64.const":

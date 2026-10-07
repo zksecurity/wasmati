@@ -55,7 +55,11 @@ type ModuleCommand = {
 type Lane = { width: number; value: bigint; mask: bigint };
 type Numeric = { type: "i32" | "i64" | "f32" | "f64" | "v128"; lanes: Lane[] };
 /** Reference values: extern references are host values numbered by the script. */
-type Reference = { type: "ref"; ref: "null" | "func" | "extern"; host?: number };
+type Reference = {
+  type: "ref";
+  ref: "null" | "func" | "extern" | "eq" | "i31" | "struct" | "array";
+  host?: number;
+};
 type Value = Numeric | Reference;
 type Expected = Value | { type: "either"; options: Expected[] };
 
@@ -180,7 +184,7 @@ function argument(node: Node): Value {
   const value = result(node);
   const exact = (value: Expected) =>
     value.type === "ref"
-      ? value.ref !== "func" && (value.ref !== "extern" || value.host !== undefined)
+      ? value.ref === "null" || (value.ref === "extern" && value.host !== undefined)
       : value.type !== "either" && value.lanes.every((lane) => lane.mask === full(lane.width));
   if (value.type === "either" || !exact(value))
     return new Cursor([node]).fail("expected a constant argument");
@@ -230,7 +234,11 @@ function result(node: Node): Expected {
       value = { type: "ref", ref: "extern", host: c.done ? undefined : c.u32() };
       break;
     case "ref.func":
-      value = { type: "ref", ref: "func" };
+    case "ref.eq":
+    case "ref.i31":
+    case "ref.struct":
+    case "ref.array":
+      value = { type: "ref", ref: head.slice(4) as Reference["ref"] };
       break;
     case "either":
       value = { type: "either", options: c.until((c) => result(c.next())) };
