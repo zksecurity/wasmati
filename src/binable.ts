@@ -223,7 +223,7 @@ const RemainingBytes = Binable<number[]>({
 function sequence<T>(element: Binable<T>): Binable<T[]> {
   return Binable({
     write(writer, values) {
-      for (let value of values) element.write(writer, value);
+      for (let i = 0; i < values.length; i++) element.write(writer, values[i]);
     },
     readBytes(bytes, offset) {
       const values: T[] = [];

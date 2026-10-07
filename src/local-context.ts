@@ -216,10 +216,10 @@ function popUnknown(ctx: LocalContext): ValueType | Unknown {
 }
 
 function pushStack({ stack }: LocalContext, values: StackType[]): StackVar<StackType>[] {
-  let pushed: StackVar<StackType>[] = [];
-  for (let type of values) {
-    let value = StackVar(type);
-    pushed.push(value);
+  let pushed: StackVar<StackType>[] = new Array(values.length);
+  for (let i = 0; i < values.length; i++) {
+    let value = StackVar(values[i]);
+    pushed[i] = value;
     stack.push(value);
   }
   return pushed;

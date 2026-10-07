@@ -207,7 +207,7 @@ function emit(
   let start = code.length;
   popTypes(ctx, type.args, instruction.string);
   writeInstruction(code, instruction, deps, resolveArgs, likely);
-  for (let dep of deps) ctx.deps.add(dep);
+  for (let i = 0; i < deps.length; i++) ctx.deps.add(deps[i]);
   if (instruction.effect === "direct call") ctx.calls.add(deps[0] as Dependency.AnyFunc);
   let results = pushStack(ctx, type.results) as StackVar<ValueType>[];
   placeResults(ctx, start);
@@ -287,9 +287,9 @@ function writeInstruction(
   if (opcodeBytes.length === 1) code.byte(opcodeBytes[0]);
   else code.bytes(opcodeBytes);
   if (immediate !== undefined) {
-    if (deps.some(hasIndex)) code.hole(instruction, deps, args);
+    if (deps.length > 0 && deps.some(hasIndex)) code.hole(instruction, deps, args);
     else {
-      let value = instruction.resolve(deps.map(noIndex), ...args);
+      let value = instruction.resolve(deps.length === 0 ? noDeps : deps.map(noIndex), ...args);
       if (instruction.typed && hasDefinedType(value)) code.hole(instruction, deps, args);
       else immediate.write(code, value);
     }
@@ -314,6 +314,7 @@ function hasIndex(dep: Dependency.t) {
   return dep.kind !== "hasMemory" && dep.kind !== "hasRefTo";
 }
 const noIndex = () => 0;
+const noDeps: number[] = [];
 
 /** Whether a value contains defined types, which Module() replaces by their indices. */
 function hasDefinedType(value: unknown): boolean {
@@ -376,7 +377,7 @@ function baseInstructionWithImmediate<
   let { instruction } = base;
   let [result] = instr.out;
   return Object.assign(
-    function (ctx: LocalContext, ...[value]: CreateArgs) {
+    function (ctx: LocalContext, value?: CreateArgs[0]) {
       if (validateImmediate !== undefined && immediate !== undefined)
         validateImmediate(value as Immediate);
       return emitSimple(ctx, instruction, instr.in, result, value) as Instruction_<Args, Results>;

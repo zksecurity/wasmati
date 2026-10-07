@@ -195,7 +195,9 @@ function checkStackOperands(
   if (ctx.frames[0]?.unreachable) return;
   let { stack } = ctx;
   let i = stack.length - count;
-  for (let operand of operands) {
+  // Indexed loops, which unoptimized code runs without allocating iterators.
+  for (let k = 0; k < operands.length; k++) {
+    let operand = operands[k];
     if (!isStackVar(operand)) continue;
     let value = stack[i++];
     if (operand.type === Unknown || operand === value) continue;
@@ -397,7 +399,7 @@ function insertInstruction(ctx: LocalContext, i: number, description: Descriptio
   let result = StackVar(type.results[0]);
   place(result, position, position + inserted.length);
   stack.splice(below, 0, result);
-  for (let dep of deps) ctx.deps.add(dep);
+  for (let k = 0; k < deps.length; k++) ctx.deps.add(deps[k]);
 }
 
 /** Code of an instruction to insert. */
