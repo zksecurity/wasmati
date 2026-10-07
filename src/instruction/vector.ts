@@ -120,7 +120,7 @@ const i8x16Ops = {
   avgr_u: i("i8x16.avgr_u", [v128t, v128t], [v128t]),
 
   // relaxed
-  relaxed_i8x16_swizzle: i("i8x16.relaxed_swizzle", [v128t, v128t], [v128t]),
+  relaxed_swizzle: i("i8x16.relaxed_swizzle", [v128t, v128t], [v128t]),
   relaxed_laneselect: i("i8x16.relaxed_laneselect", [v128t, v128t, v128t], [v128t]),
 };
 

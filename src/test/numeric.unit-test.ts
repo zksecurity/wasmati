@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { func, global, Const, i32, i64, f32, f64, v128, i32x4, i64x2, Module } from "../index.ts";
+import {
+  func,
+  global,
+  Const,
+  i32,
+  i64,
+  f32,
+  f64,
+  v128,
+  i8x16,
+  i32x4,
+  i64x2,
+  Module,
+} from "../index.ts";
 import { F32, F64 } from "../immediate.ts";
 
 test("signed and unsigned greater-than use distinct instructions for i32 and i64", async () => {
@@ -76,4 +89,15 @@ test("constant expressions combine integers with add, sub and mul", async () => 
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.read(), 22);
   assert.equal(instance.exports.readWide(), -1n);
+});
+
+test("i8x16.relaxed_swizzle is named after its instruction", async () => {
+  const swizzle = func({ in: [], out: [i32] }, () => {
+    v128.const("i8x16", [7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    v128.const("i8x16", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    i8x16.relaxed_swizzle();
+    i8x16.extract_lane_u(0);
+  });
+  const { instance } = await Module({ exports: { swizzle } }).instantiate();
+  assert.equal(instance.exports.swizzle(), 7);
 });
