@@ -224,11 +224,13 @@ function emitSimple(
   args: ValueType[],
   result: ValueType | undefined,
   immediate?: unknown,
+  operands?: number,
 ): StackVar<ValueType> | undefined {
   let { code } = ctx;
   if (ctx.allowed !== undefined) checkAllowed(ctx, instruction.string);
-  let start = code.length;
-  if (args.length > 0) popTypes(ctx, args, instruction.string);
+  // Operands written in place, from `operands`, were checked and are not on the stack.
+  let start = operands ?? code.length;
+  if (operands === undefined && args.length > 0) popTypes(ctx, args, instruction.string);
   let { opcodeBytes } = instruction;
   if (opcodeBytes.length === 1) code.byte(opcodeBytes[0]);
   else code.bytes(opcodeBytes);
@@ -256,11 +258,12 @@ function emitResults(
   instruction: BaseInstruction,
   args: ValueType[],
   results: ValueType[],
+  operands?: number,
 ): StackVar<ValueType>[] {
   let { code } = ctx;
   if (ctx.allowed !== undefined) checkAllowed(ctx, instruction.string);
-  let start = code.length;
-  if (args.length > 0) popTypes(ctx, args, instruction.string);
+  let start = operands ?? code.length;
+  if (operands === undefined && args.length > 0) popTypes(ctx, args, instruction.string);
   code.bytes(instruction.opcodeBytes);
   let pushed = pushStack(ctx, results) as StackVar<ValueType>[];
   placeResults(ctx, start);

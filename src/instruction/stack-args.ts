@@ -2,7 +2,14 @@ import { Binable, Undefined } from "../binable.ts";
 import type { AnyGlobal } from "../dependency.ts";
 import type * as Dependency from "../dependency.ts";
 import { formatStack, place, placeOf, pushStack, shiftPlaces } from "../local-context.ts";
-import { isStackVar, type LocalContext, pushValue, StackVar, Unknown } from "../local-context.ts";
+import {
+  isStackVar,
+  type LocalContext,
+  popTypes,
+  pushValue,
+  StackVar,
+  Unknown,
+} from "../local-context.ts";
 import {
   isSubtype,
   type Local,
@@ -21,7 +28,8 @@ import {
   writeInstruction,
 } from "./base.ts";
 import { Code, type Write } from "../code.ts";
-import { f32Const, f64Const, i32Const, i64Const } from "./const.ts";
+import { checkInt32, checkInt64, f32Const, f64Const, i32Const, i64Const } from "./const.ts";
+import { F32, F64, I32, I64 } from "../immediate.ts";
 import type { InstructionName } from "./opcodes.ts";
 import { globalGet, localGet } from "./variable-get.ts";
 
@@ -32,6 +40,7 @@ export {
   type Inputs,
   processStackArgs,
   processStackArg,
+  writeOperands,
   namedInputs,
   insertInstruction,
 };
@@ -99,10 +108,20 @@ function instruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueT
     ctx: LocalContext,
     ...actualArgs: Input<ValueType>[]
   ): Instruction_<Args, Results> {
-    if (actualArgs.length > 0) processStackArgs(ctx, name, instr.in, actualArgs);
+    let operands: number | undefined;
+    if (actualArgs.length > 0) {
+      operands = writeOperands(ctx, name, instr.in, actualArgs);
+      if (operands === undefined) processStackArgs(ctx, name, instr.in, actualArgs);
+    }
     if (simple)
-      return emitSimple(ctx, instruction, instr.in, result) as Instruction_<Args, Results>;
-    return emitResults(ctx, instruction, instr.in, instr.out) as Instruction_<Args, Results>;
+      return emitSimple(ctx, instruction, instr.in, result, undefined, operands) as Instruction_<
+        Args,
+        Results
+      >;
+    return emitResults(ctx, instruction, instr.in, instr.out, operands) as Instruction_<
+      Args,
+      Results
+    >;
   };
 }
 
@@ -212,6 +231,68 @@ function processStackArgs(
     if (mustReorder) operand(ctx, string, expectedArgs[n - 1 - i], actualArgs[n - 1 - i], i);
     else operand(ctx, string, expectedArgs[i], actualArgs[i]);
   }
+}
+
+/**
+ * Operands that are new values, and come after any instruction results among the operands, are
+ * written in place without going through the stack; the results are popped. Returns where the
+ * operands start, or undefined where they need `processStackArgs`: when new values come before
+ * results, which they are then inserted below, and in constant expressions.
+ */
+function writeOperands(
+  ctx: LocalContext,
+  string: string,
+  expectedArgs: ValueType[],
+  actualArgs: Input<ValueType | Unknown>[],
+): number | undefined {
+  let n = expectedArgs.length;
+  if (actualArgs.length !== n || ctx.allowed !== undefined) return undefined;
+  let results = 0;
+  while (results < n && isStackVar(actualArgs[results])) results++;
+  for (let i = results; i < n; i++) if (isStackVar(actualArgs[i])) return undefined;
+  if (results > 0) {
+    checkStackOperands(ctx, string, actualArgs, results);
+    for (let i = 0; i < results; i++) operand(ctx, string, expectedArgs[i], actualArgs[i]);
+  }
+  let start = ctx.code.length;
+  for (let i = results; i < n; i++) writeOperand(ctx, string, expectedArgs[i], actualArgs[i]);
+  if (results > 0) popTypes(ctx, expectedArgs, string, results);
+  return start;
+}
+
+/** Write a local, global or number of the given type, as an operand that is not pushed. */
+function writeOperand(ctx: LocalContext, string: string, type: ValueType, x: Input<any>) {
+  let { code } = ctx;
+  if (isLocal(x)) {
+    if (x.type !== type && !isSubtype(x.type, type))
+      throw Error(
+        `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
+      );
+    if (ctx.locals[x.index] === undefined) throw Error(`local with index ${x.index} not available`);
+    code.byte(0x20);
+    code.unsigned(x.index);
+  } else if (isGlobal(x)) {
+    if (!isSubtype(x.type.value, type))
+      throw Error(
+        `${string}: Expected type ${printValueType(type)}, got global of type ${printValueType(x.type.value)}.`,
+      );
+    writeInstruction(code, globalGet.instruction, [x], [x]);
+    ctx.deps.add(x);
+  } else if (type === "i32" && typeof x === "number") {
+    checkInt32(x);
+    code.byte(0x41);
+    I32.write(code, x);
+  } else if (type === "i64" && typeof x === "bigint") {
+    checkInt64(x);
+    code.byte(0x42);
+    I64.write(code, x);
+  } else if (type === "f32" && typeof x === "number") {
+    code.byte(0x43);
+    F32.write(code, x);
+  } else if (type === "f64" && typeof x === "number") {
+    code.byte(0x44);
+    F64.write(code, x);
+  } else throw Error(`${string}: Unsupported input for type ${type}, got ${x}.`);
 }
 
 /** The single operand of an instruction, like that of `local.set`, without arrays of operands. */

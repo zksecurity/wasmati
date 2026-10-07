@@ -151,13 +151,18 @@ function popStack(ctx: LocalContext, values: StackType[], instruction?: string):
 }
 
 /**
- * Pop values of the given types, like `popStack`, without returning their types. Errors name the
- * instruction, if given.
+ * Pop values of the given types, like `popStack`, without returning their types, or of the first
+ * `count` types. Errors name the instruction, if given.
  */
-function popTypes(ctx: LocalContext, values: StackType[], instruction?: string) {
+function popTypes(
+  ctx: LocalContext,
+  values: StackType[],
+  instruction?: string,
+  count = values.length,
+) {
   let { stack } = ctx;
   let frame: ControlFrame | undefined = ctx.frames[0];
-  for (let i = values.length - 1; i >= 0; i--) {
+  for (let i = count - 1; i >= 0; i--) {
     let value = stack.pop() as Placed | undefined;
     let expected = values[i];
     if (value === undefined) {

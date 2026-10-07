@@ -2,7 +2,7 @@ import { F32, F64, I32, I64 } from "../immediate.ts";
 import { baseInstructionWithImmediate } from "./base.ts";
 import { i32t, i64t, f32t, f64t } from "../types.ts";
 
-export { i32Const, i64Const, f32Const, f64Const };
+export { i32Const, i64Const, f32Const, f64Const, checkInt32, checkInt64 };
 
 const i32Const = baseInstructionWithImmediate("i32.const", I32, [], [i32t], checkInt32);
 const i64Const = baseInstructionWithImmediate("i64.const", I64, [], [i64t], checkInt64);
