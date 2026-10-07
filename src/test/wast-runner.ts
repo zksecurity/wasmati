@@ -80,7 +80,9 @@ async function runCommands(
   const result: Result = { passed: 0, failures: [], skipped: [] };
   const registered: WebAssembly.Imports = linked({ spectest: spectest() });
   const instances = new Map<string, Instance>(shared);
+  // Names refer to the latest thread of that name; every thread's results are merged exactly once.
   const threads = new Map<string, Promise<Result>>();
+  const unjoined = new Set<Promise<Result>>();
   const definitions = new Map<string, Factory>();
   const hosts = new Map<number, object>();
   const wrappers = new WeakMap<object, (...args: unknown[]) => unknown>();
@@ -212,14 +214,16 @@ async function runCommands(
             failures: [{ command: index + 1, line, kind, message: messageOf(error) }],
             skipped: [],
           });
-          threads.set(command.name, thread.catch(failed));
+          const joinable = thread.catch(failed);
+          threads.set(command.name, joinable);
+          unjoined.add(joinable);
           break;
         }
         case "wait": {
           const thread = threads.get(command.name);
           if (thread === undefined) throw Error(`no thread ${command.name}`);
-          threads.delete(command.name);
-          merge(result, await thread);
+          const results = await thread;
+          if (unjoined.delete(thread)) merge(result, results);
           break;
         }
         case "assert_malformed": {
@@ -244,7 +248,7 @@ async function runCommands(
       });
     }
   }
-  for (const thread of threads.values()) merge(result, await thread);
+  for (const thread of unjoined) merge(result, await thread);
   return result;
 }
 

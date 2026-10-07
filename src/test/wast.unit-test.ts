@@ -184,3 +184,16 @@ test("threads run concurrently on shared memory, and report their assertions on 
     ],
   );
 });
+
+test("threads whose names are rebound still report their failures", async () => {
+  const result = await runWast(`(thread $T
+      (module (func (export "f") (result i32) i32.const 1))
+      (assert_return (invoke "f") (i32.const 2)))
+    (thread $T)
+    (wait $T)`);
+  assert.equal(result.passed, 4);
+  assert.deepEqual(
+    result.failures.map((failure) => failure.line),
+    [3],
+  );
+});
