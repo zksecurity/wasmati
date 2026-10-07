@@ -148,6 +148,33 @@ instance.exports.run(); // 120
 - **Results** are the values left on the stack; `return_()` returns early.
 - Function names come from the `name` option, a named callback, or the export key. They, and parameter and local names, go into the module's name section, so they show up in stack traces and in the text format.
 
+## Generating code
+
+Builder calls append instructions to the function being built, so a JS function that makes them emits its code into whichever function calls it. JS becomes the macro language of your Wasm: loops unroll, values known when the module is built become constants, and locals are passed around as arguments.
+
+```ts
+import { Module, func, i64, local, type Local } from "wasmati";
+
+// emits x^n into the function that calls it; n is fixed when the module is built
+function pow(result: Local<"i64">, x: Local<"i64">, n: number) {
+  local.set(result, 1n);
+  for (let bit of n.toString(2)) {
+    local.set(result, i64.mul(result, result));
+    if (bit === "1") local.set(result, i64.mul(result, x));
+  }
+}
+
+const pow13 = func({ in: [{ x: i64 }], locals: { r: i64 }, out: [i64] }, ({ x }, { r }) => {
+  pow(r, x, 13);
+  local.get(r);
+});
+
+const { instance } = await Module({ exports: { pow13 } }).instantiate();
+instance.exports.pow13(2n); // 8192n
+```
+
+Libraries generate whole families of functions this way, from parameters like a modulus or a size. Generated code avoids calls but makes the module bigger; to share code at runtime instead, define a `func` and call it.
+
 ## Linear memory
 
 A **memory** is a resizable array of bytes, which code reads and writes with load and store instructions at numeric addresses. Its size is counted in pages of 64 KiB. JS sees it as an `ArrayBuffer`, which makes memory the way to exchange bulk data with JS.
@@ -446,6 +473,16 @@ instance.exports.f(); // 44
 - Traps throw `WebAssembly.RuntimeError` from the exported function you called, with a stack trace that includes Wasm function names.
 - Common mistakes: leaving values on the stack at the end of a function or block, passing numbers where `i64` expects bigints, passing instruction results in another order than they were computed, not naming the memory when there are several or it is 64-bit, keeping JS views of a memory that has grown, and exporting a function that reaches an async import without `async(...)`.
 - JS calling an export with a value that does not fit a reference parameter, like `null` for a non-null reference, gets a `TypeError` from the engine.
+
+## Performance
+
+The module contains exactly the instructions you write, so it is as fast as those instructions, once the engine compiles them. Notes for V8, the engine of Chrome, Node and Deno:
+
+- V8 compiles functions quickly first, and recompiles hot ones with its optimizing compiler. Benchmarks need to run long enough for that, and should measure independent operations as well as dependent chains.
+- `node --no-liftoff --no-wasm-lazy-compilation --print-wasm-code` prints the optimized machine code. Moves to and from the stack frame are spills: more values were live than fit in registers.
+- Calls between JS and Wasm cost a few nanoseconds each. In hot loops, loop inside Wasm and pass arrays in memory.
+- Fusing code into one function by generating it saves calls, up to the point where its values no longer fit in registers.
+- Branches on unpredictable data are slow; `select()` avoids them. For rare paths, a branch with a hint, `br_if(label, { likely: false })`, is cheaper.
 
 ## Further reading
 
