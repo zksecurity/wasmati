@@ -132,7 +132,13 @@ type Data = {
 };
 
 /** Segment offsets have the address type of their memory or table. */
-type Offset = Const.i32 | Const.i64 | Const.globalGet<"i32"> | Const.globalGet<"i64">;
+type Offset =
+  | Const.i32
+  | Const.i64
+  | Const.globalGet<"i32">
+  | Const.globalGet<"i64">
+  | Const.arithmetic<"i32">
+  | Const.arithmetic<"i64">;
 
 type Elem = {
   kind: "elem";

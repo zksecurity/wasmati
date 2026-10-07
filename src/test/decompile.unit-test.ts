@@ -6,7 +6,22 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import wabtFactory from "wabt";
-import { decompile, Module, declareFunc, i32, i64, local, call } from "../index.ts";
+import {
+  decompile,
+  Module,
+  declareFunc,
+  i32,
+  i64,
+  local,
+  call,
+  Const,
+  data,
+  elem,
+  func,
+  funcref,
+  memory,
+  table,
+} from "../index.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const importPath = fileURLToPath(new URL("../index.ts", import.meta.url));
@@ -296,4 +311,17 @@ test("decompiles memory alignment, SIMD memory lanes, reference selects and atom
   assert.equal(invoke(result.instance, "add", 4), 3);
   assert.equal(invoke(result.instance, "choose", "a", "b", 1), "a");
   assert.equal(invoke(result.instance, "choose", "a", "b", 0), "b");
+});
+
+test("segment offsets with arithmetic decompile to TypeScript that type-checks", async () => {
+  const offset = Const.i32.add(Const.i32(1), Const.i32(2));
+  const mem = memory({ min: 1 });
+  data({ memory: mem, offset }, [42]);
+  const load = func({ in: [], out: [i32] }, () => i32.load8_u({}, 3));
+  const t = table({ type: funcref, min: 4 });
+  elem({ type: funcref, mode: { table: t, offset } }, [Const.refFunc(load)]);
+  const bytes = Module({ exports: { load, mem, t } }).toBytes();
+  const { source, instance } = await rebuildBytes(bytes);
+  assert.match(source, /i32\.add/);
+  assert.equal(invoke(instance, "load"), 42);
 });
