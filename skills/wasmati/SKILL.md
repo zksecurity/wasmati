@@ -463,7 +463,7 @@ instance.exports.f(); // 44
 - Export types go to `file.d.wasm.ts`, which TypeScript reads with the `allowArbitraryExtensions` option.
 - Imports written inline are extracted into `file.host.js`, together with the top-level declarations and imports they use. The built file may only export its `Module`; state that the app shares with the imports belongs in another module.
 - The build rejects files it cannot copy faithfully, and its error says why: for example, an import function that uses a variable of an enclosing function, which only exists while the module is built.
-- With async exports, JS imports the generated `file.js` instead, which wraps them.
+- With async exports, JS imports the generated `file.entry.ts` instead, which wraps them.
 - Built modules run in Node 22.19, 24.5 and later and in Deno 2.1 and later. Browsers need a bundler: Vite with `vite-plugin-wasm`, or Next.js with Turbopack. Modules that use JS string builtins also need the bundler to map `wasm:js-string` to the generated `js-string.js`.
 
 ## Debugging
