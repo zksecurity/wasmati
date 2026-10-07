@@ -17,6 +17,7 @@ import {
   FunctionType,
   GlobalType,
   MemoryType,
+  TagType,
   TableType,
   type ValueTypeObject,
 } from "./types.ts";
@@ -41,6 +42,8 @@ type Module = {
   funcs: FinalizedFunc[];
   tables: Table[];
   memories: MemoryType[];
+  /** Exception tags, by the index of their function type. */
+  tags: TagType[];
   globals: Global[];
   elems: Elem[];
   datas: Data[];
@@ -77,6 +80,10 @@ let TableSection = section<TableSection>(4, vec(Table));
 // 5: MemorySection
 type MemorySection = MemoryType[];
 let MemorySection = section<MemorySection>(5, vec(MemoryType));
+
+// 13: TagSection, between the memory and global sections
+type TagSection = TagType[];
+let TagSection = section<TagSection>(13, vec(TagType));
 
 // 6: GlobalSection
 type GlobalSection = Global[];
@@ -132,6 +139,7 @@ type Sections = {
   funcSection: FuncSection;
   tableSection: TableSection;
   memorySection: MemorySection;
+  tagSection: TagSection;
   globalSection: GlobalSection;
   exportSection: ExportSection;
   startSection?: StartSection;
@@ -147,6 +155,7 @@ const sectionIds = {
   funcSection: 3,
   tableSection: 4,
   memorySection: 5,
+  tagSection: 13,
   globalSection: 6,
   exportSection: 7,
   startSection: 8,
@@ -163,6 +172,7 @@ const Sections = interleavedRecord<Sections, { name: string; data: number[] }>(
     funcSection: optional(3, FuncSection, []),
     tableSection: optional(4, TableSection, []),
     memorySection: optional(5, MemorySection, []),
+    tagSection: optional(13, TagSection, []),
     globalSection: optional(6, GlobalSection, []),
     exportSection: optional(7, ExportSection, []),
     startSection: optional(8, StartSection, undefined),
@@ -213,6 +223,7 @@ const Module = iso(ParsedModule, {
     funcs,
     tables,
     memories,
+    tags,
     globals,
     exports,
     start,
@@ -245,6 +256,7 @@ const Module = iso(ParsedModule, {
           funcSection,
           tableSection: tables,
           memorySection: memories,
+          tagSection: tags,
           globalSection: globals,
           exportSection,
           startSection: start,
@@ -265,6 +277,7 @@ const Module = iso(ParsedModule, {
         funcSection,
         tableSection,
         memorySection,
+        tagSection,
         globalSection,
         exportSection,
         startSection,
@@ -310,6 +323,7 @@ const Module = iso(ParsedModule, {
       funcs,
       tables: tableSection,
       memories: memorySection,
+      tags: tagSection,
       globals: globalSection,
       exports,
       start: startSection,

@@ -23,6 +23,7 @@ import {
   v128t,
   funcref,
   externref,
+  exnref,
   ValueType,
   type ValueTypeObject,
   RefType,
@@ -49,11 +50,17 @@ import {
   v128Ops,
   wrapConst,
 } from "./instruction/vector.ts";
-import { dataConstructor, elemConstructor, memoryConstructor, tableConstructor } from "./memory.ts";
+import {
+  dataConstructor,
+  elemConstructor,
+  memoryConstructor,
+  tableConstructor,
+  tagConstructor,
+} from "./memory.ts";
 import * as Dependency from "./dependency.ts";
 import type { Global, ImportGlobal, AnyGlobal, ImportMemory, AnyMemory } from "./dependency.ts";
 import { Const } from "./dependency.ts";
-import { importFunc, importGlobal, importMemory, importTable } from "./export.ts";
+import { importFunc, importGlobal, importMemory, importTable, importTag } from "./export.ts";
 import type { TupleN } from "./util.ts";
 import type { ModuleExport } from "./module.ts";
 import type { Input } from "./instruction/stack-args.ts";
@@ -107,6 +114,9 @@ export {
   br_table,
   br_on_null,
   br_on_non_null,
+  throw_,
+  throw_ref,
+  try_table,
   return_,
   call,
   call_indirect,
@@ -119,12 +129,13 @@ export {
 // other public API
 export { defaultCtx };
 export { declareFunc, func, type Func, importFunc, type ImportFunc, type AnyFunc };
-export { importTable };
+export { importTable, importTag, tagConstructor as tag };
 export { importMemory, type ImportMemory, type AnyMemory };
 export { type Global, importGlobal, type ImportGlobal, type AnyGlobal };
 export {
   funcref,
   externref,
+  exnref,
   refTypeConstructor as refType,
   type Local,
   $,
@@ -201,6 +212,9 @@ let {
   return_call_ref,
   br_on_null,
   br_on_non_null,
+  throw: throw_,
+  throw_ref,
+  try_table,
 } = control;
 
 const $: StackVar<any> = StackVar(Unknown);

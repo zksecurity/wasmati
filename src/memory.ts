@@ -7,9 +7,12 @@ import {
   RefType,
   type RefTypeObject,
   valueTypeLiteral,
+  valueTypeLiterals,
+  type ValueTypeObject,
 } from "./types.ts";
 
 export {
+  tagConstructor,
   memoryConstructor,
   dataConstructor,
   tableConstructor,
@@ -18,6 +21,11 @@ export {
   jsLimits,
   constOffset,
 };
+
+/** An exception tag; exceptions with it carry values of the given types. */
+function tagConstructor({ in: args = [] }: { in?: ValueTypeObject[] }): Dependency.Tag {
+  return { kind: "tag", type: { args: valueTypeLiterals(args), results: [] }, deps: [] };
+}
 
 function memoryConstructor(
   {

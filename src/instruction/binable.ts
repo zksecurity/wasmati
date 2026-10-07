@@ -1,5 +1,5 @@
 import { Binable, constant, or, record, withByteCode } from "../binable.ts";
-import { S33, U32 } from "../immediate.ts";
+import { S33, U32, vec } from "../immediate.ts";
 import { ValueType } from "../types.ts";
 import {
   type BaseInstruction,
@@ -10,7 +10,7 @@ import {
   type ResolvedInstruction,
 } from "./base.ts";
 
-export { Expression, ConstExpression, Block, IfBlock };
+export { Expression, ConstExpression, Block, IfBlock, TryTable, type Catch };
 
 const Instruction = Binable<ResolvedInstruction>({
   toBytes({ name, immediate }) {
@@ -103,4 +103,29 @@ const BlockType = or([Empty, ValueType, S33], (t) =>
 );
 
 const Block = record({ blockType: BlockType, instructions: Expression });
+
+/** A catch clause of try_table: which exceptions it catches, and the label it branches to. */
+type Catch =
+  | { kind: "catch" | "catch_ref"; tag: number; label: number }
+  | { kind: "catch_all" | "catch_all_ref"; label: number };
+const catchKinds = ["catch", "catch_ref", "catch_all", "catch_all_ref"] as const;
+const Catch = Binable<Catch>({
+  toBytes(clause) {
+    let code = catchKinds.indexOf(clause.kind);
+    let tag = "tag" in clause ? U32.toBytes(clause.tag) : [];
+    return [code, ...tag, ...U32.toBytes(clause.label)];
+  },
+  readBytes(bytes, offset) {
+    let kind = catchKinds[bytes[offset++]];
+    if (kind === undefined) throw Error("malformed catch clause");
+    if (kind === "catch_all" || kind === "catch_all_ref") {
+      let [label, end] = U32.readBytes(bytes, offset);
+      return [{ kind, label }, end];
+    }
+    let [tag, afterTag] = U32.readBytes(bytes, offset);
+    let [label, end] = U32.readBytes(bytes, afterTag);
+    return [{ kind, tag, label }, end];
+  },
+});
+const TryTable = record({ blockType: BlockType, catches: vec(Catch), instructions: Expression });
 const IfBlock = record({ blockType: BlockType, instructions: IfExpression });

@@ -14,6 +14,7 @@ import {
   i64x2,
   funcref,
   externref,
+  exnref,
 } from "../index.ts";
 import type { Module as ModuleValue } from "../module-binable.ts";
 import {
@@ -244,21 +245,32 @@ function placeholders(module: ModuleValue, imports: WebAssembly.Imports): WebAss
       fields[name] ??= provided?.[name];
       continue;
     }
-    const { kind, value } = description;
-    if (kind === "function") fields[name] = () => {};
-    else if (kind === "memory") fields[name] = new WebAssembly.Memory(jsLimits(value.limits));
-    else if (kind === "table") {
-      const element = value.type === "funcref" ? "anyfunc" : "externref";
+    if (description.kind === "function") fields[name] = () => {};
+    else if (description.kind === "memory")
+      fields[name] = new WebAssembly.Memory(jsLimits(description.value.limits));
+    else if (description.kind === "table") {
+      const { type, limits } = description.value;
+      const element = type === "funcref" ? "anyfunc" : "externref";
       fields[name] = new WebAssembly.Table({
-        ...jsLimits(value.limits),
+        ...jsLimits(limits),
         element,
       } as WebAssembly.TableDescriptor);
-    } else if (value.value === "v128" || typeof value.value === "object")
-      throw Error("placeholders for globals of this type are not supported");
-    else {
-      const type = value.value === "funcref" ? "anyfunc" : value.value;
+    } else if (description.kind === "tag") {
+      const parameters = module.types[description.value]?.args ?? [];
+      if (parameters.some((t) => typeof t === "object" || t === "exnref"))
+        throw Error("placeholders for tags of these types are not supported");
+      fields[name] = new WebAssembly.Tag({
+        parameters: parameters.map((t) =>
+          t === "funcref" ? "anyfunc" : t,
+        ) as WebAssembly.ValueType[],
+      });
+    } else {
+      const { value, mutable } = description.value;
+      if (value === "v128" || value === "exnref" || typeof value === "object")
+        throw Error("placeholders for globals of this type are not supported");
+      const type = value === "funcref" ? "anyfunc" : value;
       const initial = type === "i64" ? 0n : type === "anyfunc" || type === "externref" ? null : 0;
-      fields[name] = new WebAssembly.Global({ value: type, mutable: value.mutable }, initial);
+      fields[name] = new WebAssembly.Global({ value: type, mutable }, initial);
     }
   }
   return result as WebAssembly.Imports;
@@ -350,7 +362,7 @@ function exportSignature(module: ModuleValue, name: string): Signature {
   throw Error(`export ${name} is not a function or global`);
 }
 
-const types = { i32, i64, f32, f64, v128, funcref, externref } as const;
+const types = { i32, i64, f32, f64, v128, funcref, externref, exnref } as const;
 
 /** The builder type object of a value type. */
 function typeObject(type: ValueType): Type<ValueType> {

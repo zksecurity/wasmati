@@ -45,8 +45,14 @@ function parseModule(list: List): Module {
 
 type ModuleSpace = Exclude<IndexSpace, "local" | "label">;
 type Path = { module: string; name: string };
-type EntityKind = "func" | "table" | "memory" | "global";
-const spaceOf = { func: "function", table: "table", memory: "memory", global: "global" } as const;
+type EntityKind = "func" | "table" | "memory" | "global" | "tag";
+const spaceOf = {
+  func: "function",
+  table: "table",
+  memory: "memory",
+  global: "global",
+  tag: "tag",
+} as const;
 
 /**
  * Parsing takes two passes over the fields, both in textual order. The first assigns every index and
@@ -59,6 +65,7 @@ class ModuleParser {
     funcs: [],
     tables: [],
     memories: [],
+    tags: [],
     globals: [],
     elems: [],
     datas: [],
@@ -73,6 +80,7 @@ class ModuleParser {
     global: 0,
     elem: 0,
     data: 0,
+    tag: 0,
   };
   private ids = Object.fromEntries(
     Object.keys(this.counts).map((space) => [space, new Map<string, number>()]),
@@ -102,7 +110,6 @@ class ModuleParser {
         const description = c.list();
         c.end();
         const kind = description.atom();
-        if (kind === "tag") throw new UnsupportedTextError("tags are not supported");
         if (!(kind in spaceOf)) description.fail(`unknown import kind ${kind}`);
         return this.entity(kind as EntityKind, description, path);
       }
@@ -110,6 +117,7 @@ class ModuleParser {
       case "table":
       case "memory":
       case "global":
+      case "tag":
         return this.entity(kind, c);
       case "export":
         return () => this.exportField(c);
@@ -127,7 +135,6 @@ class ModuleParser {
         const index = this.allocate(c, "data");
         return () => this.data(c, index);
       }
-      case "tag":
       case "rec":
         throw new UnsupportedTextError(`${kind} fields are not supported`);
       default:
@@ -188,6 +195,7 @@ class ModuleParser {
       } else if (kind === "func") this.func(c, index);
       else if (kind === "table") this.table(c, index, segment);
       else if (kind === "memory") this.memory(c, index, segment);
+      else if (kind === "tag") this.module.tags.push(this.tagType(c));
       else this.global(c);
       c.end();
     };
@@ -208,7 +216,14 @@ class ModuleParser {
         return { kind: "memory", value: this.memoryType(c) };
       case "global":
         return { kind: "global", value: this.globalType(c) };
+      case "tag":
+        return { kind: "tag", value: this.tagType(c) };
     }
+  }
+
+  /** A tag's type use; exceptions carry the parameters and have no results. */
+  private tagType(c: Cursor): number {
+    return this.typeUse(c, true).index;
   }
 
   private func(c: Cursor, funcIdx: number) {
@@ -273,7 +288,6 @@ class ModuleParser {
     const name = c.name();
     const description = c.list();
     const kind = description.atom();
-    if (kind === "tag") throw new UnsupportedTextError("tags are not supported");
     if (!(kind in spaceOf)) description.fail(`unknown export kind ${kind}`);
     const space = spaceOf[kind as EntityKind];
     const value = this.index(description, space);
@@ -490,6 +504,7 @@ class ModuleParser {
       types: map("type"),
       tables: map("table"),
       memories: map("memory"),
+      tags: map("tag"),
       globals: map("global"),
       elements: map("elem"),
       data: map("data"),

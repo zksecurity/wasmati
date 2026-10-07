@@ -2,7 +2,7 @@ import "../index.ts";
 import { Byte, Undefined } from "../binable.ts";
 import { F32, F64, I32, I64, U8, type U64 } from "../immediate.ts";
 import { lookupInstruction, type ResolvedInstruction } from "../instruction/base.ts";
-import { Block, IfBlock } from "../instruction/binable.ts";
+import { Block, type Catch, IfBlock, TryTable } from "../instruction/binable.ts";
 import { HeapType, refType, type IndexSpace, type ValueType } from "../types.ts";
 import { Cursor } from "./cursor.ts";
 import { TextSyntaxError, UnsupportedTextError } from "./lexer.ts";
@@ -42,12 +42,22 @@ type Scope = {
 /** What printing needs: identifiers by index space, if an index has one. */
 type Names = { id(space: IndexSpace, index: number): string | undefined };
 
-const blocks = new Set(["block", "loop", "if"]);
-const valueTypes = new Set<string>(["i32", "i64", "f32", "f64", "v128", "funcref", "externref"]);
+const blocks = new Set(["block", "loop", "if", "try_table"]);
+const catchKinds = new Set(["catch", "catch_ref", "catch_all", "catch_all_ref"]);
+const valueTypes = new Set<string>([
+  "i32",
+  "i64",
+  "f32",
+  "f64",
+  "v128",
+  "funcref",
+  "externref",
+  "exnref",
+]);
 // Valid instructions of features that wasmati's module representation does not support yet.
 const unsupported =
   /^(throw|try_table|rethrow|struct\.|array\.|ref\.(i31|test|cast|eq)$|i31\.|any\.|extern\.|br_on_cast|[a-z0-9]+\.relaxed_)/;
-const gcHeapTypes = /^(any|eq|i31|struct|array|none|nofunc|noextern|exn|noexn)$/;
+const gcHeapTypes = /^(any|eq|i31|struct|array|none|nofunc|noextern|noexn)$/;
 
 /** Resolves a type index or identifier, for references to defined types. */
 type TypeIndex = (c: Cursor) => number;
@@ -64,7 +74,7 @@ function parseValueType(c: Cursor, typeIndex: TypeIndex): ValueType {
   const node = c.peek();
   const type = c.atom();
   if (valueTypes.has(type)) return type as ValueType;
-  if (/^(any|eq|i31|struct|array|none|nofunc|noextern|exn|noexn|null\w*)ref$/.test(type))
+  if (/^(any|eq|i31|struct|array|none|nofunc|noextern|noexn|null\w*)ref$/.test(type))
     throw new UnsupportedTextError(`value type ${type} is not supported`);
   return c.fail(`unknown value type ${type}`, node);
 }
@@ -73,7 +83,7 @@ function parseHeapType(c: Cursor, typeIndex: TypeIndex): HeapType {
   if (c.peekIndex()) return typeIndex(c);
   const node = c.peek();
   const heap = c.atom();
-  if (heap === "func" || heap === "extern") return heap;
+  if (heap === "func" || heap === "extern" || heap === "exn") return heap;
   if (gcHeapTypes.test(heap)) throw new UnsupportedTextError(`heap type ${heap} is not supported`);
   return c.fail(`unknown heap type ${heap}`, node);
 }
@@ -109,6 +119,7 @@ function instruction(c: Cursor, scope: Scope, body: ResolvedInstruction[]) {
   }
   const label = c.identifier();
   const blockType = scope.blockType(c);
+  const catches = parseCatches(c, scope);
   const nested = { ...scope, labels: [label, ...scope.labels] };
   const instructions = parseInstructions(c, nested);
   let otherwise: ResolvedInstruction[] | undefined;
@@ -118,7 +129,22 @@ function instruction(c: Cursor, scope: Scope, body: ResolvedInstruction[]) {
   }
   c.keyword("end");
   endLabel(c, label);
-  body.push(block(name, blockType, instructions, otherwise));
+  body.push(block(name, blockType, instructions, otherwise, catches));
+}
+
+/** The catch clauses of try_table, whose labels are outside the block. */
+function parseCatches(c: Cursor, scope: Scope): Catch[] {
+  const catches: Catch[] = [];
+  while (catchKinds.has(c.peekHead() ?? "")) {
+    const kind = c.peekHead() as Catch["kind"];
+    const clause = c.list(kind);
+    if (kind === "catch" || kind === "catch_ref") {
+      const tag = scope.index(clause, "tag");
+      catches.push({ kind, tag, label: label(clause, scope) });
+    } else catches.push({ kind, label: label(clause, scope) });
+    clause.end();
+  }
+  return catches;
 }
 
 /** A folded instruction runs its operands, left to right, before itself. */
@@ -136,9 +162,10 @@ function folded(c: Cursor, scope: Scope, body: ResolvedInstruction[]) {
   }
   const label = c.identifier();
   const blockType = scope.blockType(c);
+  const catches = parseCatches(c, scope);
   const nested = { ...scope, labels: [label, ...scope.labels] };
   if (name !== "if") {
-    body.push(block(name, blockType, parseInstructions(c, nested)));
+    body.push(block(name, blockType, parseInstructions(c, nested), undefined, catches));
     return;
   }
   // The condition is outside the block, so it cannot branch to the if's label.
@@ -153,7 +180,7 @@ function folded(c: Cursor, scope: Scope, body: ResolvedInstruction[]) {
   const otherwise = c.maybeList("else");
   const elseBody = otherwise && parseInstructions(otherwise, nested);
   otherwise?.end();
-  body.push(block(name, blockType, instructions, elseBody));
+  body.push(block(name, blockType, instructions, elseBody, catches));
 }
 
 function endLabel(c: Cursor, label: string | undefined) {
@@ -166,11 +193,14 @@ function block(
   name: string,
   blockType: BlockType,
   instructions: ResolvedInstruction[],
-  otherwise?: ResolvedInstruction[],
+  otherwise: ResolvedInstruction[] | undefined,
+  catches: Catch[],
 ): ResolvedInstruction {
-  return name === "if"
-    ? { name, immediate: { blockType, instructions: { if: instructions, else: otherwise } } }
-    : { name, immediate: { blockType, instructions } };
+  if (name === "if")
+    return { name, immediate: { blockType, instructions: { if: instructions, else: otherwise } } };
+  if (name === "try_table") return { name, immediate: { blockType, catches, instructions } };
+  if (catches.length > 0) throw new TextSyntaxError(`${name} has no catch clauses`);
+  return { name, immediate: { blockType, instructions } };
 }
 
 function definition(name: string, c: Cursor) {
@@ -231,6 +261,7 @@ function immediate(
       return parseHeapType(c, (c) => scope.index(c, "type"));
     case Block:
     case IfBlock:
+    case TryTable:
       throw Error("unreachable");
   }
   switch (string) {
@@ -338,7 +369,11 @@ function v128(c: Cursor): number[] {
 function printInstructions(body: ResolvedInstruction[], names: Names, indent = ""): string[] {
   return body.flatMap(({ name, immediate }) => {
     if (blocks.has(name)) {
-      const head = [name, ...blockType(immediate.blockType, names)].join(" ");
+      const clauses: string[] = (immediate.catches ?? []).map((clause: Catch) => {
+        const tag = "tag" in clause ? [names.id("tag", clause.tag) ?? String(clause.tag)] : [];
+        return `(${[clause.kind, ...tag, String(clause.label)].join(" ")})`;
+      });
+      const head = [name, ...blockType(immediate.blockType, names), ...clauses].join(" ");
       const bodies = name === "if" ? immediate.instructions : { if: immediate.instructions };
       return [
         indent + head,

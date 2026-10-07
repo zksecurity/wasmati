@@ -2,9 +2,9 @@ import { Binable, Bool, Byte, record, withByteCode } from "./binable.ts";
 import { S33, U32, U64, vec } from "./immediate.ts";
 import type { Tuple } from "./util.ts";
 
-export { i32t, i64t, f32t, f64t, v128t, funcref, externref };
+export { i32t, i64t, f32t, f64t, v128t, funcref, externref, exnref };
 export { TypeIndex, FunctionIndex, MemoryIndex, TableIndex, ElemIndex, DataIndex };
-export { GlobalIndex, LocalIndex, LabelIndex, type Index, type IndexSpace };
+export { GlobalIndex, LocalIndex, LabelIndex, TagIndex, type Index, type IndexSpace };
 export {
   HeapType,
   refType,
@@ -17,6 +17,7 @@ export {
   type RefTypeObject,
   FunctionType,
   MemoryType,
+  TagType,
   GlobalType,
   TableType,
   ValueType,
@@ -43,26 +44,33 @@ export {
  * A heap type: abstract, or a defined type. Modules refer to types by index; builders describe a
  * function type structurally until the module assigns its index.
  */
-type HeapType = "func" | "extern" | number | FunctionType;
-/** References to a heap type. Nullable references to func and extern are written funcref and externref. */
-type RefType = "funcref" | "externref" | { ref: HeapType; nullable: boolean };
+type HeapType = "func" | "extern" | "exn" | number | FunctionType;
+/**
+ * References to a heap type. Nullable references to func, extern and exn are written funcref,
+ * externref and exnref.
+ */
+type RefType = "funcref" | "externref" | "exnref" | { ref: HeapType; nullable: boolean };
 type NumberOrVectorType = "i32" | "i64" | "f32" | "f64" | "v128";
 type ValueType = NumberOrVectorType | RefType;
 
 function refType(heap: HeapType, nullable: boolean): RefType {
   if (nullable && heap === "func") return "funcref";
   if (nullable && heap === "extern") return "externref";
+  if (nullable && heap === "exn") return "exnref";
   return { ref: heap, nullable };
 }
 
 function isRefType(type: ValueType): type is RefType {
-  return typeof type === "object" || type === "funcref" || type === "externref";
+  return (
+    typeof type === "object" || type === "funcref" || type === "externref" || type === "exnref"
+  );
 }
 
 /** The heap type and nullability of a reference type, including the funcref and externref shorthands. */
 function referenced(type: RefType): { ref: HeapType; nullable: boolean } {
   if (type === "funcref") return { ref: "func", nullable: true };
   if (type === "externref") return { ref: "extern", nullable: true };
+  if (type === "exnref") return { ref: "exn", nullable: true };
   return type;
 }
 
@@ -116,7 +124,7 @@ function valueTypeLiterals<const L extends ValueType[]>(types: {
   return types.map((t) => t.kind) as L;
 }
 
-const valueTypeCodes: Record<NumberOrVectorType | "funcref" | "externref", number> = {
+const valueTypeCodes: Record<NumberOrVectorType | "funcref" | "externref" | "exnref", number> = {
   i32: 0x7f,
   i64: 0x7e,
   f32: 0x7d,
@@ -124,6 +132,7 @@ const valueTypeCodes: Record<NumberOrVectorType | "funcref" | "externref", numbe
   v128: 0x7b,
   funcref: 0x70,
   externref: 0x6f,
+  exnref: 0x69,
 };
 const i32t = valueType("i32");
 const i64t = valueType("i64");
@@ -132,13 +141,14 @@ const f64t = valueType("f64");
 const v128t = valueType("v128");
 const funcref = valueType("funcref");
 const externref = valueType("externref");
+const exnref = valueType("exnref");
 
 const codeToValueType = invertRecord(valueTypeCodes);
 
 const valueTypeSet = new Set(Object.keys(valueTypeCodes) as ValueType[]);
 
 /** Abstract heap types as negative s33 values, which encode as the single bytes of funcref and externref. */
-const heapTypeCodes = { func: -0x10, extern: -0x11 } as const;
+const heapTypeCodes = { func: -0x10, extern: -0x11, exn: -0x17 } as const;
 
 /** Heap types: an s33, negative for abstract heap types, a type index otherwise. */
 const HeapType = Binable<HeapType>({
@@ -151,6 +161,7 @@ const HeapType = Binable<HeapType>({
     if (code >= 0) return [code, end];
     if (code === heapTypeCodes.func) return ["func", end];
     if (code === heapTypeCodes.extern) return ["extern", end];
+    if (code === heapTypeCodes.exn) return ["exn", end];
     throw Error(`heap type ${code} is not supported`);
   },
 });
@@ -217,6 +228,10 @@ function addressType(limits: Limits): AddressType {
   return limits.address ?? "i32";
 }
 
+/** A tag's type is the index of a function type without results; the attribute 0 marks exceptions. */
+type TagType = TypeIndex;
+const TagType = withByteCode(0x00, U32);
+
 type MemoryType = { limits: Limits };
 const MemoryType = record<MemoryType>({ limits: Limits });
 
@@ -232,7 +247,7 @@ const FunctionType = withByteCode(
 );
 
 type IndexSpace =
-  "type" | "function" | "table" | "memory" | "global" | "elem" | "data" | "local" | "label";
+  "type" | "function" | "table" | "memory" | "global" | "elem" | "data" | "local" | "label" | "tag";
 /** Indices are u32 in binary. Each index space has its own immediate, which records the space. */
 type Index = Binable<U32> & { space: IndexSpace };
 function index(space: IndexSpace): Index {
@@ -257,6 +272,8 @@ type LocalIndex = U32;
 const LocalIndex = index("local");
 type LabelIndex = U32;
 const LabelIndex = index("label");
+type TagIndex = U32;
+const TagIndex = index("tag");
 
 function invertRecord<K extends string, V>(record: Record<K, V>): Map<V, K> {
   let map = new Map<V, K>();

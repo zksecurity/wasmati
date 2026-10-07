@@ -1,6 +1,7 @@
 import * as api from "./index.ts";
 import type { Module as DecodedModule } from "./module-binable.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
+import type { Catch } from "./instruction/binable.ts";
 import {
   functionTypeEquals,
   type FunctionType,
@@ -58,6 +59,7 @@ class Source {
   private names = new Names();
   private functions: string[] = [];
   private globals: string[] = [];
+  private tags: string[] = [];
   private tables: string[] = [];
   private memories: string[] = [];
   private datas: string[] = [];
@@ -85,12 +87,13 @@ class Source {
     this.lines.push(`${"  ".repeat(indent)}${text}`);
   }
 
-  private name(kind: "functions" | "globals" | "tables" | "memories", index: number) {
+  private name(kind: "functions" | "globals" | "tables" | "memories" | "tags", index: number) {
     const exportKind = {
       functions: "function",
       globals: "global",
       tables: "table",
       memories: "memory",
+      tags: "tag",
     }[kind];
     return (
       this.module.names?.[kind]?.[index] ??
@@ -147,24 +150,19 @@ class Source {
     for (let i = 0; i < importedFunctions + this.module.funcs.length; i++) {
       this.functions.push(this.names.take(this.name("functions", i)));
     }
-    for (const [kind, refs] of [
-      ["global", this.globals],
-      ["table", this.tables],
-      ["memory", this.memories],
+    for (const [kind, refs, defined] of [
+      ["global", this.globals, this.module.globals.length],
+      ["table", this.tables, this.module.tables.length],
+      ["memory", this.memories, this.module.memories.length],
+      ["tag", this.tags, this.module.tags.length],
     ] as const) {
-      const count =
-        this.module.imports.filter((i) => i.description.kind === kind).length +
-        (kind === "global"
-          ? this.module.globals.length
-          : kind === "table"
-            ? this.module.tables.length
-            : this.module.memories.length);
-      const map = { global: "globals", table: "tables", memory: "memories" } as const;
+      const count = this.module.imports.filter((i) => i.description.kind === kind).length + defined;
+      const map = { global: "globals", table: "tables", memory: "memories", tag: "tags" } as const;
       for (let i = 0; i < count; i++) refs.push(this.names.take(this.name(map[kind], i)));
     }
     this.datas = this.module.datas.map((_, i) => this.names.take(`data${i}`));
     this.elems = this.module.elems.map((_, i) => this.names.take(`elem${i}`));
-    const nextIndex = { function: 0, global: 0, table: 0, memory: 0 };
+    const nextIndex = { function: 0, global: 0, table: 0, memory: 0, tag: 0 };
     for (const imp of this.module.imports) {
       const { kind, value } = imp.description;
       const index = nextIndex[kind]++;
@@ -195,6 +193,12 @@ class Source {
           variable = this.tables[index];
           const type = value as Extract<typeof imp.description, { kind: "table" }>["value"];
           expression = `${this.use("importTable")}({ type: ${this.valueType(type.type)}, ...${literal({ ...type.limits, ...path })} }, ${imported} as WebAssembly.Table)`;
+          break;
+        }
+        case "tag": {
+          variable = this.tags[index];
+          const params = this.tagParameters(value as number);
+          expression = `${this.use("importTag")}({ in: [${params}], ...${literal(path)} }, ${imported} as WebAssembly.Tag)`;
           break;
         }
       }
@@ -245,6 +249,13 @@ class Source {
       this.line(`const ${variable} = ${this.use("memory")}(${literal(m.limits)});`);
       this.dependencies.push(variable);
     }
+    for (const typeIdx of this.module.tags) {
+      const variable = this.tags[nextIndex.tag++];
+      this.line(
+        `const ${variable} = ${this.use("tag")}({ in: [${this.tagParameters(typeIdx)}] });`,
+      );
+      this.dependencies.push(variable);
+    }
     for (const [index, d] of this.module.datas.entries()) {
       const variable = this.datas[index];
       const mode =
@@ -293,6 +304,7 @@ class Source {
         global: this.globals,
         table: this.tables,
         memory: this.memories,
+        tag: this.tags,
       };
       const variable = this.reference(refs[e.description.kind], e.description.value);
       return { name: e.name, variable };
@@ -350,6 +362,14 @@ class Source {
           : { args: [], results: [blockType] };
     if (!type) throw Error(`decompile: missing block type ${blockType}`);
     return `{ in: [${type.args.map((t) => this.valueType(t)).join(", ")}], out: [${type.results.map((t) => this.valueType(t)).join(", ")}] }`;
+  }
+
+  /** A tag's parameters; its type must not have results. */
+  private tagParameters(typeIdx: number): string {
+    const type = this.module.types[typeIdx];
+    if (type === undefined) throw Error(`decompile: missing tag type ${typeIdx}`);
+    if (type.results.length > 0) throw Error("decompile: tag types must not have results");
+    return type.args.map((t) => this.valueType(t)).join(", ");
   }
 
   /** A value type of the builder API: references to defined types describe their signature. */
@@ -425,6 +445,20 @@ class Source {
 
   private instructions(body: ResolvedInstruction[], locals: string[], indent: number) {
     for (const { name, immediate: imm } of body) {
+      if (name === "try_table") {
+        const catches = imm.catches.map((c: Catch) => {
+          const tag = "tag" in c ? `tag: ${this.reference(this.tags, c.tag)}, ` : "";
+          const ref = c.kind.endsWith("_ref") ? "ref: true, " : "";
+          return `{ ${tag}${ref}label: ${c.label} }`;
+        });
+        this.line(
+          `${this.use("try_table")}(${this.type(imm.blockType)}, [${catches.join(", ")}], () => {`,
+          indent,
+        );
+        this.instructions(imm.instructions, locals, indent + 1);
+        this.line("});", indent);
+        continue;
+      }
       if (name === "block" || name === "loop" || name === "if") {
         const op = this.use(name === "if" ? "control.if" : name);
         this.line(`${op}(${this.type(imm.blockType)}, () => {`, indent);
@@ -462,6 +496,10 @@ class Source {
           break;
         case "return_call":
           args = [this.reference(this.functions, imm)];
+          break;
+        case "throw":
+          op = "throw_";
+          args = [this.reference(this.tags, imm)];
           break;
         case "call_ref":
         case "return_call_ref":

@@ -92,6 +92,11 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     let imp = addImport(global, description, globalIdx, importMap);
     imports.push(imp);
   });
+  dependencyByKind.importTag.forEach((tag, tagIdx) => {
+    depToIndex.set(tag, tagIdx);
+    let description = { kind: "tag" as const, value: pushType(types, tag.type) };
+    imports.push(addImport(tag, description, tagIdx, importMap));
+  });
   dependencyByKind.importTable.forEach((table, tableIdx) => {
     depToIndex.set(table, tableIdx);
     let description = { kind: "table" as const, value: table.type };
@@ -121,6 +126,10 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     let typeIdx = pushType(types, type.type);
     depToIndex.set(type, typeIdx);
   }
+  // index tags
+  let nImportTags = dependencyByKind.importTag.length;
+  dependencyByKind.tag.forEach((tag, tagIdx) => depToIndex.set(tag, tagIdx + nImportTags));
+  let tags = dependencyByKind.tag.map((tag) => pushType(types, tag.type));
   // index globals
   let nImportGlobals = dependencyByKind.importGlobal.length;
   dependencyByKind.global.forEach((global, globalIdx) =>
@@ -216,6 +225,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     global: "globals",
     table: "tables",
     memory: "memories",
+    tag: "tags",
   } as const;
   for (const {
     name,
@@ -252,6 +262,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     tables,
     globals,
     memories,
+    tags,
     start,
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
@@ -388,7 +399,9 @@ type ModuleExport<Export extends Dependency.Export> = Export extends Dependency.
       ? WebAssembly.Memory
       : Export extends Dependency.AnyTable
         ? WebAssembly.Table
-        : unknown;
+        : Export extends Dependency.AnyTag
+          ? WebAssembly.Tag
+          : unknown;
 
 const Module = Object.assign(ModuleConstructor, {
   fromBytes<Exports extends Record<string, Dependency.Export>>(
@@ -452,6 +465,7 @@ function addImport(
     importGlobal: "g",
     importMemory: "m",
     importTable: "t",
+    importTag: "e",
   }[kind];
   field ??= `${prefix}${i}`;
   let import_ = { module, name: field, description };
@@ -461,7 +475,7 @@ function addImport(
       `Overwriting import "${module}" > "${field}" with different value. Use the same value twice instead.`,
     );
   }
-  importModule[field] = value;
+  importModule[field] = value as WebAssembly.ImportValue;
   return import_;
 }
 

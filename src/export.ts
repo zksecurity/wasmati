@@ -3,6 +3,7 @@ import { Name, U32, type U64 } from "./immediate.ts";
 import {
   type AddressType,
   FunctionType,
+  TagType,
   isRefType,
   printValueType,
   type Type,
@@ -14,6 +15,7 @@ import {
   ValueType,
   valueTypeLiteral,
   valueTypeLiterals,
+  type ValueTypeObject,
 } from "./types.ts";
 import type { JSFunction, ToTypeTuple } from "./func.ts";
 import type { Tuple } from "./util.ts";
@@ -27,7 +29,16 @@ import {
 import type { ImportFunc } from "./func-types.ts";
 import { constOffset, dataConstructor, jsLimits, limits } from "./memory.ts";
 
-export { Export, Import, type ExternType, importFunc, importGlobal, importMemory, importTable };
+export {
+  Export,
+  Import,
+  type ExternType,
+  importFunc,
+  importGlobal,
+  importMemory,
+  importTable,
+  importTag,
+};
 
 type ExternType =
   | { kind: "function"; value: FunctionType }
@@ -36,7 +47,7 @@ type ExternType =
   | { kind: "global"; value: GlobalType };
 
 type ExportDescription = {
-  kind: "function" | "table" | "memory" | "global";
+  kind: "function" | "table" | "memory" | "global" | "tag";
   value: U32;
 };
 const ExportDescription: Binable<ExportDescription> = byteEnum<{
@@ -44,11 +55,13 @@ const ExportDescription: Binable<ExportDescription> = byteEnum<{
   0x01: { kind: "table"; value: U32 };
   0x02: { kind: "memory"; value: U32 };
   0x03: { kind: "global"; value: U32 };
+  0x04: { kind: "tag"; value: U32 };
 }>({
   0x00: { kind: "function", value: U32 },
   0x01: { kind: "table", value: U32 },
   0x02: { kind: "memory", value: U32 },
   0x03: { kind: "global", value: U32 },
+  0x04: { kind: "tag", value: U32 },
 });
 
 type Export = { name: string; description: ExportDescription };
@@ -58,17 +71,20 @@ type ImportDescription =
   | { kind: "function"; value: TypeIndex }
   | { kind: "table"; value: TableType }
   | { kind: "memory"; value: MemoryType }
-  | { kind: "global"; value: GlobalType };
+  | { kind: "global"; value: GlobalType }
+  | { kind: "tag"; value: TagType };
 const ImportDescription: Binable<ImportDescription> = byteEnum<{
   0x00: { kind: "function"; value: TypeIndex };
   0x01: { kind: "table"; value: TableType };
   0x02: { kind: "memory"; value: MemoryType };
   0x03: { kind: "global"; value: GlobalType };
+  0x04: { kind: "tag"; value: TagType };
 }>({
   0x00: { kind: "function", value: TypeIndex },
   0x01: { kind: "table", value: TableType },
   0x02: { kind: "memory", value: MemoryType },
   0x03: { kind: "global", value: GlobalType },
+  0x04: { kind: "tag", value: TagType },
 });
 
 type Import = {
@@ -129,13 +145,26 @@ function importGlobal<V extends ValueType>(
   if (!isRefType(kind) && isObject)
     throw new WebAssembly.LinkError(`importGlobal: expected a global or a number, got ${value}`);
   // The JS API creates globals of numbers, vectors, funcref and externref only.
-  if (typeof kind === "object")
+  if (typeof kind === "object" || kind === "exnref")
     throw new WebAssembly.LinkError(
       `importGlobal: a global of type ${printValueType(kind)} must be a WebAssembly.Global`,
     );
   let valueType: WebAssembly.ValueType = kind === "funcref" ? "anyfunc" : kind;
   let value_ = new WebAssembly.Global({ value: valueType, mutable }, value);
   return { kind: "importGlobal", module, field, type: globalType, deps: [], value: value_ };
+}
+
+/** Import an exception tag, by default a new WebAssembly.Tag with the given parameter types. */
+function importTag(
+  { in: args = [], module, field }: { in?: ValueTypeObject[] } & Dependency.ImportPath,
+  value?: WebAssembly.Tag,
+): Dependency.ImportTag {
+  let type = { args: valueTypeLiterals(args), results: [] };
+  let parameters = type.args.map((t) =>
+    t === "funcref" ? "anyfunc" : t,
+  ) as WebAssembly.ValueType[];
+  let tag = value ?? new WebAssembly.Tag({ parameters });
+  return { kind: "importTag", module, field, type, value: tag, deps: [] };
 }
 
 function importMemory(
