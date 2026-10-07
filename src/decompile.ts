@@ -490,9 +490,12 @@ class Source {
   }
 }
 
-function memarg({ offset, align }: { offset: number; align: number }, memory?: string): string {
+function memarg(
+  { offset, align }: { offset: number | bigint; align: number },
+  memory?: string,
+): string {
   // Binary alignment is an exponent; the public API takes an alignment in bytes.
-  return `{ ${memory === undefined ? "" : `memory: ${memory}, `}offset: ${offset}, align: ${2 ** align} }`;
+  return `{ ${memory === undefined ? "" : `memory: ${memory}, `}offset: ${literal(offset)}, align: ${2 ** align} }`;
 }
 
 function property(key: string): string {

@@ -1,6 +1,6 @@
 import "../index.ts";
 import { Byte, Undefined } from "../binable.ts";
-import { F32, F64, I32, I64, U8 } from "../immediate.ts";
+import { F32, F64, I32, I64, U8, type U64 } from "../immediate.ts";
 import { lookupInstruction, type ResolvedInstruction } from "../instruction/base.ts";
 import { Block, IfBlock } from "../instruction/binable.ts";
 import { RefType, type IndexSpace, type ValueType } from "../types.ts";
@@ -246,7 +246,7 @@ function label(c: Cursor, scope: Scope): number {
 
 /** `offset=`, then `align=`; the memory, if not memory 0, is recorded as in decoded modules. */
 function memArg(c: Cursor, natural: number, memory: number) {
-  let offset = 0;
+  let offset: U64 = 0;
   let align = natural;
   if (c.peekAtom()?.startsWith("offset=")) offset = c.parse((text) => parseU64(text.slice(7)));
   if (c.peekAtom()?.startsWith("align=")) {
@@ -380,7 +380,7 @@ function printImmediate(name: string, value: any, names: Names): string[] {
 }
 
 function memArgText(
-  { offset, align, memory = 0 }: { offset: number; align: number; memory?: number },
+  { offset, align, memory = 0 }: { offset: U64; align: number; memory?: number },
   natural: number,
   id: (space: IndexSpace, index: number) => string,
 ) {

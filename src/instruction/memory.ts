@@ -1,7 +1,7 @@
 import { type Instruction_, baseInstruction } from "./base.ts";
 import * as Dependency from "../dependency.ts";
 import type { LocalContext } from "../local-context.ts";
-import { U32, U64, U8 } from "../immediate.ts";
+import { U32, U64, U8, uint64 } from "../immediate.ts";
 import { Binable, record, tuple } from "../binable.ts";
 import {
   type AddressType,
@@ -166,7 +166,7 @@ const elemOps = {
 };
 
 /** Alignment exponent, offset, and a memory index unless the access is to memory 0. */
-type MemArg = { align: U32; offset: number; memory?: number };
+type MemArg = { align: U32; offset: U64; memory?: number };
 // Flags from 64 announce a memory index, which precedes the offset; flags from 128 are malformed.
 const MemArg = Binable<MemArg>({
   toBytes({ align, offset, memory }) {
@@ -179,7 +179,7 @@ const MemArg = Binable<MemArg>({
     if (flags >= 128) throw Error(`malformed memory alignment flags ${flags}`);
     let memory = 0;
     if (flags & 64) [memory, offset] = U32.readBytes(bytes, offset);
-    let memoryOffset: number;
+    let memoryOffset: U64;
     [memoryOffset, offset] = U64.readBytes(bytes, offset);
     const memArg: MemArg = { align: flags & 63, offset: memoryOffset };
     if (memory !== 0) memArg.memory = memory;
@@ -199,7 +199,7 @@ function withNaturalAlign<T>(binable: Binable<T>, bits: number): MemArgImmediate
 }
 
 /** The memory argument of an access: alignment in bytes, offset, and optionally the memory. */
-type MemArgInput = { offset?: number; align?: number; memory?: Dependency.AnyMemory };
+type MemArgInput = { offset?: U64; align?: number; memory?: Dependency.AnyMemory };
 
 /** Operand types of a memory access whose first operand, the address, depends on the memory. */
 type AccessArgs<Args extends readonly ValueType[]> = {
@@ -292,5 +292,5 @@ function memArgFromInput(
   if (!Number.isInteger(alignExponent)) {
     throw Error(`${name}: \`align\` must be power of 2, got ${align}`);
   }
-  return { offset, align: alignExponent };
+  return { offset: uint64(BigInt(offset)), align: alignExponent };
 }

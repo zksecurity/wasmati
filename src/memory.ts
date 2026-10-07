@@ -1,4 +1,5 @@
 import { Const } from "./dependency.ts";
+import { uint64, type U64 } from "./immediate.ts";
 import * as Dependency from "./dependency.ts";
 import {
   type AddressType,
@@ -25,8 +26,8 @@ function memoryConstructor(
     shared = false,
     address = "i32",
   }: {
-    min: number;
-    max?: number;
+    min: U64;
+    max?: U64;
     shared?: boolean;
     address?: AddressType;
   },
@@ -46,13 +47,10 @@ function memoryConstructor(
 }
 
 /** Limits record a 64-bit address type only when present, as in decoded modules. */
-function limits(
-  min: number,
-  max: number | undefined,
-  shared: boolean,
-  address: AddressType,
-): Limits {
-  return address === "i64" ? { min, max, shared, address } : { min, max, shared };
+function limits(min: U64, max: U64 | undefined, shared: boolean, address: AddressType): Limits {
+  const size = (n: U64) => uint64(BigInt(n));
+  const sizes = { min: size(min), max: max === undefined ? undefined : size(max), shared };
+  return address === "i64" ? { ...sizes, address } : sizes;
 }
 
 /** The JS API descriptor of a memory, whose 64-bit sizes are bigints. */
@@ -62,13 +60,13 @@ function jsLimits({
   shared,
   address,
 }: {
-  min: number;
-  max?: number;
+  min: U64;
+  max?: U64;
   shared: boolean;
   address?: AddressType;
 }) {
-  const size = (n: number | undefined) =>
-    n === undefined ? undefined : address === "i64" ? BigInt(n) : n;
+  const size = (n: U64 | undefined) =>
+    n === undefined ? undefined : address === "i64" ? BigInt(n) : Number(n);
   return {
     initial: size(min),
     maximum: size(max),
@@ -118,8 +116,8 @@ function tableConstructor(
     address = "i32",
   }: {
     type: RefTypeObject;
-    min: number;
-    max?: number;
+    min: U64;
+    max?: U64;
     address?: AddressType;
   },
   content?: (Const.refFunc | Const.refNull<RefType>)[],

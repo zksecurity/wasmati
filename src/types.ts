@@ -109,7 +109,7 @@ const GlobalType = record<GlobalType>({ value: ValueType, mutable: Bool });
 
 type AddressType = "i32" | "i64";
 /** Limits of a memory or table. A 64-bit address type is recorded as `address: "i64"`, as in the JS API. */
-type Limits = { min: number; max?: number; shared: boolean; address?: "i64" };
+type Limits = { min: U64; max?: U64; shared: boolean; address?: "i64" };
 const Limits = Binable<Limits>({
   toBytes({ min, max, shared, address }) {
     let flags = (max === undefined ? 0 : 1) | (shared ? 2 : 0) | (address === "i64" ? 4 : 0);
@@ -117,7 +117,7 @@ const Limits = Binable<Limits>({
     return [flags, ...Size.toBytes(min), ...(max === undefined ? [] : Size.toBytes(max))];
   },
   readBytes(bytes, offset) {
-    let flags: number, min: number, max: number | undefined;
+    let flags: number, min: U64, max: U64 | undefined;
     [flags, offset] = Byte.readBytes(bytes, offset);
     if (flags > 7) throw Error("invalid limit type");
     let Size = flags & 4 ? U64 : U32;
