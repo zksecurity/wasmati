@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { build } from "../build/build.ts";
@@ -11,8 +11,10 @@ const wasmati = fileURLToPath(new URL("../index.ts", import.meta.url));
 /** Write files to a new directory, with `WASMATI` standing for the import path of wasmati. */
 async function project(files: Record<string, string>) {
   const directory = await mkdtemp(join(tmpdir(), "wasmati-build-"));
-  for (const [name, content] of Object.entries(files))
+  for (const [name, content] of Object.entries(files)) {
+    await mkdir(dirname(join(directory, name)), { recursive: true });
     await writeFile(join(directory, name), content.replaceAll("WASMATI", JSON.stringify(wasmati)));
+  }
   return directory;
 }
 
@@ -105,7 +107,7 @@ test("the build rejects modules whose imports cannot be extracted faithfully", a
   const module = (
     body: string,
     exports = "{ run }",
-  ) => `import { Module, func, i32, call, importFunc, async } from WASMATI;
+  ) => `import { Module, func, i32, call, importFunc, importMemory } from WASMATI;
 ${body}
 export default Module({ exports: ${exports} });
 `;
@@ -137,7 +139,7 @@ const log = importFunc({ in: [], out: [] }, () => { calls++; });
 calls = 10;
 const run = func({ in: [], out: [] }, () => call(log));`),
       },
-      /"calls" is used by import values, and assigned by code that runs while the module is built/,
+      /"calls" is used by import values, and by code that runs while the module is built/,
     ],
     [
       "wasmati values",
@@ -166,6 +168,47 @@ const run = func({ in: [], out: [] }, () => call(random));`),
       },
       /is a built-in or bound function/,
     ],
+    [
+      "state changed through its properties while building",
+      {
+        "lib.ts": module(`const state = { value: 0 };
+state.value = 42;
+const read = importFunc({ in: [], out: [i32] }, () => state.value);
+const run = func({ in: [], out: [i32] }, () => call(read));`),
+      },
+      /"state" is used by import values, and by code that runs while the module is built/,
+    ],
+    [
+      "imported functions called while building",
+      {
+        "lib.ts": module(`let value = 0;
+function increment() { return ++value; }
+increment();
+const inc = importFunc({ in: [], out: [i32] }, increment);
+const run = func({ in: [], out: [i32] }, () => call(inc));`),
+      },
+      /"increment" is used by import values, and by code that runs while the module is built/,
+    ],
+    [
+      "memories written while building",
+      {
+        "lib.ts": module(`const mem = importMemory({ min: 1 });
+new Uint8Array(mem.value.buffer)[0] = 42;
+const run = func({ in: [], out: [i32] }, () => i32.load({ memory: mem }, 0));`),
+      },
+      /memory with contents written while the module is built/,
+    ],
+    [
+      "this of an enclosing function",
+      {
+        "lib.ts": module(`function makeHost(this: { value: number }) {
+  return importFunc({ in: [], out: [i32] }, () => this.value);
+}
+const read = makeHost.call({ value: 42 });
+const run = func({ in: [], out: [i32] }, () => call(read));`),
+      },
+      /uses this of an enclosing function/,
+    ],
   ];
   for (const [name, files, error] of cases) {
     const directory = await project(files);
@@ -174,5 +217,73 @@ const run = func({ in: [], out: [] }, () => call(random));`),
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  }
+});
+
+test("bare package imports resolve from the source file, and the built module finds them", async () => {
+  const directory = await project({
+    "node_modules/helper/package.json": JSON.stringify({
+      name: "helper",
+      type: "module",
+      exports: { import: "./index.js" },
+    }),
+    "node_modules/helper/index.js": "export const double = (x) => 2 * x;",
+    "lib.ts": `import { Module, func, i32, call, importFunc } from WASMATI;
+import { double } from "helper";
+const twice = importFunc({ in: [{ x: i32 }], out: [i32] }, (x: number) => double(x));
+const run = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => call(twice, { x }));
+export default Module({ exports: { run } });
+`,
+  });
+  try {
+    const output = await build(join(directory, "lib.ts"), { outDir: join(directory, "dist") });
+    assert.match(await readFile(output.host!, "utf8"), /^import \{ double \} from "helper";$/m);
+    const { run } = await import(pathToFileURL(output.wasm).href);
+    assert.equal(run(21), 42);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a function imported both as sync and as async becomes two exports", async () => {
+  const directory = await project({
+    "lib.ts": `import { Module, func, i32, call, importFunc, async } from WASMATI;
+let value = 0;
+const set = (x: number) => { value = x; };
+const now = importFunc({ in: [{ x: i32 }], out: [] }, set);
+const later = importFunc({ in: [{ x: i32 }], out: [], async: true }, set);
+const read = importFunc({ in: [], out: [i32] }, () => value);
+const sync = func({ in: [], out: [i32] }, () => { call(now, { x: 1 }); call(read); });
+const run = func({ in: [], out: [i32] }, () => { call(later, { x: 42 }); call(read); });
+export default Module({ exports: { sync, run: async(run) } });
+`,
+  });
+  try {
+    const output = await build(join(directory, "lib.ts"));
+    const host = await readFile(output.host!, "utf8");
+    assert.match(host, /const \w+ = new WebAssembly\.Suspending\(set\);/);
+    const { run, sync } = await import(pathToFileURL(output.entry!).href);
+    assert.equal(sync(), 1);
+    assert.equal(await run(), 42);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("export names that are reserved words or collide get distinct local names", async () => {
+  const directory = await project({
+    "lib.ts": `import { Module, func, i32, async } from WASMATI;
+const one = func({ in: [], out: [i32] }, () => i32.const(1));
+export default Module({ exports: { wasm: async(one), default: one } });
+`,
+  });
+  try {
+    const output = await build(join(directory, "lib.ts"));
+    const entry = await import(pathToFileURL(output.entry!).href);
+    assert.equal(await entry.wasm(), 1);
+    assert.equal(entry.default(), 1);
+    assert.match(await readFile(output.types, "utf8"), /export \{ export1 as "default" \};/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
