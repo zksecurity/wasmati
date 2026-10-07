@@ -1,4 +1,5 @@
 import { importFunc, importGlobal } from "./export.ts";
+import { array as arrayOps, func, Module } from "./index.ts";
 import { array, i16, mut } from "./type-definitions.ts";
 import { externref, i32t as i32, refType } from "./types.ts";
 
@@ -17,116 +18,153 @@ function usesJSStringBuiltins(imports: { module: string }[]) {
 
 /** The array type that builtins read characters from and write them to: UTF-16 code units. */
 const charCodeArray = array(mut(i16));
-const string = refType("extern", false);
-const charCodes = refType(charCodeArray, true);
+const string = { kind: refType("extern", false) };
+const charCodes = { kind: refType(charCodeArray, true) };
 
-/** Builtins on arrays cannot be emulated in JS, which cannot access Wasm arrays. */
-function unavailable(): never {
-  throw Error("this JS string builtin requires an engine with JS string builtins");
+/** The import path of a builtin. */
+function builtin(name: string) {
+  return { module: builtinModule, field: name };
 }
 
 /**
  * JS string builtins: functions on JS strings as `externref`, provided by the engine. Without engine
- * support, JS functions emulate the builtins that do not access arrays.
+ * support, the imports' JS functions behave the same.
  */
 const jsString = {
   charCodeArray,
-  test: importFunc(
-    { module: builtinModule, field: "test", in: [{ value: externref }], out: [i32] },
-    (value) => (typeof value === "string" ? 1 : 0),
+  test: importFunc({ ...builtin("test"), in: [{ value: externref }], out: [i32] }, (value) =>
+    typeof value === "string" ? 1 : 0,
   ),
-  cast: importFunc(
-    { module: builtinModule, field: "cast", in: [{ value: externref }], out: [{ kind: string }] },
-    (value) => {
-      if (typeof value !== "string") throw new WebAssembly.RuntimeError("not a string");
-      return value;
-    },
+  cast: importFunc({ ...builtin("cast"), in: [{ value: externref }], out: [string] }, (value) =>
+    checkString(value),
   ),
   fromCharCodeArray: importFunc(
     {
-      module: builtinModule,
-      field: "fromCharCodeArray",
-      in: [{ array: { kind: charCodes } }, { start: i32 }, { end: i32 }],
-      out: [{ kind: string }],
+      ...builtin("fromCharCodeArray"),
+      in: [{ array: charCodes }, { start: i32 }, { end: i32 }],
+      out: [string],
     },
-    unavailable,
+    (array, start, end) => {
+      [start, end] = [start >>> 0, end >>> 0];
+      let { length, get } = arrays();
+      if (start > end || end > length(array)) trap();
+      let result = "";
+      for (let i = start; i < end; i++) result += String.fromCharCode(get(array, i));
+      return result;
+    },
   ),
   intoCharCodeArray: importFunc(
     {
-      module: builtinModule,
-      field: "intoCharCodeArray",
-      in: [{ string: externref }, { array: { kind: charCodes } }, { start: i32 }],
+      ...builtin("intoCharCodeArray"),
+      in: [{ string: externref }, { array: charCodes }, { start: i32 }],
       out: [i32],
     },
-    unavailable,
+    (value, array, start) => {
+      let string = checkString(value);
+      start >>>= 0;
+      let { length, set } = arrays();
+      if (start + string.length > length(array)) trap();
+      for (let i = 0; i < string.length; i++) set(array, start + i, string.charCodeAt(i));
+      return string.length;
+    },
   ),
   fromCharCode: importFunc(
-    { module: builtinModule, field: "fromCharCode", in: [{ code: i32 }], out: [{ kind: string }] },
-    (code) => String.fromCharCode(code),
+    { ...builtin("fromCharCode"), in: [{ code: i32 }], out: [string] },
+    (code) => String.fromCharCode(code >>> 0),
   ),
   fromCodePoint: importFunc(
-    { module: builtinModule, field: "fromCodePoint", in: [{ code: i32 }], out: [{ kind: string }] },
-    (code) => String.fromCodePoint(code >>> 0),
+    { ...builtin("fromCodePoint"), in: [{ code: i32 }], out: [string] },
+    (code) => {
+      if (code >>> 0 > 0x10ffff) trap();
+      return String.fromCodePoint(code >>> 0);
+    },
   ),
   charCodeAt: importFunc(
-    {
-      module: builtinModule,
-      field: "charCodeAt",
-      in: [{ string: externref }, { index: i32 }],
-      out: [i32],
+    { ...builtin("charCodeAt"), in: [{ string: externref }, { index: i32 }], out: [i32] },
+    (value, index) => {
+      let string = checkString(value);
+      if (index >>> 0 >= string.length) trap();
+      return string.charCodeAt(index >>> 0);
     },
-    (string, index) => (string as string).charCodeAt(index >>> 0),
   ),
   codePointAt: importFunc(
-    {
-      module: builtinModule,
-      field: "codePointAt",
-      in: [{ string: externref }, { index: i32 }],
-      out: [i32],
+    { ...builtin("codePointAt"), in: [{ string: externref }, { index: i32 }], out: [i32] },
+    (value, index) => {
+      let string = checkString(value);
+      if (index >>> 0 >= string.length) trap();
+      return string.codePointAt(index >>> 0)!;
     },
-    (string, index) => (string as string).codePointAt(index >>> 0)!,
   ),
   length: importFunc(
-    { module: builtinModule, field: "length", in: [{ string: externref }], out: [i32] },
-    (string) => (string as string).length,
+    { ...builtin("length"), in: [{ string: externref }], out: [i32] },
+    (value) => checkString(value).length,
   ),
   concat: importFunc(
-    {
-      module: builtinModule,
-      field: "concat",
-      in: [{ first: externref }, { second: externref }],
-      out: [{ kind: string }],
-    },
-    (first, second) => (first as string) + (second as string),
+    { ...builtin("concat"), in: [{ first: externref }, { second: externref }], out: [string] },
+    (first, second) => checkString(first) + checkString(second),
   ),
   substring: importFunc(
     {
-      module: builtinModule,
-      field: "substring",
+      ...builtin("substring"),
       in: [{ string: externref }, { start: i32 }, { end: i32 }],
-      out: [{ kind: string }],
+      out: [string],
     },
-    (string, start, end) => (string as string).substring(start >>> 0, end >>> 0),
+    (value, start, end) => {
+      let string = checkString(value);
+      [start, end] = [start >>> 0, end >>> 0];
+      return start > end ? "" : string.substring(start, end);
+    },
   ),
   equals: importFunc(
-    {
-      module: builtinModule,
-      field: "equals",
-      in: [{ first: externref }, { second: externref }],
-      out: [i32],
+    { ...builtin("equals"), in: [{ first: externref }, { second: externref }], out: [i32] },
+    (first, second) => {
+      if (first !== null) checkString(first);
+      if (second !== null) checkString(second);
+      return first === second ? 1 : 0;
     },
-    (first, second) => (first === second ? 1 : 0),
   ),
   compare: importFunc(
-    {
-      module: builtinModule,
-      field: "compare",
-      in: [{ first: externref }, { second: externref }],
-      out: [i32],
+    { ...builtin("compare"), in: [{ first: externref }, { second: externref }], out: [i32] },
+    (first, second) => {
+      let [a, b] = [checkString(first), checkString(second)];
+      return a < b ? -1 : a === b ? 0 : 1;
     },
-    (first, second) => ((first as string) < (second as string) ? -1 : first === second ? 0 : 1),
   ),
 };
+
+/** Builtins trap where they get no string, or an index out of bounds. */
+function trap(): never {
+  throw new WebAssembly.RuntimeError("illegal argument to a JS string builtin");
+}
+
+function checkString(value: unknown): string {
+  if (typeof value !== "string") trap();
+  return value;
+}
+
+/** JS cannot access Wasm arrays; a helper module, built once, reads and writes them. */
+let helper:
+  | {
+      length(array: unknown): number;
+      get(array: unknown, i: number): number;
+      set(array: unknown, i: number, code: number): void;
+    }
+  | undefined;
+function arrays() {
+  if (helper !== undefined) return helper;
+  let length = func({ in: [{ array: charCodes }], out: [i32] }, ({ array }) => arrayOps.len(array));
+  let get = func({ in: [{ array: charCodes }, { i: i32 }], out: [i32] }, ({ array, i }) =>
+    arrayOps.get_u(charCodeArray, array, i),
+  );
+  let set = func(
+    { in: [{ array: charCodes }, { i: i32 }, { code: i32 }], out: [] },
+    ({ array, i, code }) => arrayOps.set(charCodeArray, array, i, code),
+  );
+  let bytes = Module({ exports: { length, get, set } }).toBytes();
+  helper = new WebAssembly.Instance(new WebAssembly.Module(bytes))
+    .exports as unknown as typeof helper;
+  return helper!;
+}
 
 /** A JS string constant, imported as an immutable `externref` global. */
 function stringConstant(value: string) {

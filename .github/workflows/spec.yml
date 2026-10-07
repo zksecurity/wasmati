@@ -45,6 +45,7 @@ jobs:
         run: >-
           npm run test:spec -- .spec-tests
           '.spec-tests/test/custom/**/*.wast'
+          '.spec-tests/test/js-api/js-string/*.any.js'
           '.spec-threads/test/core/threads/*.wast'
           '.spec-compact-imports/test/core/compact-import-section/*.wast'
           .spec-wide-arithmetic/test/core/wide-arithmetic.wast

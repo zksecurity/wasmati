@@ -43,11 +43,11 @@ test("JS string builtins and string constants are provided by the engine", async
   assert.equal(instance.exports.hi(), "hi");
 });
 
-test("without engine builtins, JS functions emulate them, except on arrays", async () => {
+test("without engine builtins, JS functions behave like them", async () => {
   const module = Module({ exports: { greet, length, hi } });
   const { instance } = await WebAssembly.instantiate(module.toBytes(), module.importMap);
   const exports = instance.exports as any;
   assert.equal(exports.greet("world"), "hello world");
   assert.equal(exports.length("abc"), 3);
-  assert.throws(() => exports.hi(), /requires an engine with JS string builtins/);
+  assert.equal(exports.hi(), "hi");
 });
