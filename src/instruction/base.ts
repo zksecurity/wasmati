@@ -24,6 +24,8 @@ import type { Tuple } from "../util.ts";
 import { type InstructionName, nameToOpcode } from "./opcodes.ts";
 
 export {
+  withPublicSignature,
+  type WithPublicSignature,
   baseInstructionWithImmediate,
   baseInstruction,
   type BaseInstruction,
@@ -42,6 +44,18 @@ export {
   isInstruction,
   type Instruction_,
 };
+
+/**
+ * Instructions may declare the signature of their public API, without the context argument. Generic
+ * signatures keep their type parameters there, which removing the context from the full signature
+ * loses. This is a type only: the property does not exist at runtime.
+ */
+declare const publicSignature: unique symbol;
+type WithPublicSignature<Signature> = { readonly [publicSignature]?: Signature };
+
+function withPublicSignature<Signature>() {
+  return <F>(instruction: F) => instruction as F & WithPublicSignature<Signature>;
+}
 
 const nameToInstruction: Record<string, BaseInstruction> = {};
 const opcodeToInstruction: Record<number, BaseInstruction | Record<number, BaseInstruction>> = {};
