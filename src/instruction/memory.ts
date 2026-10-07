@@ -1,4 +1,9 @@
-import { type Instruction_, baseInstruction } from "./base.ts";
+import {
+  type Instruction_,
+  baseInstruction,
+  withPublicSignature,
+  type WithPublicSignature,
+} from "./base.ts";
 import * as Dependency from "../dependency.ts";
 import type { LocalContext, StackVar } from "../local-context.ts";
 import { U32, U64, U8, uint64 } from "../immediate.ts";
@@ -17,16 +22,7 @@ import type { Tuple } from "../util.ts";
 import type { InstructionName } from "./opcodes.ts";
 import { type Input, processStackArgs } from "./stack-args.ts";
 
-export {
-  memoryOps,
-  bindMemoryOps,
-  dataOps,
-  tableOps,
-  bindTableOps,
-  elemOps,
-  memoryInstruction,
-  memoryLaneInstruction,
-};
+export { memoryOps, dataOps, tableOps, elemOps, memoryInstruction, memoryLaneInstruction };
 
 /**
  * Memory instructions can name their memory; without one they use the default memory, which must then
@@ -43,20 +39,31 @@ function minAddress(a: AddressType, b: AddressType): AddressType {
   return a === "i64" && b === "i64" ? "i64" : "i32";
 }
 
-const memorySize = baseInstruction("memory.size", MemoryIndex, {
-  create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
-    const { address, deps } = memoryUse(memory);
-    return { in: [], out: [address], deps, resolveArgs: [0] };
-  },
-});
-const memoryGrow = baseInstruction("memory.grow", MemoryIndex, {
-  create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
-    const { address, deps } = memoryUse(memory);
-    return { in: [address], out: [address], deps, resolveArgs: [0] };
-  },
-});
+/** Sizes have the memory's address type, i32 for the default memory. */
+type SizeSignature = <A extends AddressType = "i32">(
+  ...memory: [] | [memory: Dependency.AnyMemory<A>]
+) => StackVar<A>;
+
+const memorySize = withPublicSignature<SizeSignature>()(
+  baseInstruction("memory.size", MemoryIndex, {
+    create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
+      const { address, deps } = memoryUse(memory);
+      return { in: [], out: [address], deps, resolveArgs: [0] };
+    },
+  }),
+);
+const memoryGrow = withPublicSignature<SizeSignature>()(
+  baseInstruction("memory.grow", MemoryIndex, {
+    create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
+      const { address, deps } = memoryUse(memory);
+      return { in: [address], out: [address], deps, resolveArgs: [0] };
+    },
+  }),
+);
 
 const memoryOps = {
+  size: memorySize,
+  grow: memoryGrow,
   init: baseInstruction("memory.init", tuple([DataIndex, MemoryIndex]), {
     create(
       _: LocalContext,
@@ -97,16 +104,6 @@ const memoryOps = {
   }),
 };
 
-/** Sizes have the memory's address type, i32 for the default memory. */
-function bindMemoryOps(ctx: LocalContext) {
-  return {
-    size: <A extends AddressType = "i32">(...memory: [] | [Dependency.AnyMemory<A>]) =>
-      memorySize(ctx, ...memory) as StackVar<A>,
-    grow: <A extends AddressType = "i32">(...memory: [] | [Dependency.AnyMemory<A>]) =>
-      memoryGrow(ctx, ...memory) as StackVar<A>,
-  };
-}
-
 const dataOps = {
   drop: baseInstruction("data.drop", DataIndex, {
     create(_: LocalContext, data: Dependency.Data) {
@@ -122,21 +119,30 @@ const dataOps = {
 
 const tableAddress = (table: Dependency.AnyTable) => table.address;
 
-const tableGrow = baseInstruction("table.grow", TableIndex, {
-  create(_: LocalContext, table: Dependency.AnyTable) {
-    const address = tableAddress(table);
-    return { in: [table.type.type, address], out: [address], deps: [table] };
-  },
-  resolve: ([tableIdx]) => tableIdx,
-});
-const tableSize = baseInstruction("table.size", TableIndex, {
-  create(_: LocalContext, table: Dependency.AnyTable) {
-    return { in: [], out: [tableAddress(table)], deps: [table] };
-  },
-  resolve: ([tableIdx]) => tableIdx,
-});
+/** Sizes have the table's address type. */
+type TableSizeSignature = <A extends AddressType>(table: Dependency.AnyTable<A>) => StackVar<A>;
+
+const tableGrow = withPublicSignature<TableSizeSignature>()(
+  baseInstruction("table.grow", TableIndex, {
+    create(_: LocalContext, table: Dependency.AnyTable) {
+      const address = tableAddress(table);
+      return { in: [table.type.type, address], out: [address], deps: [table] };
+    },
+    resolve: ([tableIdx]) => tableIdx,
+  }),
+);
+const tableSize = withPublicSignature<TableSizeSignature>()(
+  baseInstruction("table.size", TableIndex, {
+    create(_: LocalContext, table: Dependency.AnyTable) {
+      return { in: [], out: [tableAddress(table)], deps: [table] };
+    },
+    resolve: ([tableIdx]) => tableIdx,
+  }),
+);
 
 const tableOps = {
+  size: tableSize,
+  grow: tableGrow,
   get: baseInstruction("table.get", TableIndex, {
     create(_: LocalContext, table: Dependency.AnyTable) {
       return { in: [tableAddress(table)], out: [table.type.type], deps: [table] };
@@ -171,16 +177,6 @@ const tableOps = {
   }),
 };
 
-/** Sizes have the table's address type. */
-function bindTableOps(ctx: LocalContext) {
-  return {
-    size: <A extends AddressType>(table: Dependency.AnyTable<A>) =>
-      tableSize(ctx, table) as StackVar<A>,
-    grow: <A extends AddressType>(table: Dependency.AnyTable<A>) =>
-      tableGrow(ctx, table) as StackVar<A>,
-  };
-}
-
 const elemOps = {
   drop: baseInstruction("elem.drop", ElemIndex, {
     create(_: LocalContext, elem: Dependency.Elem) {
@@ -207,12 +203,29 @@ function withNaturalAlign<T>(binable: Binable<T>, bits: number): MemArgImmediate
 }
 
 /** The memory argument of an access: alignment in bytes, offset, and optionally the memory. */
-type MemArgInput = { offset?: U64; align?: number; memory?: Dependency.AnyMemory };
-
-/** Operand types of a memory access whose first operand, the address, depends on the memory. */
-type AccessArgs<Args extends readonly ValueType[]> = {
-  [i in keyof Args]: Input<i extends "0" ? AddressType : Args[i]>;
+type MemArgInput<A extends AddressType = AddressType> = {
+  offset?: U64;
+  align?: number;
+  memory?: Dependency.AnyMemory<A>;
 };
+
+/** Operand types of a memory access whose first operand, the address, has the memory's address type. */
+type AccessArgs<Args extends readonly ValueType[], A extends AddressType = AddressType> = {
+  [i in keyof Args]: Input<i extends "0" ? A : Args[i]>;
+};
+
+/** A memory access: addresses have the address type of the memory, i32 for the default memory. */
+type AccessSignature<Args extends readonly ValueType[], Results> = <A extends AddressType = "i32">(
+  memArg: MemArgInput<A>,
+  ...args: AccessArgs<Args, NoInfer<A>> | []
+) => Instruction_<Args, Results>;
+type LaneAccessSignature<Args extends readonly ValueType[], Results> = <
+  A extends AddressType = "i32",
+>(
+  memArg: MemArgInput<A>,
+  lane: number,
+  ...args: AccessArgs<Args, NoInfer<A>> | []
+) => Instruction_<Args, Results>;
 
 function memoryInstruction<
   const Args extends Tuple<ValueType>,
@@ -222,11 +235,12 @@ function memoryInstruction<
   bits: number,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>,
-): (
+): ((
   ctx: LocalContext,
   memArg: MemArgInput,
   ...args: AccessArgs<Args> | []
-) => Instruction_<Args, Results> {
+) => Instruction_<Args, Results>) &
+  WithPublicSignature<AccessSignature<Args, Results>> {
   let expectedArgs = valueTypeLiterals<Args>(args);
   let createInstr = baseInstruction<MemArg, [memArg: MemArgInput], [memArg: MemArg], Args, Results>(
     name,
@@ -258,12 +272,13 @@ function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tu
   bits: number,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>,
-): (
+): ((
   ctx: LocalContext,
   memArg: MemArgInput,
   lane: number,
   ...args: AccessArgs<Args> | []
-) => Instruction_<Args, Results> {
+) => Instruction_<Args, Results>) &
+  WithPublicSignature<LaneAccessSignature<Args, Results>> {
   let expectedArgs = valueTypeLiterals<Args>(args);
   let createInstr = baseInstruction<
     MemArgAndLane,
