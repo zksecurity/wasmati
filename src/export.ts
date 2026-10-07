@@ -1,3 +1,5 @@
+import type {} from "./js-api.ts";
+import type { JSValues, ReturnValues } from "./func.ts";
 import { Binable, byteEnum, record } from "./binable.ts";
 import { Name, U32, type U64 } from "./immediate.ts";
 import {
@@ -103,12 +105,14 @@ const Import = record<Import>({
 function importFunc<
   const Args extends readonly ParameterInput[] = [],
   const Results extends Tuple<ValueType> = [],
+  const Suspending extends boolean = false,
 >(
   {
     name: inputName,
     in: entries,
     out: results_,
     type: definedType,
+    suspending,
     module,
     field,
   }: {
@@ -117,8 +121,17 @@ function importFunc<
     out: ToTypeTuple<Results>;
     /** An explicit function type, such as a subtype; it must match the signature. */
     type?: DefinedType;
+    /**
+     * The function may return a promise, which suspends Wasm until it resolves (JSPI). Wasm must be
+     * entered through a promising export.
+     */
+    suspending?: Suspending;
   } & Dependency.ImportPath,
-  run: NoInfer<JSFunction<ImportFunc<ParameterSchema<Args>, Results>>>,
+  run: NoInfer<
+    Suspending extends true
+      ? AsyncJSFunction<ImportFunc<ParameterSchema<Args>, Results>>
+      : JSFunction<ImportFunc<ParameterSchema<Args>, Results>>
+  >,
 ): ImportFunc<ParameterSchema<Args>, Results> {
   const args_ = createParameters<Args>(entries);
   const type = { args: args_.types, results: valueTypeLiterals<Results>(results_) };
@@ -131,10 +144,15 @@ function importFunc<
     type,
     ...explicitType(definedType, type),
     deps: [],
-    value: run,
+    value: suspending ? new WebAssembly.Suspending(run) : run,
     ...(name === undefined ? {} : { name }),
   };
 }
+
+/** A JS function that may return a promise of its results. */
+type AsyncJSFunction<T extends Dependency.AnyFunc> = (
+  ...args: JSValues<T["type"]["args"]>
+) => ReturnValues<T["type"]["results"]> | Promise<ReturnValues<T["type"]["results"]>>;
 
 function importGlobal<V extends ValueType>(
   type: Type<V>,

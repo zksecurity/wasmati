@@ -1,3 +1,4 @@
+import type {} from "./js-api.ts";
 import type * as Dependency from "./dependency.ts";
 import type { Parameters, ParameterEntry } from "./parameters.ts";
 import { ValueType } from "./types.ts";
@@ -14,6 +15,7 @@ type Func<Args extends readonly ParameterEntry[], Results extends readonly Value
   params: Parameters<Args>;
   type: { args: Parameters<Args>["types"]; results: Results };
   defined: boolean;
+  promising?: true;
 };
 
 type ImportFunc<Args extends readonly ParameterEntry[], Results extends readonly ValueType[]> = {
@@ -23,7 +25,7 @@ type ImportFunc<Args extends readonly ParameterEntry[], Results extends readonly
   name?: string;
   params: Parameters<Args>;
   type: { args: Parameters<Args>["types"]; results: Results };
-  value: Function;
+  value: Function | WebAssembly.Suspending;
   deps: [];
 };
 

@@ -1,3 +1,4 @@
+import type {} from "./js-api.ts";
 import * as Dependency from "./dependency.ts";
 import { Export, Import } from "./export.ts";
 import type { FinalizedFunc, JSFunction } from "./func.ts";
@@ -269,7 +270,10 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(indexTypes(binableModule, registry), importMap);
+  let promising = allExports.flatMap(([name, value]) =>
+    value.kind === "function" && value.promising ? [name] : [],
+  );
+  return createModule<Exports>(indexTypes(binableModule, registry), importMap, promising);
 }
 
 function orderGlobals(globals: Dependency.Global[]): Dependency.Global[] {
@@ -343,19 +347,22 @@ function indexTypes(module: BinableModule, registry: TypeRegistry): BinableModul
   return indexed;
 }
 
+/** `promising` names the exports that are wrapped by `WebAssembly.promising` on instantiation. */
 function createModule<Exports extends Record<string, Dependency.Export>>(
   binableModule: BinableModule,
   importMap: WebAssembly.Imports,
+  promising: string[] = [],
 ) {
   let module = {
     module: binableModule,
     importMap,
     /** Instantiate Wasm with inferred native export signatures; exports are the actual Wasm functions. */
     async instantiate() {
-      return (await WebAssembly.instantiate(
+      let { instance, module } = await WebAssembly.instantiate(
         Uint8Array.from(BinableModule.toBytes(binableModule)),
         importMap,
-      )) as {
+      );
+      return { instance: withPromisingExports(instance, promising), module } as {
         instance: WebAssembly.Instance & {
           exports: { [K in keyof Exports]: ModuleExport<Exports[K]> };
         };
@@ -374,8 +381,23 @@ function createModule<Exports extends Record<string, Dependency.Export>>(
   return module;
 }
 
+/**
+ * An instance whose promising exports are wrapped by `WebAssembly.promising`; the other exports and
+ * the prototype are the instance's own.
+ */
+function withPromisingExports(instance: WebAssembly.Instance, promising: string[]) {
+  if (promising.length === 0) return instance;
+  let wrapped = Object.fromEntries(
+    promising.map((name) => [name, WebAssembly.promising(instance.exports[name] as Function)]),
+  );
+  let exports = Object.freeze({ ...instance.exports, ...wrapped });
+  return Object.create(instance, { exports: { value: exports } }) as WebAssembly.Instance;
+}
+
 type ModuleExport<Export extends Dependency.Export> = Export extends Dependency.AnyFunc
-  ? JSFunction<Export>
+  ? Export extends { promising: true }
+    ? PromisingFunction<Export>
+    : JSFunction<Export>
   : Export extends Dependency.AnyGlobal
     ? {
         value: JSValue<Export["type"]["value"]>;
@@ -388,6 +410,11 @@ type ModuleExport<Export extends Dependency.Export> = Export extends Dependency.
         : Export extends Dependency.AnyTag
           ? WebAssembly.Tag
           : unknown;
+
+/** A promising export returns a promise of its results. */
+type PromisingFunction<T extends Dependency.AnyFunc> = (
+  ...args: Parameters<JSFunction<T>>
+) => Promise<ReturnType<JSFunction<T>>>;
 
 const Module = Object.assign(ModuleConstructor, {
   fromBytes<Exports extends Record<string, Dependency.Export>>(
