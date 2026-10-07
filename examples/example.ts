@@ -14,7 +14,7 @@ import {
   importFunc,
   importGlobal,
   memory,
-  Const,
+  constant,
   f64,
   call,
   block,
@@ -89,8 +89,14 @@ let myFunc = func(
 );
 
 let importedGlobal = importGlobal(i64, 1000n);
-let myFuncGlobal = global(Const.refFunc(myFunc));
-let f64Global = global(Const.f64(0), { mutable: true });
+let myFuncGlobal = global(
+  constant(() => ref.func(myFunc)),
+  { type: funcref },
+);
+let f64Global = global(
+  constant(() => f64.const(0)),
+  { mutable: true },
+);
 
 // this function is not part of the import graph of the module, so won't end up in the assembly
 let testUnreachable = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x }) => {
@@ -100,10 +106,10 @@ let testUnreachable = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x })
 });
 
 let funcTable = table({ type: funcref, min: 4 }, [
-  Const.refFunc(consoleLogFunc),
-  Const.refFunc(myFunc),
-  Const.refFuncNull,
-  Const.refFuncNull,
+  consoleLogFunc,
+  myFunc,
+  constant(() => ref.null(funcref)),
+  constant(() => ref.null(funcref)),
 ]);
 
 let exportedFunc = func(

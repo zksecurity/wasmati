@@ -13,6 +13,7 @@ import {
   v128,
   i64x2,
   ref,
+  extern,
   funcref,
   externref,
   exnref,
@@ -24,6 +25,7 @@ import {
   type FunctionType,
   type HeapType,
   isFunctionType,
+  isHeapSubtype,
   isRefType,
   printValueType,
   referenced,
@@ -49,10 +51,9 @@ import { loadTextFactory, readModule } from "./text-helpers.ts";
 export { runWast };
 export type { Result };
 
-type Result = {
-  passed: number;
-  failures: { command: number; line: number; kind: string; message: string }[];
-};
+type Failure = { command: number; line: number; kind: string; message: string };
+/** Valid modules beyond the engine's implementation limits, which the spec permits, are skipped. */
+type Result = { passed: number; failures: Failure[]; skipped: Failure[] };
 
 type Instance = { instance: WebAssembly.Instance; module: ModuleValue };
 type Factory = Awaited<ReturnType<typeof loadTextFactory>>;
@@ -63,7 +64,7 @@ type Factory = Awaited<ReturnType<typeof loadTextFactory>>;
  * vectors as integer bits so that NaN payloads never pass through JS numbers.
  */
 async function runWast(source: string): Promise<Result> {
-  const result: Result = { passed: 0, failures: [] };
+  const result: Result = { passed: 0, failures: [], skipped: [] };
   const lists = readScript(source);
   const registered: WebAssembly.Imports = linked({ spectest: spectest() });
   const instances = new Map<string, Instance>();
@@ -201,11 +202,13 @@ async function runWast(source: string): Promise<Result> {
       }
       result.passed++;
     } catch (error) {
-      result.failures.push({
+      const message = error instanceof Error ? error.message : String(error);
+      const limited = kind === "module" && /larger than implementation limit/.test(message);
+      (limited ? result.skipped : result.failures).push({
         command: index + 1,
         line: source.slice(0, list.offset).split(/\r\n|[\r\n]/).length,
         kind,
-        message: error instanceof Error ? error.message : String(error),
+        message,
       });
     }
   }
@@ -222,14 +225,18 @@ const trapMessages: [string, RegExp][] = [
   ["integer divide by zero", /(divide|remainder) by zero/],
   ["integer overflow", /divide result unrepresentable|float unrepresentable in integer range/],
   ["invalid conversion to integer", /float unrepresentable in integer range/],
-  ["out of bounds memory access", /memory access out of bounds|data segment \d+ is out of bounds/],
+  [
+    "out of bounds memory access",
+    /memory access out of bounds|data segment (\d+ is )?out of bounds/,
+  ],
   ["out of bounds table access", /table index is out of bounds|element segment out of bounds/],
   ["undefined element", /table index is out of bounds/],
   ["uninitialized element", /null function/],
   ["indirect call type mismatch", /function signature mismatch/],
   ["out of bounds", /out of bounds/],
   ["null function reference", /dereferencing a null pointer/],
-  ["null reference", /dereferencing a null pointer|null/],
+  ["null", /dereferencing a null pointer|null/],
+  ["cast", /illegal cast/],
   ["indirect call", /function signature mismatch|null function/],
 ];
 
@@ -449,6 +456,19 @@ function jsTypes(type: ValueType): ValueType[] {
         : [type];
 }
 
+/**
+ * Internal references pass out of the wrapper as external references, with a bitmask of whether they
+ * are i31 (1), struct (2) or array (4) references.
+ */
+function isInternal(type: ValueType): boolean {
+  return isRefType(type) && isHeapSubtype(referenced(type).ref, "any");
+}
+
+/** The wrapper's outputs for a result. */
+function resultTypes(type: ValueType): ValueType[] {
+  return isInternal(type) ? ["externref", "i32"] : jsTypes(type);
+}
+
 /** Exception references cannot pass into JS; the wrapper returns whether they are null instead. */
 function isException(type: ValueType): boolean {
   return isRefType(type) && ["exn", "noexn"].includes(referenced(type).ref as string);
@@ -461,7 +481,7 @@ async function buildWrapper(signature: Signature, exported: unknown) {
   const locals = Object.fromEntries(
     signature.results.map((type, i) => [`r${i}`, typeObject(type)]),
   );
-  const out = signature.results.flatMap(jsTypes).map(typeObject);
+  const out = signature.results.flatMap(resultTypes).map(typeObject);
   const imported =
     signature.global === undefined
       ? importFunc(
@@ -502,6 +522,18 @@ async function buildWrapper(signature: Signature, exported: unknown) {
         i64x2.extract_lane(1);
       }
       if (isException(type)) ref.is_null();
+      if (isInternal(type)) {
+        extern.convert_any();
+        (["i31", "struct", "array"] as const).forEach((kind, bit) => {
+          local.get(results[`r${i}`]);
+          ref.test({ kind: refType(kind, false) });
+          if (bit > 0) {
+            i32.const(bit);
+            i32.shl();
+            i32.or();
+          }
+        });
+      }
     });
   });
   const { instance } = await Builder({ exports: { wrapper } }).instantiate();
@@ -524,7 +556,7 @@ function fromJS(
   position: number,
   advance: (n: number) => void,
 ) {
-  const width = jsTypes(type).length;
+  const width = resultTypes(type).length;
   advance(width);
   const at = (i: number) => values[position + i];
   if (type === "i32" || type === "f32") return BigInt.asUintN(32, BigInt(at(0) as number));
@@ -532,6 +564,7 @@ function fromJS(
   if (type === "v128")
     return BigInt.asUintN(64, at(0) as bigint) | (BigInt.asUintN(64, at(1) as bigint) << 64n);
   if (isException(type)) return at(0) === 1 ? null : { exception: true };
+  if (isInternal(type)) return at(0) === null ? null : { reference: at(0), kinds: at(1) as number };
   return at(0);
 }
 
@@ -547,7 +580,13 @@ function matches(
     if (!isRefType(type)) return false;
     if (expected.ref === "null") return actual === null;
     if (expected.ref === "func") return typeof actual === "function";
-    return expected.host === undefined ? actual !== null : actual === host(expected.host);
+    const internal = isInternal(type) ? (actual as Internal | null) : undefined;
+    if (expected.ref === "extern") {
+      const reference = internal === undefined ? actual : internal?.reference;
+      return expected.host === undefined ? reference != null : reference === host(expected.host);
+    }
+    const bits = { i31: 1, struct: 2, array: 4, eq: 7 }[expected.ref];
+    return ((internal?.kinds ?? 0) & bits) !== 0;
   }
   if (expected.type !== type) return false;
   let offset = 0n;
@@ -557,6 +596,8 @@ function matches(
     return (lane & mask) === value;
   });
 }
+
+type Internal = { reference: unknown; kinds: number };
 
 function show(expected: Expected): string {
   if (expected.type === "either") return `either(${expected.options.map(show).join(", ")})`;

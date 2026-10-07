@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { $, Const, Module, func, global, i32, i64, local, StackVar } from "../index.ts";
+import { $, constant, Module, func, global, i32, i64, local, StackVar } from "../index.ts";
 
 const add128 = func(
   { in: [{ aLo: i64 }, { aHi: i64 }, { bLo: i64 }, { bHi: i64 }], out: [i64, i64] },
@@ -111,7 +111,7 @@ test("signed and unsigned widening multiplication match bigint", async () => {
 });
 
 test("wide results compose with locals, constants, globals and stack operands", async () => {
-  const one = global(Const.i64(1n));
+  const one = global(constant(() => i64.const(1n)));
   const multiplyAdd = func(
     { in: [{ a: i64 }, { b: i64 }], locals: { lo: i64, hi: i64 }, out: [i64, i64] },
     ({ a, b }, { lo, hi }) => {

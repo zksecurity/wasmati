@@ -18,7 +18,7 @@ const source = `(module $math
   (assert_malformed (module quote "(func (param $x i32 i64))") "unexpected token")`;
 
 test("WAST assertions execute modules generated through the wasmati API", async () => {
-  assert.deepEqual(await runWast(source), { passed: 10, failures: [] });
+  assert.deepEqual(await runWast(source), { passed: 10, failures: [], skipped: [] });
 });
 
 test("floats and vectors are compared as bits, with NaN classes and alternatives", async () => {
@@ -128,12 +128,28 @@ test("tables, memories and functions do not link as number globals", async () =>
     (assert_unlinkable (module (import "m" "table" (global i32))) "incompatible import type")
     (assert_unlinkable (module (import "m" "memory" (global i64))) "incompatible import type")
     (assert_unlinkable (module (import "m" "func" (global f32))) "incompatible import type")`);
-  assert.deepEqual(result, { passed: 5, failures: [] });
+  assert.deepEqual(result, { passed: 5, failures: [], skipped: [] });
 });
 
 test("a script of module fields is a single module", async () => {
   assert.deepEqual(await runWast('(memory 1) (func (export "f") (result i32) i32.const 1)'), {
     passed: 1,
     failures: [],
+    skipped: [],
   });
+});
+
+test("modules beyond the engine's limits are skipped, other failures still count", async () => {
+  const result = await runWast(`(module (memory i64 0 0x1_0000_0000_0000))
+    (module (func (export "f") (result i32) i32.const 1))
+    (assert_return (invoke "f") (i32.const 2))`);
+  assert.equal(result.passed, 1);
+  assert.deepEqual(
+    result.skipped.map((skip) => skip.line),
+    [1],
+  );
+  assert.deepEqual(
+    result.failures.map((failure) => failure.line),
+    [3],
+  );
 });

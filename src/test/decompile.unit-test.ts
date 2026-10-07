@@ -14,7 +14,7 @@ import {
   i64,
   local,
   call,
-  Const,
+  constant,
   data,
   elem,
   func,
@@ -314,12 +314,12 @@ test("decompiles memory alignment, SIMD memory lanes, reference selects and atom
 });
 
 test("segment offsets with arithmetic decompile to TypeScript that type-checks", async () => {
-  const offset = Const.i32.add(Const.i32(1), Const.i32(2));
+  const offset = constant(() => i32.add(1, 2));
   const mem = memory({ min: 1 });
   data({ memory: mem, offset }, [42]);
   const load = func({ in: [], out: [i32] }, () => i32.load8_u({}, 3));
   const t = table({ type: funcref, min: 4 });
-  elem({ type: funcref, mode: { table: t, offset } }, [Const.refFunc(load)]);
+  elem({ type: funcref, mode: { table: t, offset } }, [load]);
   const bytes = Module({ exports: { load, mem, t } }).toBytes();
   const { source, instance } = await rebuildBytes(bytes);
   assert.match(source, /i32\.add/);

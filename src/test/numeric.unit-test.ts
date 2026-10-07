@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   func,
   global,
-  Const,
+  constant,
   i32,
   i64,
   f32,
@@ -66,19 +66,24 @@ test("i64x2.bitmask returns an i32", async () => {
 });
 
 test("vector constants accept signed lanes and initialize globals", async () => {
-  const g = global(Const.v128("i32x4", [-1, 2, 0xffffffff, -0x80000000]));
+  const g = global(constant(() => v128.const("i32x4", [-1, 2, 0xffffffff, -0x80000000])));
   const lane = func({ in: [], out: [i32] }, () => i32x4.extract_lane(0, global.get(g)));
   const { instance } = await Module({ exports: { lane } }).instantiate();
   assert.equal(instance.exports.lane(), -1);
-  assert.throws(() => Const.v128("i8x16", [256, ...Array(15).fill(0)] as any), /fit/);
+  assert.throws(
+    () => constant(() => v128.const("i8x16", [256, ...Array(15).fill(0)] as any)),
+    /fit/,
+  );
 });
 
 test("constant expressions combine integers with add, sub and mul", async () => {
-  const base = global(Const.i32(10));
+  const base = global(constant(() => i32.const(10)));
   const offset = global(
-    Const.i32.add(Const.globalGet(base), Const.i32.mul(Const.i32(3), Const.i32(4))),
+    constant(() => i32.add(global.get(base), i32.mul(i32.const(3), i32.const(4)))),
   );
-  const wide = global(Const.i64.sub(Const.i64(1), Const.i64(2)));
+  const wide = global(constant(() => i64.sub(1n, 2n)));
+  assert.throws(() => constant(() => i32.div_s(1, 2)), /i32.div_s is not a constant instruction/);
+  assert.throws(() => constant(() => {}), /expected one value/);
   const read = func({ in: [], out: [i32] }, () => global.get(offset));
   const readWide = func({ in: [], out: [i64] }, () => global.get(wide));
   const module = Module({ exports: { read, readWide } });

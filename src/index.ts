@@ -13,6 +13,17 @@ import {
 import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.ts";
 import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.ts";
 import { bindControlOps, control as controlOps, parametric } from "./instruction/control.ts";
+import {
+  anyOps,
+  arrayOps,
+  br_on_cast as brOnCast,
+  br_on_cast_fail as brOnCastFail,
+  externOps,
+  gcRefOps,
+  i31Ops,
+  structOps,
+} from "./instruction/gc.ts";
+import { array as arrayType, struct as structType } from "./type-definitions.ts";
 import { emptyContext, type LocalContext, type Label, StackVar, Unknown } from "./local-context.ts";
 import type { Tuple } from "./util.ts";
 import {
@@ -68,8 +79,8 @@ import {
 } from "./memory.ts";
 import * as Dependency from "./dependency.ts";
 import type { Global, ImportGlobal, AnyGlobal, ImportMemory, AnyMemory } from "./dependency.ts";
-import { Const } from "./dependency.ts";
 import { importFunc, importGlobal, importMemory, importTable, importTag } from "./export.ts";
+import { constant as constantExpression } from "./constant.ts";
 import type { TupleN } from "./util.ts";
 import type { ModuleExport } from "./module.ts";
 import type { Input } from "./instruction/stack-args.ts";
@@ -111,6 +122,11 @@ export {
   f32x4,
   f64x2,
   atomic,
+  struct,
+  array,
+  i31,
+  any,
+  extern,
 };
 export {
   nop,
@@ -126,6 +142,8 @@ export {
   throw_,
   throw_ref,
   try_table,
+  br_on_cast,
+  br_on_cast_fail,
   return_,
   call,
   call_indirect,
@@ -137,9 +155,9 @@ export {
 
 // other public API
 export { defaultCtx };
-export { declareFunc, func, type Func, importFunc, type ImportFunc, type AnyFunc };
+export { declareFunc, func, type Func, importFunc, type ImportFunc, type AnyFunc, constant };
 export { importTable, importTag, tagConstructor as tag };
-export { struct, array, funcType, rec, mut, i8, i16 } from "./type-definitions.ts";
+export { funcType, rec, mut, i8, i16 } from "./type-definitions.ts";
 export { importMemory, type ImportMemory, type AnyMemory };
 export { type Global, importGlobal, type ImportGlobal, type AnyGlobal };
 export {
@@ -166,7 +184,7 @@ export {
   RefType,
   type RefTypeObject,
 };
-export { Const, Dependency };
+export { Dependency };
 export type {
   ToTypeTuple,
   FunctionTypeInput,
@@ -186,6 +204,7 @@ type v128 = "v128";
 
 const defaultCtx = emptyContext();
 const declareFunc = removeContext(defaultCtx, originalDeclareFunc);
+const constant = removeContext(defaultCtx, constantExpression);
 
 const {
   func,
@@ -211,6 +230,11 @@ const {
   f32x4,
   f64x2,
   atomic,
+  struct,
+  array,
+  i31,
+  any,
+  extern,
 } = createInstructions(defaultCtx);
 
 let {
@@ -234,6 +258,8 @@ let {
   throw: throw_,
   throw_ref,
   try_table,
+  br_on_cast,
+  br_on_cast_fail,
 } = control;
 
 const $: StackVar<any> = StackVar(Unknown);
@@ -277,9 +303,19 @@ function createInstructions(ctx: LocalContext) {
 
   const local = bindLocalOps(ctx);
   const global = Object.assign(globalConstructor, bindGlobalOps(ctx));
-  const ref = removeContexts(ctx, refOps);
+  const ref = removeContexts(ctx, { ...refOps, ...gcRefOps });
 
-  const control1 = removeContexts(ctx, controlOps);
+  const struct = Object.assign(structType, removeContexts(ctx, structOps));
+  const array = Object.assign(arrayType, removeContexts(ctx, arrayOps));
+  const i31 = removeContexts(ctx, i31Ops);
+  const any = removeContexts(ctx, anyOps);
+  const extern = removeContexts(ctx, externOps);
+
+  const control1 = removeContexts(ctx, {
+    ...controlOps,
+    br_on_cast: brOnCast,
+    br_on_cast_fail: brOnCastFail,
+  });
   const control2 = bindControlOps(ctx);
   const control = Object.assign(control1, control2);
 
@@ -334,6 +370,11 @@ function createInstructions(ctx: LocalContext) {
     f32x4,
     f64x2,
     atomic,
+    struct,
+    array,
+    i31,
+    any,
+    extern,
   };
 }
 

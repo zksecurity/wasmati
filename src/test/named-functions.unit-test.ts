@@ -3,7 +3,7 @@ import { test } from "node:test";
 import wabtFactory from "wabt";
 import {
   localArray,
-  Const,
+  constant,
   Module,
   NameSection,
   call,
@@ -203,7 +203,7 @@ test("exported globals, tables and memories receive names and retain native iden
   const module = Module({
     name: "entities",
     exports: {
-      counter: global(Const.i32(42)),
+      counter: global(constant(() => i32.const(42))),
       memory: memory({ min: 1 }),
       table: table({ type: funcref, min: 0 }),
     },

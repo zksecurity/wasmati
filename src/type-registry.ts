@@ -85,7 +85,12 @@ class TypeRegistry {
   /** Instructions with type immediates refer to types by index. */
   instructions(body: ResolvedInstruction[]): ResolvedInstruction[] {
     return body.map(({ name, immediate }) => {
-      if (name === "ref.null") return { name, immediate: this.heap(immediate) };
+      if (name === "ref.null" || name.startsWith("ref.test") || name.startsWith("ref.cast"))
+        return { name, immediate: this.heap(immediate) };
+      if (name === "br_on_cast" || name === "br_on_cast_fail") {
+        let { from, to } = immediate;
+        return { name, immediate: { ...immediate, from: this.value(from), to: this.value(to) } };
+      }
       if (name === "select_t")
         return { name, immediate: immediate.map((t: StorageType) => this.value(t)) };
       if (name === "block" || name === "loop" || name === "try_table")

@@ -10,7 +10,7 @@ import {
   funcref,
   global,
   table,
-  Const,
+  constant,
   elem,
   block,
   call_ref,
@@ -46,7 +46,7 @@ test("typed function references are called with call_ref and tail calls", async 
     return_call_ref(unary);
   });
   // Functions referenced in code must be declared, here by a declarative segment.
-  const declared = elem({ type: funcref, mode: "declarative" }, [Const.refFunc(double)]);
+  const declared = elem({ type: funcref, mode: "declarative" }, [double]);
   const module = Module({ exports: { apply, tail, tailRef }, dependencies: [declared] });
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.apply(4), 8);
@@ -58,7 +58,10 @@ test("typed function references are called with call_ref and tail calls", async 
 test("null checks narrow nullable references", async () => {
   const nullable = refType(unary, { nullable: true });
   const one = func({ in: [{ x: i32 }], out: [i32] }, () => i32.const(1));
-  const g = global(Const.refFunc(one), { mutable: true, type: nullable });
+  const g = global(
+    constant(() => ref.func(one)),
+    { mutable: true, type: nullable },
+  );
   const callOrZero = func({ in: [], out: [i32] }, () => {
     block({ out: [] }, (empty) => {
       i32.const(7);
@@ -87,14 +90,27 @@ test("null checks narrow nullable references", async () => {
   instance.exports.clear();
   assert.equal(instance.exports.callOrZero(), 0);
   assert.equal(instance.exports.isSet(), 0);
-  // Function references default to funcref globals, and declared types must fit.
-  assert.equal(global(Const.refFunc(one)).type.value, "funcref");
-  assert.throws(() => global(Const.refNull(funcref), { type: refType(unary) }), /does not fit/);
+  // Globals have their initializer's type, unless they declare a supertype of it.
+  assert.equal(
+    global(
+      constant(() => ref.func(one)),
+      { type: funcref },
+    ).type.value,
+    "funcref",
+  );
+  assert.throws(
+    () =>
+      global(
+        constant(() => ref.null(funcref)),
+        { type: refType(unary) },
+      ),
+    /does not fit/,
+  );
 });
 
 test("tables may hold typed references and initialize them", async () => {
   const seven = func({ in: [{ x: i32 }], out: [i32] }, () => i32.const(7));
-  const t = table({ type: refType(unary), min: 2, init: Const.refFunc(seven) });
+  const t = table({ type: refType(unary), min: 2, init: seven });
   const call = func({ in: [{ i: i32 }], out: [i32] }, ({ i }) => {
     i32.const(0);
     local.get(i);

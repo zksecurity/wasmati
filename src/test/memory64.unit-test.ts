@@ -9,7 +9,6 @@ import {
   table,
   funcref,
   call_indirect,
-  Const,
   elem,
   $,
 } from "../index.ts";
@@ -55,7 +54,7 @@ test("a 64-bit memory must be named by its instructions", () => {
 test("64-bit tables index with i64, including call_indirect and segment offsets", async () => {
   const t = table({ type: funcref, min: 2, address: "i64" });
   const answer = func({ in: [], out: [i32] }, () => i32.const(42));
-  elem({ type: funcref, mode: { table: t, offset: Const.i64(1) } }, [Const.refFunc(answer)]);
+  elem({ type: funcref, mode: { table: t, offset: 1 } }, [answer]);
   const call = func({ in: [], out: [i32] }, () => {
     i64.const(1n);
     call_indirect(t, { in: [], out: [i32] });

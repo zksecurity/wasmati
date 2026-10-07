@@ -60,7 +60,7 @@ export {
   type ImportPath,
   type Offset,
   type Instruction,
-  Const,
+  type Constant,
 };
 export { hasRefTo, hasMemory, dependencyKinds, kindToExportKind, typeOf };
 
@@ -117,7 +117,7 @@ function hasRefTo(value: AnyFunc): HasRefTo {
 type Global<T extends ValueType = ValueType> = {
   kind: "global";
   type: GlobalType<T>;
-  init: Const.t<T>;
+  init: Constant<T>;
   deps: (AnyGlobal | AnyFunc)[];
 };
 
@@ -127,7 +127,7 @@ type Table<A extends AddressType = AddressType> = {
   type: TableType;
   address: A;
   /** Initial value of every element, null by default. */
-  init?: Const.t<RefType>;
+  init?: Constant<RefType>;
   deps: (Elem | AnyFunc | AnyGlobal)[];
 };
 type Memory<A extends AddressType = AddressType> = {
@@ -148,18 +148,12 @@ type Data = {
 };
 
 /** Segment offsets have the address type of their memory or table. */
-type Offset =
-  | Const.i32
-  | Const.i64
-  | Const.globalGet<"i32">
-  | Const.globalGet<"i64">
-  | Const.arithmetic<"i32">
-  | Const.arithmetic<"i64">;
+type Offset = Constant<"i32" | "i64">;
 
 type Elem = {
   kind: "elem";
   type: RefType;
-  init: (Const.refFunc | Const.refNull<RefType>)[];
+  init: Constant<RefType>[];
   mode:
     | "passive"
     | "declarative"
@@ -263,148 +257,10 @@ type Instruction = {
   resolveArgs: any[];
 };
 
-// constant instructions
-
-type ConstInstruction<T extends ValueType> = {
-  string: string;
-  type: { args: []; results: [T] };
+/** A constant expression: instructions that produce one value, such as a global's initializer. */
+type Constant<T extends ValueType = ValueType> = {
+  kind: "constant";
+  type: T;
+  body: Instruction[];
   deps: t[];
-  resolveArgs: any[];
-  /** Operands of an arithmetic instruction, which are evaluated first. */
-  operands?: ConstInstruction<ValueType>[];
-};
-
-namespace Const {
-  export type i32 = ConstInstruction<"i32"> & { string: "i32.const" };
-  export type i64 = ConstInstruction<"i64"> & { string: "i64.const" };
-  export type f32 = ConstInstruction<"f32"> & { string: "f32.const" };
-  export type f64 = ConstInstruction<"f64"> & { string: "f64.const" };
-  export type v128 = ConstInstruction<"v128"> & { string: "v128.const" };
-  export type refNull<T extends RefType> = ConstInstruction<T> & {
-    string: "ref.null";
-  };
-  export type refFunc = ConstInstruction<"funcref"> & { string: "ref.func" };
-  export type globalGet<T extends ValueType> = ConstInstruction<T> & {
-    string: "global.get";
-  };
-  export type arithmetic<T extends "i32" | "i64"> = ConstInstruction<T> & {
-    string: `${T}.${"add" | "sub" | "mul"}`;
-  };
-  export type t_ =
-    | i32
-    | i64
-    | f32
-    | f64
-    | v128
-    | refNull<RefType>
-    | refFunc
-    | globalGet<ValueType>
-    | arithmetic<"i32">
-    | arithmetic<"i64">;
-  export type t<T extends ValueType> = ConstInstruction<T> & {
-    string: t_["string"];
-  };
-}
-
-/** Integer addition, subtraction and multiplication, the arithmetic allowed in constant expressions. */
-function arithmetic<T extends "i32" | "i64">(type: T) {
-  const operation =
-    (op: "add" | "sub" | "mul") =>
-    (a: Const.t<T>, b: Const.t<T>): Const.arithmetic<T> => ({
-      string: `${type}.${op}`,
-      type: { args: [], results: [type] },
-      deps: [...a.deps, ...b.deps],
-      resolveArgs: [],
-      operands: [a, b],
-    });
-  return { add: operation("add"), sub: operation("sub"), mul: operation("mul") };
-}
-
-const Const = {
-  /** An i32 constant; `Const.i32.add` and so on combine constants into extended constant expressions. */
-  i32: Object.assign(
-    (x: number | bigint): Const.i32 => ({
-      string: "i32.const",
-      type: { args: [], results: ["i32"] },
-      deps: [],
-      resolveArgs: [Number(x)],
-    }),
-    arithmetic("i32"),
-  ),
-  /** An i64 constant; `Const.i64.add` and so on combine constants into extended constant expressions. */
-  i64: Object.assign(
-    (x: number | bigint): Const.i64 => ({
-      string: "i64.const",
-      type: { args: [], results: ["i64"] },
-      deps: [],
-      resolveArgs: [BigInt(x)],
-    }),
-    arithmetic("i64"),
-  ),
-  f32(x: F32): Const.f32 {
-    return {
-      string: "f32.const",
-      type: { args: [], results: ["f32"] },
-      deps: [],
-      resolveArgs: [x],
-    };
-  },
-  f64(x: F64): Const.f64 {
-    return {
-      string: "f64.const",
-      type: { args: [], results: ["f64"] },
-      deps: [],
-      resolveArgs: [x],
-    };
-  },
-  v128<Shape extends VectorShape>(
-    shape: Shape,
-    value: TupleN<ShapeType[Shape], ShapeLength[Shape]>,
-  ): Const.v128 {
-    return {
-      string: "v128.const",
-      type: { args: [], results: ["v128"] },
-      deps: [],
-      resolveArgs: [toV128Bytes(...([shape, value] as V128))],
-    };
-  },
-  /** The null reference of a reference type. */
-  refNull<T extends RefType>(type: { kind: T }): Const.refNull<T> {
-    let heap = referenced(type.kind).ref;
-    return {
-      string: "ref.null",
-      type: { args: [], results: [refType(heap, true) as T] },
-      deps: [],
-      resolveArgs: [heap],
-    };
-  },
-  refFuncNull: {
-    string: "ref.null",
-    type: { args: [], results: ["funcref"] },
-    deps: [],
-    resolveArgs: ["func"],
-  } as Const.refNull<"funcref">,
-  refExternNull: {
-    string: "ref.null",
-    type: { args: [], results: ["externref"] },
-    deps: [],
-    resolveArgs: ["extern"],
-  } as Const.refNull<"externref">,
-  refFunc(func: AnyFunc): Const.refFunc {
-    return {
-      string: "ref.func",
-      type: { args: [], results: ["funcref"] },
-      deps: [func],
-      resolveArgs: [],
-    };
-  },
-  globalGet<T extends ValueType>(global: AnyGlobal<T>): Const.globalGet<T> {
-    if (global.type.mutable) throw Error("global in a const expression can not be mutable");
-    return {
-      string: "global.get",
-      type: { args: [], results: [global.type.value] },
-      deps: [global],
-      resolveArgs: [],
-    };
-  },
 };

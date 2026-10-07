@@ -548,7 +548,11 @@ class ModuleParser {
   // Names
 
   /** Read an index of a space: a number, or an identifier bound in that space. */
-  private index(c: Cursor, space: IndexSpace, ids = this.ids[space as ModuleSpace]): number {
+  private index(
+    c: Cursor,
+    space: IndexSpace | "field",
+    ids = this.ids[space as ModuleSpace],
+  ): number {
     const node = c.peek();
     const index = c.index();
     if (typeof index === "number") return index;
@@ -564,6 +568,7 @@ class ModuleParser {
       typeUse: (c) => this.typeUse(c, false).index,
       blockType: (c) => this.blockType(c),
       labels: [],
+      field: (c, type) => this.index(c, "field", this.fieldIds.get(type) ?? new Map()),
     };
   }
 

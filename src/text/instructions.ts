@@ -6,6 +6,8 @@ import { Block, type Catch, IfBlock, TryTable } from "../instruction/binable.ts"
 import {
   type AbstractHeapType,
   HeapType,
+  isRefType,
+  referenced,
   refType,
   shorthands,
   type IndexSpace,
@@ -45,10 +47,15 @@ type Scope = {
   blockType(c: Cursor): BlockType;
   /** Enclosing block labels, innermost first. */
   labels: (string | undefined)[];
+  /** Read a field index of a struct type, resolving field identifiers. */
+  field(c: Cursor, type: number): number;
 };
 
-/** What printing needs: identifiers by index space, if an index has one. */
-type Names = { id(space: IndexSpace, index: number): string | undefined };
+/** What printing needs: identifiers by index space and of struct fields, if an index has one. */
+type Names = {
+  id(space: IndexSpace, index: number): string | undefined;
+  field(type: number, field: number): string | undefined;
+};
 
 const blocks = new Set(["block", "loop", "if", "try_table"]);
 const catchKinds = new Set(["catch", "catch_ref", "catch_all", "catch_all_ref"]);
@@ -62,8 +69,7 @@ const valueTypes = new Set<string>([
 ]);
 const abstractHeapTypes = new Set<string>(Object.values(shorthands));
 // Valid instructions of features that wasmati's module representation does not support yet.
-const unsupported =
-  /^(throw|try_table|rethrow|struct\.|array\.|ref\.(i31|test|cast|eq)$|i31\.|any\.|extern\.|br_on_cast|[a-z0-9]+\.relaxed_)/;
+const unsupported = /^rethrow$/;
 
 /** Resolves a type index or identifier, for references to defined types. */
 type TypeIndex = (c: Cursor) => number;
@@ -216,8 +222,15 @@ function definition(name: string, c: Cursor) {
   }
 }
 
-/** An instruction without a body. `select` with result types is the typed `select_t`. */
+/**
+ * An instruction without a body. `select` with result types is the typed `select_t`, and tests and
+ * casts to nullable types are the `_null` variants.
+ */
 function plain(name: string, c: Cursor, scope: Scope): ResolvedInstruction {
+  if (name === "ref.test" || name === "ref.cast") {
+    const { ref, nullable } = referenced(refTypeOf(c, scope));
+    return { name: nullable ? `${name}_null` : name, immediate: ref };
+  }
   const instruction = definition(name, c);
   return { name: instruction.string, immediate: immediate(instruction, c, scope) };
 }
@@ -303,8 +316,35 @@ function immediate(
       return v128(c);
     case "i8x16.shuffle":
       return Array.from({ length: 16 }, () => lane(c));
+    case "struct.get":
+    case "struct.get_s":
+    case "struct.get_u":
+    case "struct.set": {
+      const type = scope.index(c, "type");
+      return [type, scope.field(c, type)];
+    }
+    case "array.new_fixed":
+      return [scope.index(c, "type"), c.parse(parseU32)];
+    case "array.new_data":
+    case "array.init_data":
+      return [scope.index(c, "type"), scope.index(c, "data")];
+    case "array.new_elem":
+    case "array.init_elem":
+      return [scope.index(c, "type"), scope.index(c, "elem")];
+    case "array.copy":
+      return [scope.index(c, "type"), scope.index(c, "type")];
+    case "br_on_cast":
+    case "br_on_cast_fail":
+      return { label: label(c, scope), from: refTypeOf(c, scope), to: refTypeOf(c, scope) };
   }
   throw new UnsupportedTextError(`text immediate of ${string} is not implemented`);
+}
+
+function refTypeOf(c: Cursor, scope: Scope) {
+  const node = c.peek();
+  const type = parseValueType(c, (c) => scope.index(c, "type"));
+  if (!isRefType(type)) c.fail("expected a reference type", node);
+  return type;
 }
 
 /** Labels are relative: a label's index is the number of blocks between it and the branch. */
@@ -387,7 +427,7 @@ function printInstructions(body: ResolvedInstruction[], names: Names, indent = "
         indent + "end",
       ];
     }
-    const text = name === "select_t" ? "select" : name;
+    const text = name === "select_t" ? "select" : name.replace(/^(ref\.(test|cast))_null$/, "$1");
     return [indent + [text, ...printImmediate(name, immediate, names)].join(" ")];
   });
 }
@@ -400,6 +440,8 @@ function blockType(type: BlockType, names: Names): string[] {
 }
 
 function printImmediate(name: string, value: any, names: Names): string[] {
+  if (/^ref\.(test|cast)/.test(name))
+    return [printValueType(refType(value, name.endsWith("_null")), names)];
   const { immediate } = lookupInstruction(name);
   if (immediate === undefined || immediate === Undefined || immediate === Byte) return [];
   const id = (space: IndexSpace, index: number) => names.id(space, index) ?? String(index);
@@ -455,6 +497,28 @@ function printImmediate(name: string, value: any, names: Names): string[] {
     }
     case "i8x16.shuffle":
       return value.map(String);
+    case "struct.get":
+    case "struct.get_s":
+    case "struct.get_u":
+    case "struct.set":
+      return [id("type", value[0]), names.field(value[0], value[1]) ?? String(value[1])];
+    case "array.new_fixed":
+      return [id("type", value[0]), String(value[1])];
+    case "array.new_data":
+    case "array.init_data":
+      return [id("type", value[0]), id("data", value[1])];
+    case "array.new_elem":
+    case "array.init_elem":
+      return [id("type", value[0]), id("elem", value[1])];
+    case "array.copy":
+      return [id("type", value[0]), id("type", value[1])];
+    case "br_on_cast":
+    case "br_on_cast_fail":
+      return [
+        String(value.label),
+        printValueType(value.from, names),
+        printValueType(value.to, names),
+      ];
   }
   throw new UnsupportedTextError(`text immediate of ${name} is not implemented`);
 }
