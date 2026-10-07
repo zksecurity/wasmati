@@ -49,9 +49,32 @@ jobs:
       - name: Build package
         run: npm run build
 
+  build-example:
+    name: Built modules in Node and bundled for Chrome
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 27.0.0-nightly20261006fcfb7ecc0b
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/build/package-lock.json
+      - name: Install dependencies and build wasmati
+        run: |
+          npm ci
+          npm run build
+          npm ci --prefix examples/build
+      # Builds the example, runs it in Node, and bundles it with Vite and Next.js for headless Chrome.
+      - name: Test the example
+        run: npm test --prefix examples/build
+        env:
+          CHROME: google-chrome
+
   publish:
     name: Publish version bump to npm
-    needs: [format, check]
+    needs: [format, check, build-example]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

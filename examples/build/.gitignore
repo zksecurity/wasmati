@@ -1,0 +1,4 @@
+src/built
+dist
+.next
+next-env.d.ts

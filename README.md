@@ -138,19 +138,6 @@ const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y })
 
 _PRs welcome!_
 
-- **Wasmati build.** We want to add an optional build step which takes as input a file that exports your `Module`, and compiles it to a file which doesn't depend on wasmati at runtime. Instead, it hard-codes the Wasm bytecode as base64 string, correctly imports all dependencies (imports) for the instantiation like the original file did, instantiates the module (top-level await) and exports the module's instance.exports.
-
-```ts
-// example.ts
-let module = Module({ exports: { myFunction, mem } });
-
-export { module as default };
-```
-
-```ts
-import { myFunction } from "./example.wasm.js"; // example.wasm.js does not depend on wasmati at runtime
-```
-
 - **Experimental Wasm opcodes.** We want to support opcodes from in-progress feature proposals ([like this one](https://github.com/WebAssembly/shared-everything-threads/blob/main/proposals/shared-everything-threads/Overview.md)) which haven't yet made it to the spec. The eventual goal is to support proposals as soon as they are implemented in at least one JS engine.
 
 ### Some ideas that are a bit further out:
@@ -158,3 +145,52 @@ import { myFunction } from "./example.wasm.js"; // example.wasm.js does not depe
 - **Source maps**, so you can look at the culprit JS code when Wasm throws an error
 - Optional JS interpreter which can take DSL code and execute it _in JS_
   - could enable even more flexible debugging -- inspect the stack, global/local scope etc
+
+## Build: Wasm without the wasmati runtime
+
+`wasmati build` turns a file that default-exports a `Module` into a `.wasm` file that JS imports directly, as an ES module. The app ships only the Wasm module and its imports, not wasmati.
+
+```ts
+// counter.ts
+const log = importFunc({ in: [{ value: i32 }], out: [] }, (value) => console.log(value));
+// ...
+export default Module({ exports: { increment } });
+```
+
+```sh
+npx wasmati build counter.ts -o built
+```
+
+```ts
+import { increment } from "./built/counter.wasm";
+```
+
+The build writes:
+
+- `counter.wasm`, the module.
+- `counter.d.wasm.ts`, the types of its exports. TypeScript reads them with the `allowArbitraryExtensions` option.
+- `counter.host.js`, if the module has imports written inline as above. The build extracts them from `counter.ts`, together with the top-level declarations and imports that they use; the Wasm module imports them from there.
+- `counter.js` and `counter.d.ts`, if the module has async exports. JS imports this entry module instead, which wraps the async exports with `WebAssembly.promising`.
+- `js-string.js`, if the module uses JS string builtins (`jsString`): a polyfill for bundlers, see below. String constants (`stringConstant`) become exports of `counter.host.js`.
+
+A built file may only export its `Module`. Code that the app shares with imports, like state, belongs in another module, which both import. The build rejects imports that it can't move faithfully, such as functions that use variables of an enclosing function, and imports with an explicit `module` path must lead to the same value from the built file.
+
+Built modules run in Node from 22.19 and 24.5, and in Deno from 2.1, which implement the ESM integration of Wasm. In browsers, bundle them. Bundlers do not provide JS string builtins, so map their module, `wasm:js-string`, to the polyfill. [examples/build](examples/build) has both configurations, which CI tests in Chrome:
+
+- **Vite** with [`vite-plugin-wasm`](https://github.com/Menci/vite-plugin-wasm), building for the `esnext` target:
+
+```js
+export default {
+  plugins: [wasm()],
+  resolve: { alias: { "wasm:js-string": "/path/to/built/js-string.js" } },
+  build: { target: "esnext" },
+};
+```
+
+- **Next.js** with Turbopack, importing built modules in client code:
+
+```js
+export default {
+  turbopack: { resolveAlias: { "wasm:js-string": "./path/to/built/js-string.js" } },
+};
+```

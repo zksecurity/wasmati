@@ -33,6 +33,7 @@ import type { ImportFunc } from "./func-types.ts";
 import { dataConstructor, jsLimits, limits } from "./memory.ts";
 
 export {
+  isCreated,
   asyncExport,
   type AsyncExport,
   Export,
@@ -152,6 +153,16 @@ function asyncExport<F extends Dependency.Func>(func: F): AsyncExport<F> {
   return { kind: "asyncExport", func };
 }
 
+/** Import values that wasmati created, rather than the user; `wasmati build` can recreate them. */
+const createdValues = new WeakSet<object>();
+function created<T extends object>(value: T): T {
+  createdValues.add(value);
+  return value;
+}
+function isCreated(value: object) {
+  return createdValues.has(value);
+}
+
 /** Declare a typed native JS import. module/field optionally override its automatically assigned import path. */
 function importFunc<
   const Args extends readonly ParameterInput[] = [],
@@ -195,7 +206,7 @@ function importFunc<
     type,
     ...explicitType(definedType, type),
     deps: [],
-    value: isAsync ? new WebAssembly.Suspending(run) : run,
+    value: run,
     ...(isAsync ? { async: true as const } : {}),
     ...(name === undefined ? {} : { name }),
   };
@@ -225,7 +236,7 @@ function importGlobal<V extends ValueType>(
       `importGlobal: a global of type ${printValueType(kind)} must be a WebAssembly.Global`,
     );
   let valueType = (kind === "funcref" ? "anyfunc" : kind) as WebAssembly.ValueType;
-  let value_ = new WebAssembly.Global({ value: valueType, mutable }, value);
+  let value_ = created(new WebAssembly.Global({ value: valueType, mutable }, value));
   return { kind: "importGlobal", module, field, type: globalType, deps: [], value: value_ };
 }
 
@@ -243,7 +254,7 @@ function importTag(
   let parameters = type.args.map((t) =>
     t === "funcref" ? "anyfunc" : t,
   ) as WebAssembly.ValueType[];
-  let tag = value ?? new WebAssembly.Tag({ parameters });
+  let tag = value ?? created(new WebAssembly.Tag({ parameters }));
   return {
     kind: "importTag",
     module,
@@ -273,7 +284,7 @@ function importMemory<A extends AddressType = "i32">(
   ...content: (number[] | Uint8Array)[]
 ) {
   let type = { limits: limits(min, max, shared, address) };
-  let value = memory ?? new WebAssembly.Memory(jsLimits({ min, max, shared, address }));
+  let value = memory ?? created(new WebAssembly.Memory(jsLimits({ min, max, shared, address })));
   let memory_: Dependency.ImportMemory<A> = {
     kind: "importMemory",
     module,

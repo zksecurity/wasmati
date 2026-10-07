@@ -11,6 +11,9 @@ Commands:
   decompile <input>         Decompile into stack-style wasmati TypeScript
   wat <input>               Print in the WebAssembly text format
   wasm <input>              Assemble into a Wasm binary
+  build <input.ts>          Build a file that default-exports a Module into <name>.wasm, which JS
+                            imports directly, with types and, for inline imports, <name>.host.js.
+                            -o sets the output directory.
 
 Options:
   -o, --output <file>       Write the output to a file
@@ -18,7 +21,7 @@ Options:
   -h, --help               Show this help
 `;
 
-const commands = ["decompile", "wat", "wasm"];
+const commands = ["decompile", "wat", "wasm", "build"];
 
 async function main() {
   const { positionals, values } = parseArgs({
@@ -37,6 +40,12 @@ async function main() {
   if (!commands.includes(command))
     throw Error(`Unknown command ${JSON.stringify(command)}.\n${usage}`);
   if (input === undefined || positionals.length !== 2) throw Error(usage);
+  if (command === "build") {
+    const { build } = await import("./build/build.ts");
+    const output = await build(input, { outDir: values.output });
+    for (const file of Object.values(output)) console.log(file);
+    return;
+  }
   const bytes = await readFile(input);
   // Wasm binaries start with the magic bytes "\0asm"; anything else is text.
   const source = isBinary(bytes) ? bytes : bytes.toString("utf8");

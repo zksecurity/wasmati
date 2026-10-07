@@ -10,7 +10,9 @@ import {
   externref,
   global,
   array,
+  refType,
 } from "../index.ts";
+import { helperBytes } from "../js-string-polyfill.ts";
 
 const hello = stringConstant("hello ");
 const greet = func({ in: [{ name: externref }], out: [externref] }, ({ name }) => {
@@ -50,4 +52,18 @@ test("without engine builtins, JS functions behave like them", async () => {
   assert.equal(exports.greet("world"), "hello world");
   assert.equal(exports.length("abc"), 3);
   assert.equal(exports.hi(), "hi");
+});
+
+test("the polyfill's array helper is the module that wasmati builds", () => {
+  const charCodes = refType(jsString.charCodeArray, { nullable: true });
+  const length = func({ in: [{ array: charCodes }], out: [i32] }, ({ array: a }) => array.len(a));
+  const get = func({ in: [{ array: charCodes }, { i: i32 }], out: [i32] }, ({ array: a, i }) =>
+    array.get_u(jsString.charCodeArray, a, i),
+  );
+  const set = func(
+    { in: [{ array: charCodes }, { i: i32 }, { code: i32 }], out: [] },
+    ({ array: a, i, code }) => array.set(jsString.charCodeArray, a, i, code),
+  );
+  const bytes = Module({ exports: { length, get, set } }).toBytes();
+  assert.equal(Buffer.from(bytes).toString("base64"), helperBytes);
 });
