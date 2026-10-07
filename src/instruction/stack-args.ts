@@ -2,7 +2,7 @@ import { Binable, Undefined } from "../binable.ts";
 import type { AnyGlobal } from "../dependency.ts";
 import type * as Dependency from "../dependency.ts";
 import { formatStack, place, placeOf, pushStack, shiftPlaces } from "../local-context.ts";
-import { type LocalContext, StackVar, Unknown } from "../local-context.ts";
+import { isStackVar, type LocalContext, StackVar, Unknown } from "../local-context.ts";
 import {
   isSubtype,
   type Local,
@@ -52,9 +52,6 @@ function isLocal(x: Input<any>): x is Local {
 }
 function isGlobal(x: Input<any>): x is AnyGlobal {
   return typeof x === "object" && x !== null && (x.kind === "global" || x.kind === "importGlobal");
-}
-function isStackVar(x: Input<any>): x is StackVar<ValueType | Unknown> {
-  return typeof x === "object" && x !== null && x.kind === "stack-var";
 }
 
 type Inputs<P extends ValueType[]> = {

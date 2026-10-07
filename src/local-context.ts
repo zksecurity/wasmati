@@ -7,6 +7,7 @@ export {
   type LocalContext,
   type StackType,
   StackVar,
+  isStackVar,
   type StackVars,
   stackVars,
   Unknown,
@@ -240,15 +241,24 @@ function getFrameFromLabel(ctx: LocalContext, label: Label | number): [number, C
   }
 }
 
+/** Stack values are instances of a class, which tells them apart from other operands quickly. */
+class StackValue<T> {
+  kind = "stack-var" as const;
+  id = id();
+  type: T;
+  start = -1;
+  end = -1;
+  constructor(type: T) {
+    this.type = type;
+  }
+}
+
 function StackVar<T extends ValueType | Unknown>(type: T): StackVar<T> {
-  let value: StackVar<T> & { start: number; end: number } = {
-    kind: "stack-var",
-    id: id(),
-    type,
-    start: -1,
-    end: -1,
-  };
-  return value;
+  return new StackValue(type);
+}
+
+function isStackVar(x: unknown): x is StackVar<StackType> {
+  return x instanceof StackValue;
 }
 
 type StackVars<Results extends readonly ValueType[]> = {

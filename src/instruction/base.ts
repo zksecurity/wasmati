@@ -1,4 +1,4 @@
-import { Binable, Undefined } from "../binable.ts";
+import { Binable, Undefined, Writer } from "../binable.ts";
 import type { Code, Immediate } from "../code.ts";
 import type * as Dependency from "../dependency.ts";
 import {
@@ -26,7 +26,6 @@ import {
 } from "../types.ts";
 import type { Tuple } from "../util.ts";
 import { type InstructionName, nameToOpcode } from "./opcodes.ts";
-import { U32 } from "../immediate.ts";
 
 export {
   withPublicSignature,
@@ -145,13 +144,16 @@ function baseInstruction<
 } {
   resolve ??= noResolve;
   let opcode = nameToOpcode[string];
-  let opcodeBytes = Uint8Array.from(
-    typeof opcode === "number" ? [opcode] : [opcode[0], ...U32.toBytes(opcode[1])],
-  );
+  let opcodeBytes = new Writer(8);
+  if (typeof opcode === "number") opcodeBytes.byte(opcode);
+  else {
+    opcodeBytes.byte(opcode[0]);
+    opcodeBytes.unsigned(opcode[1]);
+  }
   let instruction: BaseInstruction = {
     string,
     opcode,
-    opcodeBytes,
+    opcodeBytes: opcodeBytes.result(),
     immediate,
     resolve,
     typed: typedInstructions.has(string),

@@ -131,11 +131,17 @@ const I32 = Binable<I32>({
   },
 });
 
+const int64View = new DataView(new ArrayBuffer(8));
+
 const I64 = Binable<I64>({
   write(writer, x: I64) {
-    let signed = BigInt.asIntN(64, x);
-    if (signed >= -(2n ** 31n) && signed < 2n ** 31n) writer.signed(Number(signed));
-    else writer.signed64(Number(signed >> 32n), Number(BigInt.asUintN(32, signed)));
+    // The low 64 bits, as two 32-bit halves.
+    int64View.setBigInt64(0, x, true);
+    let low = int64View.getUint32(0, true);
+    let high = int64View.getInt32(4, true);
+    if ((high === 0 && low < 0x8000_0000) || (high === -1 && low >= 0x8000_0000))
+      writer.signed(low | 0);
+    else writer.signed64(high, low);
   },
   readBytes(bytes, offset): [I64, number] {
     return fromLEB128(bytes, offset, 64, true);
