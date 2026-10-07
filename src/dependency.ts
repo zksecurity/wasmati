@@ -46,6 +46,9 @@ export {
   type ImportGlobal,
   type ImportTable,
   type ImportMemory,
+  type Tag,
+  type ImportTag,
+  type AnyTag,
   type AnyFunc,
   type AnyGlobal,
   type AnyMemory,
@@ -60,10 +63,12 @@ export { hasRefTo, hasMemory, dependencyKinds, kindToExportKind };
 
 type anyDependency = { kind: string; deps: anyDependency[] };
 
-type Export = AnyFunc | AnyGlobal | AnyMemory | AnyTable;
+type Export = AnyFunc | AnyGlobal | AnyMemory | AnyTable | AnyTag;
 
 type t =
   | Type
+  | Tag
+  | ImportTag
   | Func
   | HasRefTo
   | Global
@@ -185,11 +190,21 @@ type ImportMemory<A extends AddressType = AddressType> = ImportPath & {
   deps: Data[];
 };
 
+/** An exception tag, whose type lists the values an exception carries. */
+type Tag = { kind: "tag"; type: FunctionType; deps: [] };
+type ImportTag = ImportPath & {
+  kind: "importTag";
+  type: FunctionType;
+  value: WebAssembly.Tag;
+  deps: [];
+};
+type AnyTag = Tag | ImportTag;
+
 type AnyFunc = Func | ImportFunc;
 type AnyGlobal<T extends ValueType = ValueType> = Global<T> | ImportGlobal<T>;
 type AnyTable<A extends AddressType = AddressType> = Table<A> | ImportTable<A>;
 type AnyMemory<A extends AddressType = AddressType> = Memory<A> | ImportMemory<A>;
-type AnyImport = ImportFunc | ImportGlobal | ImportTable | ImportMemory;
+type AnyImport = ImportFunc | ImportGlobal | ImportTable | ImportMemory | ImportTag;
 
 const dependencyKinds = [
   "function",
@@ -205,12 +220,16 @@ const dependencyKinds = [
   "importGlobal",
   "importTable",
   "importMemory",
+  "tag",
+  "importTag",
 ] as const satisfies readonly t["kind"][];
 
 const kindToExportKind: Record<
-  (AnyFunc | AnyGlobal | AnyTable | AnyMemory)["kind"],
-  (Func | Global | Table | Memory)["kind"]
+  (AnyFunc | AnyGlobal | AnyTable | AnyMemory | AnyTag)["kind"],
+  (Func | Global | Table | Memory | Tag)["kind"]
 > = {
+  tag: "tag",
+  importTag: "tag",
   function: "function",
   importFunction: "function",
   global: "global",

@@ -21,6 +21,7 @@ import {
   FunctionIndex,
   LabelIndex,
   TableIndex,
+  TagIndex,
   TypeIndex,
   addressType,
   type FunctionType,
@@ -43,7 +44,7 @@ import {
   typeFromInput,
   type Instruction_,
 } from "./base.ts";
-import { Block, IfBlock } from "./binable.ts";
+import { Block, type Catch, IfBlock, TryTable } from "./binable.ts";
 import { type Input, processStackArgs } from "./stack-args.ts";
 
 export { control, bindControlOps, parametric };
@@ -299,6 +300,74 @@ const br_on_non_null = baseInstruction("br_on_non_null", LabelIndex, {
   },
 });
 
+/** Throw an exception with the tag's values from the stack. */
+const throw_ = baseInstruction("throw", TagIndex, {
+  create(ctx, tag: Dependency.AnyTag) {
+    popStack(ctx, tag.type.args);
+    setUnreachable(ctx);
+    return { in: [], out: [], deps: [tag] };
+  },
+  resolve: ([tagIdx]) => tagIdx,
+});
+
+/** Rethrow a caught exception. */
+const throw_ref = baseInstruction("throw_ref", Undefined, {
+  create(ctx) {
+    popStack(ctx, ["exnref"]);
+    setUnreachable(ctx);
+    return { in: [], out: [] };
+  },
+  resolve: () => undefined,
+});
+
+/**
+ * A catch clause: exceptions with the tag, or any exception without one, branch to the label with the
+ * tag's values and, if `ref` is set, a reference to the exception.
+ */
+type CatchInput = { tag?: Dependency.AnyTag; ref?: boolean; label: Label | number };
+
+/** A block whose exceptions are caught by its catch clauses, which branch to enclosing labels. */
+const try_table = baseInstruction("try_table", TryTable, {
+  create(ctx, t: FunctionTypeInput, catches: CatchInput[], run: (label: RandomLabel) => void) {
+    // Catch clauses branch from outside the block.
+    let clauses = catches.map(({ tag, ref = false, label }) => {
+      let [depth, frame] = getFrameFromLabel(ctx, label);
+      let values = [...(tag?.type.args ?? []), ...(ref ? [refType("exn", false)] : [])];
+      let types = labelTypes(frame);
+      if (values.length !== types.length || values.some((v, i) => !isSubtype(v, types[i])))
+        throw Error(
+          `try_table: catch clause provides [${values.map(printValueType)}], label expects [${types.map(printValueType)}]`,
+        );
+      let kind =
+        `${tag === undefined ? "catch_all" : "catch"}${ref ? "_ref" : ""}` as Catch["kind"];
+      return { kind, tag, label: depth };
+    });
+    let { type, body, deps } = createExpressionWithType("try_table", ctx, t, run);
+    let tags = clauses.flatMap(({ tag }) => (tag === undefined ? [] : [tag]));
+    return {
+      in: type.args,
+      out: type.results,
+      deps: [Dependency.type(type), ...tags, ...deps],
+      resolveArgs: [clauses.map(({ kind, label }) => ({ kind, label })), body],
+    };
+  },
+  resolve(
+    [blockType, ...deps],
+    clauses: { kind: Catch["kind"]; label: number }[],
+    body: Dependency.Instruction[],
+  ) {
+    let tagged = clauses.filter(({ kind }) => kind === "catch" || kind === "catch_ref").length;
+    let tags = deps.slice(0, tagged);
+    let next = 0;
+    let catches = clauses.map((clause) =>
+      clause.kind === "catch" || clause.kind === "catch_ref"
+        ? { ...clause, tag: tags[next++] }
+        : clause,
+    ) as Catch[];
+    return { blockType, catches, instructions: resolveExpression(deps.slice(tagged), body) };
+  },
+});
+
 function bindControlOps(ctx: LocalContext) {
   return {
     call: <F extends AnyFunc<any, any>>(
@@ -336,6 +405,9 @@ const control = {
   return_call_ref,
   br_on_null,
   br_on_non_null,
+  throw: throw_,
+  throw_ref,
+  try_table,
 };
 
 // parametric instructions

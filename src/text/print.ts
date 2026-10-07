@@ -32,6 +32,7 @@ function printWat(module: Module): string {
     global: identifiers(names.globals),
     elem: identifiers(names.elements),
     data: identifiers(names.data),
+    tag: identifiers(names.tags),
   };
   const moduleNames: Names = {
     id: (space, index) => spaces[space as keyof typeof spaces]?.[index],
@@ -66,7 +67,7 @@ function printWat(module: Module): string {
       `(${["func", ...params(func, moduleNames), ...results(func, moduleNames)].join(" ")})`,
     ),
   );
-  const next = { function: 0, table: 0, memory: 0, global: 0 };
+  const next = { function: 0, table: 0, memory: 0, global: 0, tag: 0 };
   for (const { module: from, name, description } of module.imports) {
     const index = next[description.kind]++;
     const path = `${printName(from)} ${printName(name)}`;
@@ -75,6 +76,7 @@ function printWat(module: Module): string {
     if (description.kind === "function") desc = signature(description.value, names.locals?.[index]);
     else if (description.kind === "table") desc = tableType(description.value, moduleNames);
     else if (description.kind === "memory") desc = memoryType(description.value);
+    else if (description.kind === "tag") desc = signature(description.value);
     else desc = globalType(description.value, moduleNames);
     const kind = space === "function" ? "func" : space;
     field(
@@ -113,6 +115,7 @@ function printWat(module: Module): string {
   module.memories.forEach((memory, i) =>
     field("memory", label("memory", next.memory + i), memoryType(memory)),
   );
+  module.tags.forEach((typeIdx, i) => field("tag", label("tag", next.tag + i), signature(typeIdx)));
   module.globals.forEach((global, i) =>
     field(
       "global",

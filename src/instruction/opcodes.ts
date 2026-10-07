@@ -13,6 +13,8 @@ const opcodes = {
   0x02: "block",
   0x03: "loop",
   0x04: "if",
+  0x08: "throw",
+  0x0a: "throw_ref",
   // 0x05: "else", // not an instruction
   // 0x0b: "end", // not an instruction
   0x0c: "br",
@@ -30,6 +32,7 @@ const opcodes = {
   0x1a: "drop",
   0x1b: "select",
   0x1c: "select_t",
+  0x1f: "try_table",
 
   // variable
   0x20: "local.get",
