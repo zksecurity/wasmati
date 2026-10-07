@@ -9,6 +9,8 @@ import {
   struct,
   array,
   mut,
+  i64,
+  f64,
   i8,
   ref,
   i31,
@@ -61,6 +63,7 @@ test("structs are created and accessed with fields by name", async () => {
   assert.ok(module.funcs[0].body.some((i) => i.name === "struct.get" && i.immediate[1] === 1));
   const { instance } = await instantiate();
   assert.equal(instance.exports.sum(5), 8);
+  // @ts-expect-error not a field of the struct type
   assert.throws(() => struct.get(point, "z"), /no field z/);
   assert.throws(() => struct.get_s(point, "x"), /not packed/);
 });
@@ -188,6 +191,7 @@ test("GC instructions take operands as arguments, and struct fields by name", as
   );
   const { instance } = await Module({ exports: { f } }).instantiate();
   assert.equal(instance.exports.f(-2), -1);
+  // @ts-expect-error a field is missing
   assert.throws(() => struct.new(point, { x: 1 }), /Unsupported input|Expected/);
 });
 
@@ -212,5 +216,35 @@ test("named operands keep their values, and instruction results must come in ord
   assert.throws(
     () => func({ in: [], out: [i32] }, () => call(add, { b: i32.const(2), a: i32.const(1) })),
     /call: operands that are instruction results must be given in order/,
+  );
+});
+
+test("GC reads and writes have the types of their fields", async () => {
+  const point = struct({ x: i32, label: mut(i64), small: mut(i8) });
+  const numbers = array(mut(f64));
+  const f = func(
+    { in: [{ p: refType(point) }, { a: refType(numbers) }], out: [i32, i64, f64, i32] },
+    ({ p, a }) => {
+      i32.add(struct.get(point, "x", p), 1);
+      struct.set(point, "label", p, 2n);
+      i64.add(struct.get(point, "label", p), 1n);
+      array.set(numbers, a, 0, 1.5);
+      f64.mul(array.get(numbers, a, 0), 2);
+      i32.add(struct.get_u(point, "small", p), 1);
+    },
+  );
+  const make = func({ in: [], out: [i32, i64, f64, i32] }, () => {
+    call(f, {
+      p: struct.new(point, { x: 7, label: 0n, small: 3 }),
+      a: array.new_fixed(numbers, [0]),
+    });
+  });
+  const { instance } = await Module({ exports: { make } }).instantiate();
+  assert.deepEqual(instance.exports.make(), [8, 3n, 3, 4]);
+  assert.throws(() =>
+    func({ in: [{ p: refType(point) }], out: [] }, ({ p }) =>
+      // @ts-expect-error an i64 field takes bigints
+      struct.set(point, "label", p, 1),
+    ),
   );
 });
