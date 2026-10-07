@@ -13,6 +13,7 @@ export {
   type Label,
   type RandomLabel,
   popStack,
+  popTypes,
   popUnknown,
   checkStack,
   pushStack,
@@ -148,6 +149,31 @@ function popStack(ctx: LocalContext, values: StackType[], instruction?: string):
 }
 
 /**
+ * Pop values of the given types, like `popStack`, without returning their types. Errors name the
+ * instruction, if given.
+ */
+function popTypes(ctx: LocalContext, values: StackType[], instruction?: string) {
+  let { stack } = ctx;
+  let frame: ControlFrame | undefined = ctx.frames[0];
+  for (let i = values.length - 1; i >= 0; i--) {
+    let value = stack.pop() as Placed | undefined;
+    let expected = values[i];
+    if (value === undefined) {
+      if (frame?.unreachable) continue;
+      throw Error(
+        `${instruction === undefined ? "" : `${instruction}: `}expected ${format(expected)} on the stack, got nothing`,
+      );
+    }
+    let { type, start } = value;
+    if (type !== expected && !isAssignable(type, expected))
+      throw Error(
+        `${instruction === undefined ? "" : `${instruction}: `}expected ${format(expected)} on the stack, got ${format(type)}`,
+      );
+    if (start >= 0 && frame !== undefined && !(frame.popsFrom! <= start)) frame.popsFrom = start;
+  }
+}
+
+/**
  * Check that the stack has values of the given types, and leave them in place, as the same values. In
  * unreachable code, missing values become values of Unknown type.
  */
@@ -183,9 +209,13 @@ function popUnknown(ctx: LocalContext): ValueType | Unknown {
 }
 
 function pushStack({ stack }: LocalContext, values: StackType[]): StackVar<StackType>[] {
-  let stackVars = values.map(StackVar);
-  stack.push(...stackVars);
-  return stackVars;
+  let pushed: StackVar<StackType>[] = [];
+  for (let type of values) {
+    let value = StackVar(type);
+    pushed.push(value);
+    stack.push(value);
+  }
+  return pushed;
 }
 
 /** Called while creating the instruction that ends reachability, before it is in the body. */

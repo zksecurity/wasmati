@@ -1,6 +1,6 @@
 import { Undefined } from "../binable.ts";
 import * as Dependency from "../dependency.ts";
-import { baseInstruction, type FunctionTypeInput, functionTypeOf } from "./base.ts";
+import { baseInstruction, emitSimple, type FunctionTypeInput, functionTypeOf } from "./base.ts";
 import {
   type AbstractHeapType,
   type DefinedType,
@@ -53,18 +53,28 @@ const localOps = {
   }),
 };
 
+function localType({ locals }: LocalContext, x: Local) {
+  let type = locals[x.index];
+  if (type === undefined) throw Error(`local with index ${x.index} not available`);
+  return type;
+}
+
 function bindLocalOps(ctx: LocalContext) {
   return {
     get: function <T extends ValueType>(x: Local<T>) {
       return localOps.get(ctx, x) as StackVar<T>;
     },
     set: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      processStackArgs(ctx, "local.set", [x.type], value === undefined ? [] : [value]);
-      return localOps.set(ctx, x);
+      if (value !== undefined) processStackArgs(ctx, "local.set", [x.type], [value]);
+      let type = localType(ctx, x);
+      emitSimple(ctx, localOps.set.instruction, [type], undefined, x.index);
     },
     tee: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      processStackArgs(ctx, "local.tee", [x.type], value === undefined ? [] : [value]);
-      return localOps.tee(ctx, x) as StackVar<L["type"]>;
+      if (value !== undefined) processStackArgs(ctx, "local.tee", [x.type], [value]);
+      let type = localType(ctx, x);
+      return emitSimple(ctx, localOps.tee.instruction, [type], type, x.index) as StackVar<
+        L["type"]
+      >;
     },
   };
 }

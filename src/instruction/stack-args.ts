@@ -12,7 +12,13 @@ import {
   type ValueTypeObjects,
 } from "../types.ts";
 import type { Tuple } from "../util.ts";
-import { type Description, type Instruction_, baseInstruction, writeInstruction } from "./base.ts";
+import {
+  type Description,
+  type Instruction_,
+  baseInstruction,
+  emitSimple,
+  writeInstruction,
+} from "./base.ts";
 import { Code, type Write } from "../code.ts";
 import { f32Const, f64Const, i32Const, i64Const } from "./const.ts";
 import type { InstructionName } from "./opcodes.ts";
@@ -87,11 +93,16 @@ function instruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueT
   let createInstr = baseInstruction<undefined, [], [], Args, Results>(name, Undefined, {
     create: () => instr,
   });
+  let { instruction } = createInstr;
+  let [result] = instr.out;
+  let simple = instr.out.length <= 1;
   return function createInstr_(
     ctx: LocalContext,
     ...actualArgs: Input<ValueType>[]
   ): Instruction_<Args, Results> {
-    processStackArgs(ctx, name, instr.in, actualArgs);
+    if (actualArgs.length > 0) processStackArgs(ctx, name, instr.in, actualArgs);
+    if (simple)
+      return emitSimple(ctx, instruction, instr.in, result) as Instruction_<Args, Results>;
     return createInstr(ctx);
   };
 }
@@ -129,12 +140,20 @@ function instructionWithArg<
     Args,
     Results
   >(name, immediate, { create: () => instr });
+  let { instruction } = createInstr;
+  let [result] = instr.out;
+  let simple = instr.out.length <= 1;
   return function createInstr_(
     ctx: LocalContext,
     immediate: Immediate,
     ...actualArgs: Input<ValueType>[]
   ): Instruction_<Args, Results> {
-    processStackArgs(ctx, name, instr.in, actualArgs);
+    if (actualArgs.length > 0) processStackArgs(ctx, name, instr.in, actualArgs);
+    if (simple)
+      return emitSimple(ctx, instruction, instr.in, result, immediate) as Instruction_<
+        Args,
+        Results
+      >;
     return createInstr(ctx, immediate);
   };
 }
@@ -151,14 +170,18 @@ function namedInputs(names: string[], values: Record<string, Input<any>>): Input
  */
 function checkStackOperands(ctx: LocalContext, string: string, operands: Input<any>[]) {
   if (ctx.frames[0]?.unreachable) return;
-  let results = operands.filter(isStackVar);
-  let top = ctx.stack.slice(ctx.stack.length - results.length);
-  results.forEach((result, i) => {
-    if (result.type === Unknown || result.id === top[i]?.id) return;
+  let { stack } = ctx;
+  let count = 0;
+  for (let operand of operands) if (isStackVar(operand)) count++;
+  let i = stack.length - count;
+  for (let operand of operands) {
+    if (!isStackVar(operand)) continue;
+    let value = stack[i++];
+    if (operand.type === Unknown || operand.id === value?.id) continue;
     throw Error(
       `${string}: operands that are instruction results must be the latest values on the stack, in order. Compute them in the order they are passed, and use each once.`,
     );
-  });
+  }
 }
 
 function processStackArgs(
@@ -186,7 +209,7 @@ function processStackArgs(
     let x = mustReorder ? actualArgs[n - 1 - i] : actualArgs[i];
     let type = mustReorder ? expectedArgs[n - 1 - i] : expectedArgs[i];
     if (isLocal(x)) {
-      if (!isSubtype(x.type, type))
+      if (x.type !== type && !isSubtype(x.type, type))
         throw Error(
           `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
         );
@@ -200,40 +223,26 @@ function processStackArgs(
       if (mustReorder) insertInstruction(ctx, i, globalGet.create(ctx, x));
       else globalGet(ctx, x);
     } else if (isStackVar(x)) {
-      if (x.type !== Unknown && !isSubtype(x.type, type))
+      if (x.type !== Unknown && x.type !== type && !isSubtype(x.type, type))
         throw Error(
           `${string}: Expected argument of type ${printValueType(type)}, got ${printValueType(x.type)}.`,
         );
     } else {
       // could be const
-      let unsupported = `${string}: Unsupported input for type ${type}, got ${x}.`;
-      switch (type) {
-        case "i32":
-          if (typeof x !== "number") throw Error(unsupported);
-          if (mustReorder) insertInstruction(ctx, i, i32Const.create(ctx, x));
-          else i32Const(ctx, x);
-          break;
-        case "i64":
-          if (typeof x !== "bigint") throw Error(unsupported);
-          if (mustReorder) insertInstruction(ctx, i, i64Const.create(ctx, x));
-          else i64Const(ctx, x);
-          break;
-        case "f32":
-          if (typeof x !== "number") throw Error(unsupported);
-          if (mustReorder) insertInstruction(ctx, i, f32Const.create(ctx, x));
-          else f32Const(ctx, x);
-          break;
-        case "f64":
-          if (typeof x !== "number") throw Error(unsupported);
-          if (mustReorder) insertInstruction(ctx, i, f64Const.create(ctx, x));
-          else f64Const(ctx, x);
-          break;
-        case "v128":
-        case "funcref":
-        case "externref":
-        default:
-          throw Error(unsupported);
-      }
+      let constant =
+        type === "i32" && typeof x === "number"
+          ? i32Const
+          : type === "i64" && typeof x === "bigint"
+            ? i64Const
+            : type === "f32" && typeof x === "number"
+              ? f32Const
+              : type === "f64" && typeof x === "number"
+                ? f64Const
+                : undefined;
+      if (constant === undefined)
+        throw Error(`${string}: Unsupported input for type ${type}, got ${x}.`);
+      if (mustReorder) insertInstruction(ctx, i, constant.create(ctx, x as never));
+      else constant(ctx, x as never);
     }
   }
 }
@@ -255,14 +264,16 @@ function insertInstruction(ctx: LocalContext, i: number, description: Descriptio
     throw Error(
       `${string}: can't insert an operand between values that one instruction pushes or passes through, in stack ${formatStack(stack)}`,
     );
-  let written = code.writes.find(
-    (write) => write.position >= position && writes(write, description),
-  );
+  // Insertions are near the end of the code, after most writes.
+  let written: Write | undefined;
+  for (let k = code.writes.length - 1; k >= 0 && code.writes[k].position >= position; k--)
+    if (writes(code.writes[k], description)) written = code.writes[k];
   if (written !== undefined)
     throw Error(
       `${string}: an operand would be read before ${written.name}, which comes after earlier operands that are instruction results and changes it. Compute the operands in the order they are passed.`,
     );
-  let inserted = new Code(16);
+  let inserted = scratch;
+  inserted.clear();
   writeInstruction(inserted, instruction, deps, resolveArgs);
   code.insert(position, inserted);
   shiftPlaces(ctx, position, inserted.length);
@@ -272,6 +283,9 @@ function insertInstruction(ctx: LocalContext, i: number, description: Descriptio
   place(result, position, position + inserted.length);
   for (let dep of deps) ctx.deps.add(dep);
 }
+
+/** Code of an instruction to insert. */
+const scratch = new Code(16);
 
 /** Whether a write changes what a local.get or global.get reads. */
 function writes(write: Write, { string, resolveArgs, deps }: Description): boolean {

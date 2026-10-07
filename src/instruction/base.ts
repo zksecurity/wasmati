@@ -6,6 +6,7 @@ import {
   type LocalContext,
   placeResults,
   popStack,
+  popTypes,
   pushStack,
   type RandomLabel,
   StackVar,
@@ -36,6 +37,7 @@ export {
   type ResolvedInstruction,
   type Description,
   emit,
+  emitSimple,
   writeInstruction,
   runBlock,
   checkAllowed,
@@ -198,13 +200,43 @@ function emit(
   let { code } = ctx;
   checkAllowed(ctx, instruction.string);
   let start = code.length;
-  popStack(ctx, type.args, instruction.string);
+  popTypes(ctx, type.args, instruction.string);
   writeInstruction(code, instruction, deps, resolveArgs, likely);
   for (let dep of deps) ctx.deps.add(dep);
   if (instruction.effect === "direct call") ctx.calls.add(deps[0] as Dependency.AnyFunc);
   let results = pushStack(ctx, type.results) as StackVar<ValueType>[];
   placeResults(ctx, start);
   return results;
+}
+
+/**
+ * Apply and write an instruction without dependencies, whose immediate, if any, is given, and which
+ * pushes at most one result: most instructions. Faster than `emit()`, which handles all.
+ */
+function emitSimple(
+  ctx: LocalContext,
+  instruction: BaseInstruction,
+  args: ValueType[],
+  result: ValueType | undefined,
+  immediate?: unknown,
+): StackVar<ValueType> | undefined {
+  let { code } = ctx;
+  if (ctx.allowed !== undefined) checkAllowed(ctx, instruction.string);
+  let start = code.length;
+  if (args.length > 0) popTypes(ctx, args, instruction.string);
+  let { opcodeBytes } = instruction;
+  if (opcodeBytes.length === 1) code.byte(opcodeBytes[0]);
+  else code.bytes(opcodeBytes);
+  if (instruction.immediate !== undefined) instruction.immediate.write(code, immediate);
+  if (instruction.effect === "local")
+    code.writes.push({ position: start, name: instruction.string, local: immediate as number });
+  let value: StackVar<ValueType> | undefined;
+  if (result !== undefined) {
+    value = StackVar(result);
+    ctx.stack.push(value);
+  }
+  placeResults(ctx, start);
+  return value;
 }
 
 /**
@@ -299,7 +331,7 @@ function baseInstructionWithImmediate<
     out: valueTypeLiterals<Results>(results),
   };
 
-  return baseInstruction<Immediate, CreateArgs, CreateArgs, Args, Results>(name, immediate, {
+  let base = baseInstruction<Immediate, CreateArgs, CreateArgs, Args, Results>(name, immediate, {
     create:
       // validate immediate if we have a validation callback
       validateImmediate && immediate !== undefined
@@ -309,6 +341,17 @@ function baseInstructionWithImmediate<
           }
         : () => instr,
   });
+  if (instr.out.length > 1) return base;
+  let { instruction } = base;
+  let [result] = instr.out;
+  return Object.assign(
+    function (ctx: LocalContext, ...[value]: CreateArgs) {
+      if (validateImmediate !== undefined && immediate !== undefined)
+        validateImmediate(value as Immediate);
+      return emitSimple(ctx, instruction, instr.in, result, value) as Instruction_<Args, Results>;
+    },
+    { create: base.create, instruction },
+  );
 }
 
 const noResolve = (_: number[], ...args: any) => args[0];

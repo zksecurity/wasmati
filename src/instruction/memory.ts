@@ -1,6 +1,7 @@
 import {
   type Instruction_,
   baseInstruction,
+  emitSimple,
   withPublicSignature,
   type WithPublicSignature,
 } from "./base.ts";
@@ -283,10 +284,24 @@ function memoryInstruction<
       resolve: ([memoryIdx], memArg) => withMemory(memArg, memoryIdx),
     },
   );
+  let { instruction } = createInstr;
+  let defaultArgs = ["i32", ...expectedArgs.slice(1)] as ValueType[];
+  let results_ = valueTypeLiterals<Results>(results);
+  let [result] = results_;
   return function createInstr_(ctx, memArg, ...actualArgs) {
-    const { address } = memoryUse(memArg.memory);
-    processStackArgs(ctx, name, [address, ...expectedArgs.slice(1)], actualArgs);
-    return createInstr(ctx, memArg);
+    if (memArg.memory !== undefined || results_.length > 1) {
+      const { address } = memoryUse(memArg.memory);
+      processStackArgs(ctx, name, [address, ...expectedArgs.slice(1)], actualArgs);
+      return createInstr(ctx, memArg);
+    }
+    // The default memory, which has 32-bit addresses and index 0
+    if (actualArgs.length > 0) processStackArgs(ctx, name, defaultArgs, actualArgs);
+    ctx.deps.add(Dependency.hasMemory);
+    let immediate = memArgFromInput(name, bits, memArg);
+    return emitSimple(ctx, instruction, defaultArgs, result, immediate) as Instruction_<
+      Args,
+      Results
+    >;
   };
 }
 
@@ -335,10 +350,12 @@ function memArgFromInput(
   name: string,
   bits: number,
   { offset = 0, align = bits / 8 }: MemArgInput,
-) {
+): MemArg {
   let alignExponent = Math.log2(align);
   if (!Number.isInteger(alignExponent)) {
     throw Error(`${name}: \`align\` must be power of 2, got ${align}`);
   }
-  return { offset: uint64(BigInt(offset)), align: alignExponent };
+  // Offsets are numbers where exact, bigints beyond 2^53.
+  let exact = typeof offset === "number" && Number.isSafeInteger(offset) && offset >= 0;
+  return { offset: exact ? offset : uint64(BigInt(offset)), align: alignExponent };
 }

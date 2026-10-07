@@ -45,6 +45,13 @@ class Code extends Writer {
   /** Writes of locals and globals and calls, at the position of their instruction. */
   writes: Write[] = [];
 
+  clear() {
+    this.length = 0;
+    this.holes = [];
+    this.hints = [];
+    this.writes = [];
+  }
+
   hole(immediate: Immediate, deps: Dependency.t[], args: unknown[]) {
     this.holes.push({ position: this.length, immediate, deps, args });
   }
@@ -64,11 +71,12 @@ class Code extends Writer {
     let holes = this.holes;
     let i = holes.length;
     while (i > 0 && holes[i - 1].position > position) holes[--i].position += n;
-    holes.splice(
-      i,
-      0,
-      ...other.holes.map((hole) => ({ ...hole, position: hole.position + position })),
-    );
+    if (other.holes.length > 0)
+      holes.splice(
+        i,
+        0,
+        ...other.holes.map((hole) => ({ ...hole, position: hole.position + position })),
+      );
     for (let j = this.hints.length - 1; j >= 0 && this.hints[j].position >= position; j--)
       this.hints[j].position += n;
     for (let j = this.writes.length - 1; j >= 0 && this.writes[j].position >= position; j--)
