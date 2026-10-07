@@ -9,6 +9,15 @@ import test from "node:test";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const tsc = join(root, "node_modules/.bin/tsc");
 
+/** A function typed by an alias that its module doesn't export, so declarations elsewhere spell out Func. */
+const unary = `
+import { func, i32, type Func } from "wasmati";
+type Unary = Func<[{ x: "i32" }], ["i32"]>;
+export function unary(): Unary {
+  return func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => i32.add(x, 1));
+}
+`;
+
 /** A library that exports wasmati values with inferred types, as libraries built on wasmati do. */
 const library = `
 import {
@@ -17,6 +26,7 @@ import {
   refType, funcType, tag, Module, localArray, async, call, block, if_, jsString, stringConstant,
   v128,
 } from "wasmati";
+import { unary } from "./unary.mjs";
 
 export const log = importFunc({ in: [{ x: i32 }], out: [] }, (x) => console.log(x));
 export const slow = importFunc({ in: [{ x: i32 }], out: [i32], async: true }, async (x) => x);
@@ -54,6 +64,9 @@ export const run = func({ in: [], out: [i32] }, () => call(slow, { x: 1 }));
 export const length = func({ in: [{ s: externref }], out: [i32] }, ({ s }) => call(jsString.length, { string: s }));
 
 export const module = Module({ exports: { add, load, getX, mul, length, run: async(run), functions, counter, shared, exception, base } });
+export function createModule() {
+  return Module({ exports: { add, mul, unary: unary() } });
+}
 `;
 
 test("libraries built on wasmati can emit declarations of inferred types", async () => {
@@ -79,6 +92,7 @@ test("libraries built on wasmati can emit declarations of inferred types", async
     assert.equal(build.status, 0, `${build.stdout}\n${build.stderr}`);
 
     await writeFile(join(directory, "library.mts"), library);
+    await writeFile(join(directory, "unary.mts"), unary);
     const check = spawnSync(
       tsc,
       [

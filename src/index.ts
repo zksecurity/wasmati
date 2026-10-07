@@ -204,6 +204,8 @@ export type {
   Data,
   Elem,
   AnyImport,
+  Instruction as DependencyInstruction,
+  t as AnyDependency,
 } from "./dependency.ts";
 export type { I32, I64, F32, F64, V128 };
 export type { AddressType, DefinedType } from "./types.ts";
