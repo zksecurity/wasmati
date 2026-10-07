@@ -300,7 +300,7 @@ function indexTypes(module: BinableModule): BinableModule {
     body.map(({ name, immediate }) => {
       if (name === "ref.null") return { name, immediate: heapIndex(immediate) };
       if (name === "select_t") return { name, immediate: immediate.map(value) };
-      if (name === "block" || name === "loop")
+      if (name === "block" || name === "loop" || name === "try_table")
         return {
           name,
           immediate: { ...immediate, instructions: instructions(immediate.instructions) },
