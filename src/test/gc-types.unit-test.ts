@@ -144,3 +144,16 @@ test("GC types roundtrip through text, binary and decompiled builders", async ()
   assert.deepEqual(rebuilt.module.recGroups, parsed.recGroups);
   await rebuilt.instantiate();
 });
+
+test("locals of distinct defined types with the same printed name keep their types", async () => {
+  const A = struct({ a: i32 });
+  const B = struct({ b: i64 });
+  const ra = refType(A, { nullable: true });
+  const rb = refType(B, { nullable: true });
+  const f = func({ in: [], locals: { a: ra, b: rb, c: ra }, out: [rb] }, (_, { b }) =>
+    local.get(b),
+  );
+  const { module } = Module({ exports: { f } });
+  assert.equal(module.funcs[0].locals.length, 3);
+  assert.notDeepEqual(module.funcs[0].locals[0], module.funcs[0].locals[2]);
+});

@@ -21,7 +21,6 @@ import {
   type Type,
   TypeIndex,
   ValueType,
-  printValueType,
   typeEquals,
   valueTypeLiterals,
 } from "./types.ts";
@@ -236,21 +235,17 @@ function explicitType(definedType: DefinedType | undefined, signature: FunctionT
   return { definedType };
 }
 
+/** Locals are grouped by type, which must compare by type equivalence, not by printed names. */
 function sortLocals(locals: ValueType[], offset: number) {
-  let typeIndex: Record<string, number> = {};
   let types: ValueType[] = [];
-  let nextIndex = 0;
   let count: number[] = [];
+  let groups: number[] = [];
   let offsetWithin: number[] = [];
   for (let local of locals) {
-    let key = printValueType(local);
-    if (typeIndex[key] === undefined) {
-      typeIndex[key] = nextIndex;
-      types.push(local);
-      nextIndex++;
-    }
-    let i = typeIndex[key];
+    let i = types.findIndex((type) => typeEquals(type, local));
+    if (i === -1) i = types.push(local) - 1;
     count[i] ??= 0;
+    groups.push(i);
     offsetWithin.push(count[i]);
     count[i]++;
   }
@@ -258,10 +253,7 @@ function sortLocals(locals: ValueType[], offset: number) {
   for (let i = 1; i < count.length; i++) {
     typeOffset[i] = count[i - 1] + typeOffset[i - 1];
   }
-  let localIndices: number[] = [];
-  for (let j = 0; j < locals.length; j++) {
-    localIndices[j] = offset + typeOffset[typeIndex[printValueType(locals[j])]] + offsetWithin[j];
-  }
+  let localIndices = locals.map((_, j) => offset + typeOffset[groups[j]] + offsetWithin[j]);
   let sortedLocals: ValueType[] = types.flatMap((type, i) => Array(count[i]).fill(type));
   return { sortedLocals, localIndices };
 }
