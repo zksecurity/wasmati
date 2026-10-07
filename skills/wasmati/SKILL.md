@@ -156,9 +156,9 @@ Builder calls append instructions to the function being built, so a JS function 
 import { Module, func, i64, local, type Local } from "wasmati";
 
 // emits x^n into the function that calls it; n is fixed when the module is built
-function pow(result: Local<"i64">, x: Local<"i64">, n: number) {
-  local.set(result, 1n);
-  for (let bit of n.toString(2)) {
+function pow(result: Local<i64>, x: Local<i64>, n: number) {
+  local.set(result, x);
+  for (let bit of n.toString(2).slice(1)) {
     local.set(result, i64.mul(result, result));
     if (bit === "1") local.set(result, i64.mul(result, x));
   }
@@ -478,7 +478,7 @@ instance.exports.f(); // 44
 
 The module contains exactly the instructions you write, so it is as fast as those instructions, once the engine compiles them. Notes for V8, the engine of Chrome, Node and Deno:
 
-- V8 compiles functions quickly first, and recompiles hot ones with its optimizing compiler. Benchmarks need to run long enough for that, and should measure independent operations as well as dependent chains.
+- V8 compiles functions quickly first, and recompiles hot ones with its optimizing compiler. Benchmarks need to run long enough for that, and should measure both latency, where each operation waits for the previous one, and throughput, where operations are independent.
 - `node --no-liftoff --no-wasm-lazy-compilation --print-wasm-code` prints the optimized machine code. Moves to and from the stack frame are spills: more values were live than fit in registers.
 - Calls between JS and Wasm cost a few nanoseconds each. In hot loops, loop inside Wasm and pass arrays in memory.
 - Fusing code into one function by generating it saves calls, up to the point where its values no longer fit in registers.
