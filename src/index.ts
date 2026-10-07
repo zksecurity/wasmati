@@ -194,6 +194,24 @@ export {
 };
 export { Dependency };
 export type {
+  Memory,
+  Table,
+  ImportTable,
+  AnyTable,
+  Tag,
+  ImportTag,
+  AnyTag,
+  Data,
+  Elem,
+  AnyImport,
+} from "./dependency.ts";
+export type { AddressType, DefinedType } from "./types.ts";
+export type { U64 } from "./immediate.ts";
+export type { NamedLocals } from "./locals.ts";
+export type { LocalContext } from "./local-context.ts";
+export type { StructType, ArrayType, FieldInput, FieldValue } from "./type-definitions.ts";
+export type { Module as BinaryModule } from "./module-binable.ts";
+export type {
   ToTypeTuple,
   FunctionTypeInput,
   Label,

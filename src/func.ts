@@ -32,7 +32,7 @@ import {
   type CheckedParameters,
   type ParameterValues,
 } from "./parameters.ts";
-import type { LocalDeclaration, NamedLocals } from "./locals.ts";
+import type { LocalDeclaration, NamedLocal, NamedLocals } from "./locals.ts";
 import type { Func } from "./func-types.ts";
 
 // external
@@ -198,7 +198,8 @@ function declareFunc<
     define(
       run: (
         args: ToLocal<ParameterValues<ParameterSchema<Args>>>,
-        locals: NamedLocals<Locals>,
+        // Spelled out, so that declarations of a declared function don't name instruction namespaces like `i64`.
+        locals: { [K in keyof Locals]: NamedLocal<Locals[K]> },
         ctx: LocalContext,
       ) => void,
     ) {

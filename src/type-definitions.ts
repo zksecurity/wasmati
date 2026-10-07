@@ -51,6 +51,11 @@ type FieldValue<F extends FieldInput> = F["kind"] extends "i8" | "i16"
   ? "i32"
   : Exclude<F["kind"], "i8" | "i16">;
 
+/** A field type as written, without the instruction namespaces of types like `i32`. */
+type Field<F extends FieldInput> = F extends { mutable: true }
+  ? { kind: F["kind"]; mutable: true }
+  : Type<F["kind"]>;
+
 function field(input: FieldInput): FieldType {
   return { type: input.kind, mutable: "mutable" in input };
 }
@@ -81,7 +86,7 @@ function defined(
 function struct<const Fields extends Record<string, FieldInput>>(
   fields: Fields,
   options: TypeOptions = {},
-): StructType<Fields> {
+): StructType<{ [K in keyof Fields]: Field<Fields[K]> }> {
   const entries = Object.entries(fields);
   return defined(
     { struct: entries.map(([, input]) => field(input)) },
@@ -94,7 +99,7 @@ function struct<const Fields extends Record<string, FieldInput>>(
 function array<const Element extends FieldInput>(
   element: Element,
   options: TypeOptions = {},
-): ArrayType<Element> {
+): ArrayType<Field<Element>> {
   return defined({ array: field(element) }, options);
 }
 
