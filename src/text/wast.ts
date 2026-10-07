@@ -79,7 +79,10 @@ type Command =
       kind: "assert_trap_module" | "assert_invalid" | "assert_malformed" | "assert_unlinkable";
       module: ModuleCommand;
       message: string;
-    };
+    }
+  /** Commands that run concurrently, sharing the named module instances, until a wait joins them. */
+  | { kind: "thread"; name: string; shared: string[]; commands: List[] }
+  | { kind: "wait"; name: string };
 
 function parseCommand(list: List): Command {
   const c = Cursor.of(list);
@@ -139,6 +142,28 @@ function parseCommand(list: List): Command {
       const message = c.name();
       c.end();
       return { kind: head, module, message };
+    }
+    case "thread": {
+      c.keyword(head);
+      const name = c.identifier() ?? c.fail("expected a thread name");
+      const shared = c.lists("shared", (s) => {
+        const module = s.list("module");
+        const name = module.identifier() ?? module.fail("expected a module name");
+        module.end();
+        s.end();
+        return name;
+      });
+      const commands = c.until((c) => {
+        const node = c.next();
+        return node.kind === "list" ? node : c.fail("expected a command", node);
+      });
+      return { kind: head, name, shared, commands };
+    }
+    case "wait": {
+      c.keyword(head);
+      const name = c.identifier() ?? c.fail("expected a thread name");
+      c.end();
+      return { kind: head, name };
     }
     default:
       throw new UnsupportedTextError(`WAST command ${head ?? "<list>"} is not implemented`);

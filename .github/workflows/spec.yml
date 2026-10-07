@@ -39,7 +39,7 @@ jobs:
       - name: Run assertions through wasmati
         run: >-
           npm run test:spec -- .spec-tests
-          .spec-threads/test/core/threads/atomic.wast
+          '.spec-threads/test/core/threads/*.wast'
           .spec-wide-arithmetic/test/core/wide-arithmetic.wast
           > spec-results.txt 2>&1
       - name: Report results
