@@ -9,6 +9,7 @@ export {
   StackVar,
   isStackVar,
   pushResult,
+  pushValue,
   type StackVars,
   stackVars,
   Unknown,
@@ -260,6 +261,11 @@ class StackValue<T> {
  * Push the result of an instruction that was written from `start` to the end of the code, after its
  * operands were popped, and before any other instruction.
  */
+/** Push the value of an instruction without operands, written from `start` to the end of the code. */
+function pushValue(ctx: LocalContext, type: StackType, start: number) {
+  ctx.stack.push(new StackValue(type, start, ctx.code.length));
+}
+
 function pushResult<T extends StackType>(ctx: LocalContext, type: T, start: number): StackVar<T> {
   let frame: ControlFrame | undefined = ctx.frames[0];
   let from = start;

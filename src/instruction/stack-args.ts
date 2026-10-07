@@ -2,7 +2,7 @@ import { Binable, Undefined } from "../binable.ts";
 import type { AnyGlobal } from "../dependency.ts";
 import type * as Dependency from "../dependency.ts";
 import { formatStack, place, placeOf, pushStack, shiftPlaces } from "../local-context.ts";
-import { isStackVar, type LocalContext, StackVar, Unknown } from "../local-context.ts";
+import { isStackVar, type LocalContext, pushValue, StackVar, Unknown } from "../local-context.ts";
 import {
   isSubtype,
   type Local,
@@ -248,7 +248,16 @@ function operand(
         `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
       );
     if (below !== undefined) insertInstruction(ctx, below, localGet.create(ctx, x));
-    else localGet(ctx, x);
+    else {
+      // local.get, written here, which is faster than through the instruction
+      let local = ctx.locals[x.index];
+      if (local === undefined || ctx.allowed !== undefined) return void localGet(ctx, x);
+      let { code } = ctx;
+      let start = code.length;
+      code.byte(0x20);
+      code.unsigned(x.index);
+      pushValue(ctx, local, start);
+    }
   } else if (isGlobal(x)) {
     if (!isSubtype(x.type.value, type))
       throw Error(
