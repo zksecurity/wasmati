@@ -222,7 +222,8 @@ const ParsedModule = withValidation(
 function usesDataIndex(body: ResolvedInstruction[]): boolean {
   return body.some(({ name, immediate }) => {
     if (name === "memory.init" || name === "data.drop") return true;
-    if (name === "block" || name === "loop") return usesDataIndex(immediate.instructions);
+    if (name === "block" || name === "loop" || name === "try_table")
+      return usesDataIndex(immediate.instructions);
     if (name === "if")
       return (
         usesDataIndex(immediate.instructions.if) || usesDataIndex(immediate.instructions.else ?? [])

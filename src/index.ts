@@ -11,7 +11,14 @@ import {
   bindGlobalOps,
 } from "./instruction/variable.ts";
 import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.ts";
-import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.ts";
+import {
+  memoryOps,
+  bindMemoryOps,
+  dataOps,
+  tableOps,
+  bindTableOps,
+  elemOps,
+} from "./instruction/memory.ts";
 import { bindControlOps, control as controlOps, parametric } from "./instruction/control.ts";
 import {
   anyOps,
@@ -329,11 +336,16 @@ function createInstructions(ctx: LocalContext) {
 
   const { drop, select_poly, select_t } = removeContexts(ctx, parametric);
 
-  const memory = Object.assign(memoryConstructor, removeContexts(ctx, memoryOps), {
-    atomic: memoryAtomic,
-  });
+  const memory = Object.assign(
+    memoryConstructor,
+    removeContexts(ctx, memoryOps),
+    bindMemoryOps(ctx),
+    {
+      atomic: memoryAtomic,
+    },
+  );
   const data = Object.assign(dataConstructor, removeContexts(ctx, dataOps));
-  const table = Object.assign(tableConstructor, removeContexts(ctx, tableOps));
+  const table = Object.assign(tableConstructor, removeContexts(ctx, tableOps), bindTableOps(ctx));
   const elem = Object.assign(elemConstructor, removeContexts(ctx, elemOps));
 
   const v128_ = removeContexts(ctx, v128Ops);

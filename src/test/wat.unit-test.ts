@@ -323,3 +323,12 @@ test("type uses print inline where the signature implies the type, and by name o
   assert.doesNotMatch(printed, /\(type 1\)/);
   assert.deepEqual(parseWat(printed), module);
 });
+
+test("custom sections print as @custom annotations", () => {
+  const f = func({ in: [], out: [i32] }, () => i32.const(42));
+  const module = Module({
+    exports: { f },
+    customSections: [{ name: "producers", data: [1, 2], after: 0 }],
+  });
+  assert.match(module.toWat(), /\(@custom "producers" \(before first\) "\\01\\02"\)\)\n$/);
+});

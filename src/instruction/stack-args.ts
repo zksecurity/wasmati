@@ -25,6 +25,7 @@ export {
   type Input,
   type Inputs,
   processStackArgs,
+  namedInputs,
   insertInstruction,
 };
 
@@ -137,6 +138,25 @@ function instructionWithArg<
     processStackArgs(ctx, name, instr.in, actualArgs);
     return createInstr(ctx, immediate);
   };
+}
+
+/**
+ * Named operands, in parameter order. Operands that are instruction results are already on the stack
+ * in the order they were evaluated, which is the order of the object's keys, so they must be given in
+ * parameter order; other operands are emitted in parameter order.
+ */
+function namedInputs(
+  string: string,
+  names: string[],
+  values: Record<string, Input<any>>,
+): Input<any>[] {
+  let evaluated = Object.keys(values).filter((name) => isStackVar(values[name]));
+  let ordered = names.filter((name) => evaluated.includes(name));
+  if (evaluated.some((name, i) => name !== ordered[i]))
+    throw Error(
+      `${string}: operands that are instruction results must be given in order (${names.join(", ")}), got ${evaluated.join(", ")}`,
+    );
+  return names.map((name) => values[name]);
 }
 
 function processStackArgs(

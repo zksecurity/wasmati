@@ -24,6 +24,8 @@ import {
   data,
   memory,
   constant,
+  importFunc,
+  call,
   global,
   return_,
 } from "../index.ts";
@@ -187,4 +189,28 @@ test("GC instructions take operands as arguments, and struct fields by name", as
   const { instance } = await Module({ exports: { f } }).instantiate();
   assert.equal(instance.exports.f(-2), -1);
   assert.throws(() => struct.new(point, { x: 1 }), /Unsupported input|Expected/);
+});
+
+test("named operands keep their values, and instruction results must come in order", async () => {
+  const point = struct({ x: i32, y: i32 });
+  const p = global(constant(() => struct.new(point, { y: i32.const(2), x: 1 })));
+  const q = global(constant(() => struct.new(point, { x: i32.const(3), y: i32.const(4) })));
+  const add = importFunc({ in: [{ a: i32 }, { b: i32 }], out: [i32] }, (a, b) => a * 10 + b);
+  const read = func({ in: [], out: [i32, i32, i32, i32, i32] }, () => {
+    struct.get(point, "x", global.get(p));
+    struct.get(point, "y", global.get(p));
+    struct.get(point, "x", global.get(q));
+    struct.get(point, "y", global.get(q));
+    call(add, { b: i32.const(2), a: 1 });
+  });
+  const { instance } = await Module({ exports: { read } }).instantiate();
+  assert.deepEqual(instance.exports.read(), [1, 2, 3, 4, 12]);
+  assert.throws(
+    () => constant(() => struct.new(point, { y: i32.const(2), x: i32.const(1) })),
+    /struct\.new: operands that are instruction results must be given in order \(x, y\), got y, x/,
+  );
+  assert.throws(
+    () => func({ in: [], out: [i32] }, () => call(add, { b: i32.const(2), a: i32.const(1) })),
+    /call: operands that are instruction results must be given in order/,
+  );
 });
