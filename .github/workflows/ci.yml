@@ -66,7 +66,7 @@ jobs:
           npm ci
           npm run build
           npm ci --prefix examples/build
-      # Builds the example, runs it in Node, and bundles it with Vite and webpack for headless Chrome.
+      # Builds the example, runs it in Node, and bundles it with Vite and Next.js for headless Chrome.
       - name: Test the example
         run: npm test --prefix examples/build
         env:

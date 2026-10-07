@@ -187,13 +187,10 @@ export default {
 };
 ```
 
-- **webpack** with `experiments.asyncWebAssembly`. Its Wasm parser does not support Wasm 3.0 types, such as typed references and GC types, so it only bundles modules with Wasm 2.0 types:
+- **Next.js** with Turbopack, importing built modules in client code:
 
 ```js
 export default {
-  experiments: { asyncWebAssembly: true },
-  plugins: [
-    new webpack.NormalModuleReplacementPlugin(/^wasm:js-string$/, "/path/to/built/js-string.js"),
-  ],
+  turbopack: { resolveAlias: { "wasm:js-string": "./path/to/built/js-string.js" } },
 };
 ```

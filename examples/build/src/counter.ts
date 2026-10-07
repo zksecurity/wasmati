@@ -8,6 +8,7 @@ import {
   constant,
   externref,
   jsString,
+  stringConstant,
 } from "wasmati";
 
 // Imports are written inline, as usual; `wasmati build` moves them into counter.host.js.
@@ -29,8 +30,9 @@ const increment = func({ in: [{ by: i32 }], out: [i32] }, ({ by }) => {
 });
 
 // JS string builtins come from the engine, or from a polyfill that bundlers map wasm:js-string to.
-const measure = func({ in: [{ text: externref }], out: [i32] }, ({ text }) =>
-  call(jsString.length, { string: text }),
-);
+const hello = stringConstant("hello ");
+const greet = func({ in: [{ name: externref }], out: [externref] }, ({ name }) => {
+  call(jsString.concat, { first: global.get(hello), second: name });
+});
 
-export default Module({ exports: { increment, measure } });
+export default Module({ exports: { increment, greet } });
