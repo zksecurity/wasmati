@@ -28,7 +28,7 @@ import {
   type CheckedParameters,
 } from "./parameters.ts";
 import type { ImportFunc } from "./func-types.ts";
-import { constOffset, dataConstructor, jsLimits, limits } from "./memory.ts";
+import { dataConstructor, jsLimits, limits } from "./memory.ts";
 
 export {
   Export,
@@ -214,7 +214,7 @@ function importMemory(
   };
   let offset = 0;
   for (let init of content) {
-    dataConstructor({ memory: memory_, offset: constOffset(address, offset) }, init);
+    dataConstructor({ memory: memory_, offset }, init);
     offset += init.length;
   }
   return memory_;

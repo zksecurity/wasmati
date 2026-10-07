@@ -68,8 +68,8 @@ import {
 } from "./memory.ts";
 import * as Dependency from "./dependency.ts";
 import type { Global, ImportGlobal, AnyGlobal, ImportMemory, AnyMemory } from "./dependency.ts";
-import { Const } from "./dependency.ts";
 import { importFunc, importGlobal, importMemory, importTable, importTag } from "./export.ts";
+import { constant as constantExpression } from "./constant.ts";
 import type { TupleN } from "./util.ts";
 import type { ModuleExport } from "./module.ts";
 import type { Input } from "./instruction/stack-args.ts";
@@ -137,7 +137,7 @@ export {
 
 // other public API
 export { defaultCtx };
-export { declareFunc, func, type Func, importFunc, type ImportFunc, type AnyFunc };
+export { declareFunc, func, type Func, importFunc, type ImportFunc, type AnyFunc, constant };
 export { importTable, importTag, tagConstructor as tag };
 export { struct, array, funcType, rec, mut, i8, i16 } from "./type-definitions.ts";
 export { importMemory, type ImportMemory, type AnyMemory };
@@ -166,7 +166,7 @@ export {
   RefType,
   type RefTypeObject,
 };
-export { Const, Dependency };
+export { Dependency };
 export type {
   ToTypeTuple,
   FunctionTypeInput,
@@ -186,6 +186,7 @@ type v128 = "v128";
 
 const defaultCtx = emptyContext();
 const declareFunc = removeContext(defaultCtx, originalDeclareFunc);
+const constant = removeContext(defaultCtx, constantExpression);
 
 const {
   func,

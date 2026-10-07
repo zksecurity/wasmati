@@ -1,4 +1,4 @@
-import { Const } from "./dependency.ts";
+import { constantOf, constantOffset, type ConstantInput } from "./constant.ts";
 import { explicitType } from "./func.ts";
 import { uint64, type U64 } from "./immediate.ts";
 import * as Dependency from "./dependency.ts";
@@ -21,8 +21,11 @@ export {
   elemConstructor,
   limits,
   jsLimits,
-  constOffset,
 };
+
+function addressOf(limits: Limits | undefined): AddressType {
+  return limits?.address ?? "i32";
+}
 
 /** An exception tag; exceptions with it carry values of the given types. */
 function tagConstructor({
@@ -58,7 +61,7 @@ function memoryConstructor(
   };
   let offset = 0;
   for (let init of content) {
-    dataConstructor({ memory, offset: constOffset(address, offset) }, init);
+    dataConstructor({ memory, offset }, init);
     offset += init.length;
   }
   return memory;
@@ -93,15 +96,12 @@ function jsLimits({
   } as WebAssembly.MemoryDescriptor;
 }
 
-function constOffset(address: AddressType, offset: number): Dependency.Offset {
-  return address === "i64" ? Const.i64(offset) : Const.i32(offset);
-}
-
+/** A data segment: passive, or active at an offset, a constant or a number, in a memory. */
 function dataConstructor(
   mode:
     | {
         memory?: Dependency.AnyMemory;
-        offset: Dependency.Offset;
+        offset: ConstantInput;
       }
     | "passive",
   [...init]: number[] | Uint8Array,
@@ -109,7 +109,8 @@ function dataConstructor(
   if (mode === "passive") {
     return { kind: "data", init, mode, deps: [] };
   }
-  let { memory, offset } = mode;
+  let { memory } = mode;
+  let offset = constantOffset(mode.offset, addressOf(memory?.type.limits)) as Dependency.Offset;
   let deps = [...offset.deps] as Dependency.AnyGlobal[];
   let result: Dependency.Data = {
     kind: "data",
@@ -138,19 +139,20 @@ function tableConstructor(
     min: U64;
     max?: U64;
     address?: AddressType;
-    /** Initial value of every element, null by default. */
-    init?: Const.t<RefType>;
+    /** Initial value of every element, null by default: a constant, or a function. */
+    init?: Dependency.Constant<RefType> | Dependency.AnyFunc;
   },
-  content?: (Const.refFunc | Const.refNull<RefType>)[],
+  content?: (Dependency.Constant<RefType> | Dependency.AnyFunc)[],
 ): Dependency.Table {
+  let initial = init === undefined ? undefined : (constantOf(init) as Dependency.Constant<RefType>);
   let table: Dependency.Table = {
     kind: "table" as const,
     type: { type: valueTypeLiteral(type), limits: limits(min, max, false, address) },
-    deps: [...((init?.deps ?? []) as Dependency.Table["deps"])],
-    ...(init === undefined ? {} : { init }),
+    deps: [...((initial?.deps ?? []) as Dependency.Table["deps"])],
+    ...(initial === undefined ? {} : { init: initial }),
   };
   if (content !== undefined) {
-    elemConstructor({ type, mode: { table, offset: constOffset(address, 0) } }, content);
+    elemConstructor({ type, mode: { table, offset: 0 } }, content);
   }
   return table;
 }
@@ -166,23 +168,34 @@ function elemConstructor(
       | "declarative"
       | {
           table: Dependency.AnyTable;
-          offset: Dependency.Offset;
+          offset: ConstantInput;
         };
   },
-  init: (Const.refFunc | Const.refNull<RefType>)[],
+  items: (Dependency.Constant<RefType> | Dependency.AnyFunc)[],
 ): Dependency.Elem {
+  let init = items.map((item) => constantOf(item) as Dependency.Constant<RefType>);
   let deps = init.flatMap((i) => i.deps as Dependency.Elem["deps"]);
-  let result = {
+  let mode_: Dependency.Elem["mode"] =
+    typeof mode === "object"
+      ? {
+          table: mode.table,
+          offset: constantOffset(
+            mode.offset,
+            addressOf(mode.table.type.limits),
+          ) as Dependency.Offset,
+        }
+      : mode;
+  let result: Dependency.Elem = {
     kind: "elem" as const,
     type: valueTypeLiteral(type),
     init,
-    mode,
+    mode: mode_,
     deps,
   };
-  if (typeof mode === "object") {
-    mode.table.deps.push(result);
-    deps.push(mode.table);
-    deps.push(...(mode.offset.deps as Dependency.Elem["deps"]));
+  if (typeof mode_ === "object") {
+    mode_.table.deps.push(result);
+    deps.push(mode_.table);
+    deps.push(...(mode_.offset.deps as Dependency.Elem["deps"]));
   }
   return result;
 }

@@ -8,6 +8,7 @@ import {
   type FunctionType,
   type HeapType,
   isFunctionType,
+  type Limits,
   type StorageType,
   type TypeDefinition,
   type GlobalType,
@@ -249,7 +250,7 @@ class Source {
     for (const t of this.module.tables) {
       const variable = this.tables[nextIndex.table++];
       this.line(
-        `const ${variable} = ${this.use("table")}({ type: ${this.valueType(t.type)}, ...${literal(t.limits)}${t.init === undefined ? "" : `, init: ${this.constant(t.init)}`} });`,
+        `const ${variable} = ${this.use("table")}({ type: ${this.valueType(t.type)}, ...${literal(t.limits)}${t.init === undefined ? "" : `, init: ${this.referenceOrConstant(t.init)}`} });`,
       );
       this.dependencies.push(variable);
     }
@@ -270,7 +271,7 @@ class Source {
       const mode =
         typeof d.mode === "string"
           ? literal(d.mode)
-          : `{ memory: ${this.reference(this.memories, d.mode.memory)}, offset: ${this.constant(d.mode.offset)} }`;
+          : `{ memory: ${this.reference(this.memories, d.mode.memory)}, offset: ${this.offset(d.mode.offset, this.addressOf("memory", d.mode.memory))} }`;
       this.line(`const ${variable} = ${this.use("data")}(${mode}, ${literal(d.init)});`);
       this.dependencies.push(variable);
     }
@@ -279,9 +280,9 @@ class Source {
       const mode =
         typeof e.mode === "string"
           ? literal(e.mode)
-          : `{ table: ${this.reference(this.tables, e.mode.table)}, offset: ${this.constant(e.mode.offset)} }`;
+          : `{ table: ${this.reference(this.tables, e.mode.table)}, offset: ${this.offset(e.mode.offset, this.addressOf("table", e.mode.table))} }`;
       this.line(
-        `const ${variable} = ${this.use("elem")}({ type: ${this.valueType(e.type)}, mode: ${mode} }, [${e.init.map((init) => this.constant(init)).join(", ")}]);`,
+        `const ${variable} = ${this.use("elem")}({ type: ${this.valueType(e.type)}, mode: ${mode} }, [${e.init.map((init) => this.referenceOrConstant(init)).join(", ")}]);`,
       );
       this.dependencies.push(variable);
     }
@@ -494,59 +495,80 @@ class Source {
     return `{ args: [${literals(args)}], results: [${literals(results)}] }`;
   }
 
+  /** The type of a constant expression as the builder infers it, if known. */
   private constantType(expression: ResolvedInstruction[]): ValueType | undefined {
     if (expression.length === 0) return undefined;
     // The last instruction produces the value.
     const { name, immediate } = expression[expression.length - 1];
-    if (name === "ref.null") return refType(immediate, true);
-    if (name === "ref.func") return "funcref";
-    if (name !== "global.get") return name.slice(0, name.indexOf(".")) as ValueType;
-    const imported = this.module.imports.filter((i) => i.description.kind === "global");
-    const global =
-      immediate < imported.length
-        ? (imported[immediate].description.value as GlobalType)
-        : this.module.globals[immediate - imported.length]?.type;
-    return global?.value;
+    switch (name) {
+      case "ref.null":
+        return refType(immediate, true);
+      case "ref.func":
+        return refType(this.functionTypeIndex(immediate), false);
+      case "ref.i31":
+        return refType("i31", false);
+      case "struct.new":
+      case "struct.new_default":
+      case "array.new":
+      case "array.new_default":
+        return refType(immediate, false);
+      case "array.new_fixed":
+        return refType(immediate[0], false);
+      case "global.get": {
+        const imported = this.module.imports.filter((i) => i.description.kind === "global");
+        const global =
+          immediate < imported.length
+            ? (imported[immediate].description.value as GlobalType)
+            : this.module.globals[immediate - imported.length]?.type;
+        return global?.value;
+      }
+    }
+    if (/^(i32|i64|f32|f64|v128)\./.test(name))
+      return name.slice(0, name.indexOf(".")) as ValueType;
+    return undefined;
   }
 
-  /** A constant expression as nested Const calls: arithmetic takes the two values before it. */
+  private functionTypeIndex(funcIdx: number): number {
+    const imported = this.module.imports.filter((i) => i.description.kind === "function");
+    if (funcIdx < imported.length) return imported[funcIdx].description.value as number;
+    return this.module.funcs[funcIdx - imported.length]?.typeIdx ?? -1;
+  }
+
+  /** A constant expression, emitted with the instruction API inside `constant`. */
   private constant(expression: ResolvedInstruction[]): string {
     if (expression.length === 0) throw Error("decompile: constant expression is empty");
-    const values: string[] = [];
-    for (const instruction of expression) {
-      const arithmetic = instruction.name.match(/^(i32|i64)\.(add|sub|mul)$/);
-      if (arithmetic === null) {
-        values.push(this.constantInstruction(instruction));
-        continue;
-      }
-      const [b, a] = [values.pop(), values.pop()];
-      if (a === undefined || b === undefined)
-        throw Error(`decompile: ${instruction.name} in a constant expression lacks operands`);
-      values.push(`${this.use("Const")}.${arithmetic[1]}.${arithmetic[2]}(${a}, ${b})`);
-    }
-    if (values.length !== 1) throw Error("decompile: a constant expression must produce one value");
-    return values[0];
+    const lines = this.lines;
+    this.lines = [];
+    this.instructions(expression, [], 0);
+    const body = this.lines.map((line) => line.trim());
+    this.lines = lines;
+    // A single instruction is the constant's value.
+    if (body.length === 1) return `${this.use("constant")}(() => ${body[0].replace(/;$/, "")})`;
+    return `${this.use("constant")}(() => { ${body.join(" ")} })`;
   }
 
-  private constantInstruction({ name, immediate }: ResolvedInstruction): string {
-    switch (name) {
-      case "i32.const":
-      case "i64.const":
-        return `${this.use("Const")}.${name.slice(0, 3)}(${literal(immediate)})`;
-      case "f32.const":
-      case "f64.const":
-        return `${this.use("Const")}.${name.slice(0, 3)}(${floatLiteral(immediate)})`;
-      case "v128.const":
-        return `${this.use("Const")}.v128("i8x16", ${literal(immediate)})`;
-      case "ref.func":
-        return `${this.use("Const")}.refFunc(${this.reference(this.functions, immediate)})`;
-      case "ref.null":
-        return `${this.use("Const")}.refNull(${this.valueType(refType(immediate, true))})`;
-      case "global.get":
-        return `${this.use("Const")}.globalGet(${this.reference(this.globals, immediate)})`;
-      default:
-        throw Error(`decompile: unsupported constant instruction ${name}`);
-    }
+  /** Segment offsets that are a single constant of the address type are numbers. */
+  private offset(expression: ResolvedInstruction[], address: "i32" | "i64"): string {
+    const [instruction] = expression;
+    if (expression.length === 1 && instruction.name === `${address}.const`)
+      return literal(instruction.immediate);
+    return this.constant(expression);
+  }
+
+  private addressOf(kind: "memory" | "table", index: number): "i32" | "i64" {
+    const imported = this.module.imports.flatMap(({ description }) =>
+      description.kind === kind ? [description.value as { limits: Limits }] : [],
+    );
+    const defined = kind === "memory" ? this.module.memories : this.module.tables;
+    return [...imported, ...defined][index]?.limits.address ?? "i32";
+  }
+
+  /** Element items and table initializers that reference a function are the function. */
+  private referenceOrConstant(expression: ResolvedInstruction[]): string {
+    const [instruction] = expression;
+    if (expression.length === 1 && instruction.name === "ref.func")
+      return this.reference(this.functions, instruction.immediate);
+    return this.constant(expression);
   }
 
   private instructions(body: ResolvedInstruction[], locals: string[], indent: number) {

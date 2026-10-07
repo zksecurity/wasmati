@@ -20,7 +20,6 @@ import {
   funcref,
   call_indirect,
   elem,
-  Const,
   Dependency,
 } from "../index.ts";
 import { parseWat } from "../text/wat.ts";
@@ -100,7 +99,7 @@ test("functions and indirect calls may use defined function types", async () => 
   const sub = funcType({ in: [i32], out: [i32] }, { supertype: base });
   const double = func({ in: [{ x: i32 }], out: [i32], type: sub }, ({ x }) => i32.add(x, x));
   const t = table({ type: funcref, min: 1 });
-  elem({ type: funcref, mode: { table: t, offset: Const.i32(0) } }, [Const.refFunc(double)]);
+  elem({ type: funcref, mode: { table: t, offset: 0 } }, [double]);
   const call = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => {
     local.get(x);
     i32.const(0);

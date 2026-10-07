@@ -1,5 +1,4 @@
 import { Undefined } from "../binable.ts";
-import { Const } from "../dependency.ts";
 import * as Dependency from "../dependency.ts";
 import { baseInstruction, type FunctionTypeInput, functionTypeOf } from "./base.ts";
 import {
@@ -101,18 +100,14 @@ function bindGlobalOps(ctx: LocalContext) {
 
 /** A global with the type of its initializer, or a declared supertype of it. */
 function globalConstructor<T extends ValueType>(
-  init: Const.t<T>,
+  init: Dependency.Constant<T>,
   { mutable = false, type }: { mutable?: boolean; type?: Type<T> } = {},
 ): Dependency.Global<T> {
   let deps = init.deps as Dependency.Global<T>["deps"];
-  let initType = init.type.results[0];
-  let value = type === undefined ? initType : valueTypeLiteral(type);
-  // Function references default to funcref, but may initialize a global of their precise type.
-  if (init.string === "ref.func")
-    initType = refType(Dependency.typeOf(init.deps[0] as Dependency.AnyFunc), false) as T;
-  if (!isSubtype(initType, value))
+  let value = type === undefined ? init.type : valueTypeLiteral(type);
+  if (!isSubtype(init.type, value))
     throw Error(
-      `global: initializer of type ${printValueType(initType)} does not fit type ${printValueType(value)}`,
+      `global: initializer of type ${printValueType(init.type)} does not fit type ${printValueType(value)}`,
     );
   return { kind: "global", type: { value, mutable }, init, deps };
 }

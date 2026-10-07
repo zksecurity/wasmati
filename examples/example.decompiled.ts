@@ -1,5 +1,4 @@
 import {
-  Const,
   Dependency,
   Module,
   atomic,
@@ -8,6 +7,7 @@ import {
   br_if,
   call,
   call_indirect,
+  constant,
   control,
   data,
   declareFunc,
@@ -75,18 +75,21 @@ export default function createModule(imports: WebAssembly.Imports = {}) {
     out: [i32],
   });
   const fma = declareFunc({ name: "fma", in: [{ x: f64 }, { y: f64 }, { z: f64 }], out: [f64] });
-  const global1 = global(Const.refFunc(myFunc), { mutable: false });
-  const global2 = global(Const.f64(0), { mutable: true });
-  const table0 = table({ type: funcref, ...{ min: 4, shared: false } });
-  const data0 = data(
-    { memory: memory_1, offset: Const.i32(0) },
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  const global1 = global(
+    constant(() => ref.func(myFunc)),
+    { mutable: false, type: funcref },
   );
-  const elem0 = elem({ type: funcref, mode: { table: table0, offset: Const.i32(0) } }, [
-    Const.refFunc(consoleLogFunc),
-    Const.refFunc(myFunc),
-    Const.refNull(funcref),
-    Const.refNull(funcref),
+  const global2 = global(
+    constant(() => f64.const(0)),
+    { mutable: true },
+  );
+  const table0 = table({ type: funcref, ...{ min: 4, shared: false } });
+  const data0 = data({ memory: memory_1, offset: 0 }, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  const elem0 = elem({ type: funcref, mode: { table: table0, offset: 0 } }, [
+    consoleLogFunc,
+    myFunc,
+    constant(() => ref.null(funcref)),
+    constant(() => ref.null(funcref)),
   ]);
   exportedFunc.define(({ x, doLog }, { "vectors[0]": vectors_0_, "vectors[1]": vectors_1_, y }) => {
     ref.func(myFunc);

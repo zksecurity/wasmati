@@ -401,14 +401,12 @@ function pushDependency(existing: Set<Dependency.anyDependency>, dep: Dependency
   }
 }
 
-/** A constant expression in stack order: arithmetic follows its operands. */
+/** A constant expression's instructions, which refer to other definitions by index. */
 function resolveConst(
-  constant: Dependency.Instruction & { operands?: Dependency.Instruction[] },
+  constant: Dependency.Constant,
   depToIndex: Map<Dependency.t, number>,
 ): ResolvedInstruction[] {
-  if (constant.operands === undefined) return [resolveInstruction(constant, depToIndex)];
-  const operands = constant.operands.flatMap((o) => resolveConst(o, depToIndex));
-  return [...operands, { name: constant.string, immediate: undefined }];
+  return constant.body.map((instruction) => resolveInstruction(instruction, depToIndex));
 }
 
 function addImport(

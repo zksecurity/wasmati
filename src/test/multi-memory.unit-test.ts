@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Module, func, i32, memory, data, Const } from "../index.ts";
+import { Module, func, i32, memory, data } from "../index.ts";
 import { Module as BinaryModule } from "../module-binable.ts";
 import { parseWat } from "../text/wat.ts";
 import { printWat } from "../text/print.ts";
@@ -10,7 +10,7 @@ import { buildTextModule } from "./text-helpers.ts";
 test("instructions and segments name one of several memories", async () => {
   const small = memory({ min: 1 });
   const large = memory({ min: 2 });
-  data({ memory: large, offset: Const.i32(0) }, [7]);
+  data({ memory: large, offset: 0 }, [7]);
   const copy = func({ in: [], out: [i32] }, () => {
     i32.const(0);
     i32.const(0);
