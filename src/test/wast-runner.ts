@@ -237,6 +237,8 @@ const trapMessages: [string, RegExp][] = [
   ["null function reference", /dereferencing a null pointer/],
   ["null", /dereferencing a null pointer|null/],
   ["cast", /illegal cast/],
+  ["unaligned atomic", /unaligned/],
+  ["expected shared memory", /Atomics.wait cannot be called in this context/],
   ["indirect call", /function signature mismatch|null function/],
 ];
 

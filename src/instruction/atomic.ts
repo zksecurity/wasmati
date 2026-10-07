@@ -20,7 +20,7 @@ export {
 // memory.atomic.X
 const memoryAtomicOps = {
   notify: mi("memory.atomic.notify", 32, [i32t, i32t], [i32t]),
-  wait32: mi("memory.atomic.wait32", 32, [i32t, i32t, i32t], [i32t]),
+  wait32: mi("memory.atomic.wait32", 32, [i32t, i32t, i64t], [i32t]),
   wait64: mi("memory.atomic.wait64", 64, [i32t, i64t, i64t], [i32t]),
 };
 
