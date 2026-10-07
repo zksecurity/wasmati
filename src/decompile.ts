@@ -370,7 +370,8 @@ class Source {
 
   private constantType(expression: ResolvedInstruction[]): ValueType | undefined {
     if (expression.length === 0) return undefined;
-    const [{ name, immediate }] = expression;
+    // The last instruction produces the value.
+    const { name, immediate } = expression[expression.length - 1];
     if (name === "ref.null") return refType(immediate, true);
     if (name === "ref.func") return "funcref";
     if (name !== "global.get") return name.slice(0, name.indexOf(".")) as ValueType;
@@ -382,11 +383,26 @@ class Source {
     return global?.value;
   }
 
+  /** A constant expression as nested Const calls: arithmetic takes the two values before it. */
   private constant(expression: ResolvedInstruction[]): string {
     if (expression.length === 0) throw Error("decompile: constant expression is empty");
-    if (expression.length !== 1)
-      throw Error("decompile: extended constant expressions are not supported by the builder yet");
-    const { name, immediate } = expression[0];
+    const values: string[] = [];
+    for (const instruction of expression) {
+      const arithmetic = instruction.name.match(/^(i32|i64)\.(add|sub|mul)$/);
+      if (arithmetic === null) {
+        values.push(this.constantInstruction(instruction));
+        continue;
+      }
+      const [b, a] = [values.pop(), values.pop()];
+      if (a === undefined || b === undefined)
+        throw Error(`decompile: ${instruction.name} in a constant expression lacks operands`);
+      values.push(`${this.use("Const")}.${arithmetic[1]}.${arithmetic[2]}(${a}, ${b})`);
+    }
+    if (values.length !== 1) throw Error("decompile: a constant expression must produce one value");
+    return values[0];
+  }
+
+  private constantInstruction({ name, immediate }: ResolvedInstruction): string {
     switch (name) {
       case "i32.const":
       case "i64.const":

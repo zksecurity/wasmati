@@ -225,6 +225,8 @@ type ConstInstruction<T extends ValueType> = {
   type: { args: []; results: [T] };
   deps: t[];
   resolveArgs: any[];
+  /** Operands of an arithmetic instruction, which are evaluated first. */
+  operands?: ConstInstruction<ValueType>[];
 };
 
 namespace Const {
@@ -240,29 +242,60 @@ namespace Const {
   export type globalGet<T extends ValueType> = ConstInstruction<T> & {
     string: "global.get";
   };
-  export type t_ = i32 | i64 | f32 | f64 | v128 | refNull<RefType> | refFunc | globalGet<ValueType>;
+  export type arithmetic<T extends "i32" | "i64"> = ConstInstruction<T> & {
+    string: `${T}.${"add" | "sub" | "mul"}`;
+  };
+  export type t_ =
+    | i32
+    | i64
+    | f32
+    | f64
+    | v128
+    | refNull<RefType>
+    | refFunc
+    | globalGet<ValueType>
+    | arithmetic<"i32">
+    | arithmetic<"i64">;
   export type t<T extends ValueType> = ConstInstruction<T> & {
     string: t_["string"];
   };
 }
 
+/** Integer addition, subtraction and multiplication, the arithmetic allowed in constant expressions. */
+function arithmetic<T extends "i32" | "i64">(type: T) {
+  const operation =
+    (op: "add" | "sub" | "mul") =>
+    (a: Const.t<T>, b: Const.t<T>): Const.arithmetic<T> => ({
+      string: `${type}.${op}`,
+      type: { args: [], results: [type] },
+      deps: [...a.deps, ...b.deps],
+      resolveArgs: [],
+      operands: [a, b],
+    });
+  return { add: operation("add"), sub: operation("sub"), mul: operation("mul") };
+}
+
 const Const = {
-  i32(x: number | bigint): Const.i32 {
-    return {
+  /** An i32 constant; `Const.i32.add` and so on combine constants into extended constant expressions. */
+  i32: Object.assign(
+    (x: number | bigint): Const.i32 => ({
       string: "i32.const",
       type: { args: [], results: ["i32"] },
       deps: [],
       resolveArgs: [Number(x)],
-    };
-  },
-  i64(x: number | bigint): Const.i64 {
-    return {
+    }),
+    arithmetic("i32"),
+  ),
+  /** An i64 constant; `Const.i64.add` and so on combine constants into extended constant expressions. */
+  i64: Object.assign(
+    (x: number | bigint): Const.i64 => ({
       string: "i64.const",
       type: { args: [], results: ["i64"] },
       deps: [],
       resolveArgs: [BigInt(x)],
-    };
-  },
+    }),
+    arithmetic("i64"),
+  ),
   f32(x: F32): Const.f32 {
     return {
       string: "f32.const",

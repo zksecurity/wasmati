@@ -59,3 +59,21 @@ test("vector constants accept signed lanes and initialize globals", async () => 
   assert.equal(instance.exports.lane(), -1);
   assert.throws(() => Const.v128("i8x16", [256, ...Array(15).fill(0)] as any), /fit/);
 });
+
+test("constant expressions combine integers with add, sub and mul", async () => {
+  const base = global(Const.i32(10));
+  const offset = global(
+    Const.i32.add(Const.globalGet(base), Const.i32.mul(Const.i32(3), Const.i32(4))),
+  );
+  const wide = global(Const.i64.sub(Const.i64(1), Const.i64(2)));
+  const read = func({ in: [], out: [i32] }, () => global.get(offset));
+  const readWide = func({ in: [], out: [i64] }, () => global.get(wide));
+  const module = Module({ exports: { read, readWide } });
+  assert.deepEqual(
+    module.module.globals[1].init.map((i) => i.name),
+    ["global.get", "i32.const", "i32.const", "i32.mul", "i32.add"],
+  );
+  const { instance } = await module.instantiate();
+  assert.equal(instance.exports.read(), 22);
+  assert.equal(instance.exports.readWide(), -1n);
+});

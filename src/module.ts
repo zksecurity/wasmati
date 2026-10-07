@@ -154,21 +154,21 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   });
   // finalize globals
   let globals: Global[] = dependencyByKind.global.map(({ type, init }) => {
-    let init_ = [resolveInstruction(init, depToIndex)];
+    let init_ = resolveConst(init, depToIndex);
     return { type, init: init_ };
   });
   // finalize tables
   let tables: Table[] = dependencyByKind.table.map(({ type, init }) =>
-    init === undefined ? type : { ...type, init: [resolveInstruction(init, depToIndex)] },
+    init === undefined ? type : { ...type, init: resolveConst(init, depToIndex) },
   );
   // finalize elems
   let elems: Elem[] = dependencyByKind.elem.map(({ type, init, mode }) => {
-    let init_ = init.map((i) => [resolveInstruction(i, depToIndex)]);
+    let init_ = init.map((i) => resolveConst(i, depToIndex));
     let mode_: Elem["mode"] =
       typeof mode === "object"
         ? {
             table: depToIndex.get(mode.table)!,
-            offset: [resolveInstruction(mode.offset, depToIndex)],
+            offset: resolveConst(mode.offset, depToIndex),
           }
         : mode;
     return { type, init: init_, mode: mode_ };
@@ -182,7 +182,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
       mode !== "passive"
         ? {
             memory: mode.memory === undefined ? 0 : depToIndex.get(mode.memory)!,
-            offset: [resolveInstruction(mode.offset, depToIndex)],
+            offset: resolveConst(mode.offset, depToIndex),
           }
         : mode;
     return { init, mode: mode_ };
@@ -406,6 +406,16 @@ function pushDependency(existing: Set<Dependency.anyDependency>, dep: Dependency
   for (let dep_ of dep.deps) {
     pushDependency(existing, dep_);
   }
+}
+
+/** A constant expression in stack order: arithmetic follows its operands. */
+function resolveConst(
+  constant: Dependency.Instruction & { operands?: Dependency.Instruction[] },
+  depToIndex: Map<Dependency.t, number>,
+): ResolvedInstruction[] {
+  if (constant.operands === undefined) return [resolveInstruction(constant, depToIndex)];
+  const operands = constant.operands.flatMap((o) => resolveConst(o, depToIndex));
+  return [...operands, { name: constant.string, immediate: undefined }];
 }
 
 /**
