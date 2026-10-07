@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Module, func, i32 } from "../index.ts";
 import { parseWat } from "../text/wat.ts";
 import { printWat } from "../text/print.ts";
 import { decompileModule } from "../decompile.ts";
@@ -253,4 +254,15 @@ test("repeated export names survive decompilation, so the engine can reject them
     ["a", "a"],
   );
   await assert.rejects(WebAssembly.compile(rebuilt.toBytes()), /Duplicate export name/);
+});
+
+test("modules convert from and to the text format", async () => {
+  const module = Module.fromWat(`(module
+    (func $double (export "double") (param $x i32) (result i32)
+      (i32.mul (local.get $x) (i32.const 2))))`);
+  const { instance } = await module.instantiate();
+  assert.equal((instance.exports.double as (x: number) => number)(21), 42);
+  assert.deepEqual(Module.fromWat(module.toWat()).module, module.module);
+  const add = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => i32.add(x, y));
+  assert.match(Module({ exports: { add } }).toWat(), /\(export "add" \(func \$add\)\)/);
 });
