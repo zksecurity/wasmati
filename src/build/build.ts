@@ -8,7 +8,7 @@ import { isCreated, type Import } from "../export.ts";
 import { builtinModule, constantModule } from "../js-string.ts";
 import { Module as BinaryModule } from "../module-binable.ts";
 import { analyzeScopes, contains, freeReferences, type Scopes } from "./scopes.ts";
-import { entryTypes, exportTypes, isBindingName, isIdentifier } from "./types.ts";
+import { entryTypes, exportLocals, exportTypes, isBindingName, isIdentifier } from "./types.ts";
 
 export { build, type BuildOutput };
 
@@ -126,10 +126,11 @@ async function polyfill() {
 
 /** A JS module that re-exports the Wasm module's exports, with async exports wrapped. */
 function entryModule(module: BinaryModule, asyncExports: string[], wasm: string) {
+  const locals = exportLocals(module.exports.map(({ name }) => name));
   const exports = module.exports.map(({ name }, i) => ({
     name,
     exported: isIdentifier(name) ? name : JSON.stringify(name),
-    local: isBindingName(name) ? name : `export${i}`,
+    local: locals[i],
   }));
   // The namespace of the Wasm module takes a name that no export uses.
   let namespace = "wasm";
@@ -291,22 +292,43 @@ class Source {
   }
 
   /**
-   * Identifiers passed directly to wasmati, like `importFunc(type, log)`. wasmati does not call import
-   * values while the module is built, so these uses do not change them.
+   * Functions passed as values to `importFunc`, which stores them without calling them while the
+   * module is built. The callee must be wasmati's `importFunc`, as the source file binds it.
    */
-  wasmatiArguments(): Set<ESTree.Node> {
-    const { module } = this.scopes;
-    const isWasmati = (node: ESTree.Node): boolean => {
-      if (node.type === "MemberExpression") return isWasmati(node.object);
-      if (node.type !== "Identifier") return false;
-      const statement = module.declarations.get(node.name);
-      return statement?.type === "ImportDeclaration" && this.importsWasmati(statement);
-    };
+  importFuncValues(): Set<ESTree.Node> {
+    const { module, references } = this.scopes;
+    const declarationOf = new Map(references.map((r) => [r.node as ESTree.Node, r.declaration]));
+    // Local names of importFunc, and of wasmati namespaces, from the source file's imports.
+    const direct = new Set<string>();
+    const namespaces = new Set<string>();
+    for (const statement of this.program.body) {
+      if (statement.type !== "ImportDeclaration" || !this.importsWasmati(statement)) continue;
+      for (const specifier of statement.specifiers) {
+        if (specifier.type === "ImportNamespaceSpecifier") namespaces.add(specifier.local.name);
+        else if (
+          specifier.type === "ImportSpecifier" &&
+          specifier.imported.type === "Identifier" &&
+          specifier.imported.name === "importFunc"
+        )
+          direct.add(specifier.local.name);
+      }
+    }
+    const atModule = (node: ESTree.Identifier) => declarationOf.get(node) === module;
+    const isImportFunc = (callee: ESTree.Node) =>
+      (callee.type === "Identifier" && direct.has(callee.name) && atModule(callee)) ||
+      (callee.type === "MemberExpression" &&
+        !callee.computed &&
+        callee.object.type === "Identifier" &&
+        namespaces.has(callee.object.name) &&
+        atModule(callee.object) &&
+        callee.property.type === "Identifier" &&
+        callee.property.name === "importFunc");
     const nodes = new Set<ESTree.Node>();
     const visit = (node: ESTree.Node) => {
-      if (node.type === "CallExpression" && isWasmati(node.callee))
-        for (const argument of node.arguments)
-          if (argument.type === "Identifier") nodes.add(argument);
+      if (node.type === "CallExpression" && isImportFunc(node.callee)) {
+        const value = node.arguments[1];
+        if (value?.type === "Identifier") nodes.add(value);
+      }
       for (const value of Object.values(node))
         for (const item of Array.isArray(value) ? value : [value])
           if (item !== null && typeof item === "object" && typeof item.type === "string")
@@ -456,9 +478,10 @@ class HostModule {
       throw Error(
         `import ${label} is a built-in or bound function, which cannot be extracted; wrap it in a function`,
       );
-    const nodes = this.source.functions(code);
+    // A function from an imported module is that module's, even if the source has the same code.
+    const reexport = this.imported(run);
+    const nodes = reexport === undefined ? this.source.functions(code) : [];
     if (nodes.length === 0) {
-      const reexport = this.imported(run);
       if (reexport === undefined)
         throw Error(
           `the function of import ${label} is neither defined in ${basename(this.source.path)} nor imported by it`,
@@ -548,7 +571,7 @@ class HostModule {
   private checkBuildTimeUses() {
     const extracted = [...this.extracted, ...this.statements];
     const { module, references } = this.source.scopes;
-    const passedToWasmati = this.source.wasmatiArguments();
+    const passedToWasmati = this.source.importFuncValues();
     for (const reference of references) {
       if (reference.declaration !== module || passedToWasmati.has(reference.node)) continue;
       const statement = module.declarations.get(reference.name);
@@ -600,10 +623,12 @@ class HostModule {
         throw Error(
           `import ${label} is a memory with contents written while the module is built, which the built module would not have. Initialize it with data segments instead.`,
         );
-      const { min, max, shared, address } = description.value.limits;
+      const { max, shared, address } = description.value.limits;
       const size = (n: number | bigint) => (address === "i64" ? `${n}n` : `${n}`);
+      // A memory may have grown while the module was built.
+      const pages = bytes.length / 65536;
       const options = [
-        `initial: ${size(min)}`,
+        `initial: ${size(pages)}`,
         ...(max === undefined ? [] : [`maximum: ${size(max)}`]),
         ...(shared ? ["shared: true"] : []),
         ...(address === "i64" ? [`address: "i64"`] : []),
