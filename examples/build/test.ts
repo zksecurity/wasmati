@@ -46,17 +46,26 @@ for (const [bundler, directory] of [
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   try {
-    const chrome = process.env.CHROME ?? "google-chrome";
-    const args = ["--headless", "--no-sandbox", "--virtual-time-budget=5000", "--dump-dom"];
-    const dom = await new Promise<string>((resolve, reject) =>
-      execFile(chrome, [...args, `http://127.0.0.1:${port}/`], (error, stdout) =>
-        error ? reject(error) : resolve(stdout),
-      ),
-    );
-    check(`Chrome with ${bundler}`, dom.match(/<title>(.*?)<\/title>/)?.[1]);
+    // Wasm compiles asynchronously, so the page may not be done when Chrome dumps it: wait longer.
+    let title: string | undefined;
+    for (const budget of [5000, 15000, 30000]) {
+      title = (await dumpDom(`http://127.0.0.1:${port}/`, budget)).match(
+        /<title>(.*?)<\/title>/,
+      )?.[1];
+      if (title === expected) break;
+    }
+    check(`Chrome with ${bundler}`, title);
   } finally {
     server.close();
   }
+}
+
+function dumpDom(url: string, budget: number) {
+  const chrome = process.env.CHROME ?? "google-chrome";
+  const args = ["--headless", "--no-sandbox", `--virtual-time-budget=${budget}`, "--dump-dom", url];
+  return new Promise<string>((resolve, reject) =>
+    execFile(chrome, args, (error, stdout) => (error ? reject(error) : resolve(stdout))),
+  );
 }
 
 function check(where: string, result: string | undefined) {
