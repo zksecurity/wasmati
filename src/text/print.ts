@@ -11,7 +11,7 @@ import {
   MemoryType,
   ValueType,
 } from "../types.ts";
-import { UnsupportedTextError } from "./lexer.ts";
+import { sectionIds } from "./wat.ts";
 import { printInstructions, printString, printValueType, type Names } from "./instructions.ts";
 
 export { printWat };
@@ -23,8 +23,6 @@ const idChars = /^[0-9A-Za-z!#$%&'*+\-./:<=>?@\\^_`|~]+$/;
  * identifiers where they are unique in their index space; other indices print as numbers.
  */
 function printWat(module: Module): string {
-  if (module.customSections?.length)
-    throw new UnsupportedTextError("custom sections cannot be printed as text");
   const names = module.names ?? {};
   const spaces = {
     type: identifiers(names.types),
@@ -171,6 +169,16 @@ function printWat(module: Module): string {
         : `${data.mode.memory === 0 ? "" : `(memory ${id("memory", data.mode.memory)}) `}(offset ${expression(data.mode.offset)})`;
     field("data", label("data", i), mode, printString(data.init));
   });
+
+  for (const { name, data, after } of module.customSections ?? []) {
+    const placement =
+      after === undefined
+        ? ""
+        : after === 0
+          ? "(before first)"
+          : `(after ${Object.entries(sectionIds).find(([, id]) => id === after)![0]})`;
+    field("@custom", printName(name), placement, printString(data));
+  }
 
   const name = names.module === undefined ? "" : " " + identifier(names.module);
   return `(module${name}${fields.map((field) => "\n  " + field).join("")})\n`;

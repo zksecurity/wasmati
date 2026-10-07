@@ -21,13 +21,16 @@ import type { F32, F64 } from "./immediate.ts";
 export { decompile, decompileModule };
 
 /**
- * Decode Wasm using the existing Binable codecs and emit editable, stack-style wasmati TypeScript.
+ * Decode Wasm, or parse the WebAssembly text format, and emit editable, stack-style wasmati TypeScript.
  * The default export is a module factory accepting the original WebAssembly import object.
  * importPath chooses where the generated source imports wasmati (default: the published package).
  * Unsupported builder constructs throw rather than embedding raw instructions or input bytes.
  */
-function decompile(bytes: Uint8Array, { importPath = "wasmati" } = {}): string {
-  const module = api.Module.fromBytes(bytes).module;
+function decompile(input: Uint8Array | string, { importPath = "wasmati" } = {}): string {
+  const module =
+    typeof input === "string"
+      ? api.Module.fromWat(input).module
+      : api.Module.fromBytes(input).module;
   return decompileModule(module, { importPath });
 }
 

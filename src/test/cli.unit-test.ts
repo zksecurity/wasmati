@@ -55,7 +55,7 @@ test("CLI provides help and reports invocation errors without source on stdout",
   for (const args of [[], ["--help"], ["decompile", "-h"]]) {
     const result = run(...args);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Usage: wasmati decompile/);
+    assert.match(result.stdout, /Usage: wasmati <command>/);
     assert.equal(result.stderr, "");
   }
   for (const args of [
@@ -85,6 +85,31 @@ test("CLI reports file and decoding failures without writing an output file", as
     assert.equal(invalid.status, 1);
     assert.equal(invalid.stdout, "");
     await assert.rejects(readFile(output), { code: "ENOENT" });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("CLI converts between the binary and text formats, and decompiles text", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "wasmati-cli-"));
+  try {
+    const text = join(directory, "input.wat");
+    const binary = join(directory, "output.wasm");
+    await writeFile(
+      text,
+      `(module (func $add (export "add") (param $x i32) (param $y i32) (result i32)
+        (i32.add (local.get $x) (local.get $y))))`,
+    );
+    const assembled = run("wasm", text, "-o", binary);
+    assert.equal(assembled.status, 0, assembled.stderr);
+    const { instance } = await WebAssembly.instantiate(await readFile(binary));
+    assert.equal((instance.exports.add as (x: number, y: number) => number)(20, 22), 42);
+    const printed = run("wat", binary);
+    assert.equal(printed.status, 0, printed.stderr);
+    assert.match(printed.stdout, /\(func \$add .*\(param \$x i32\)/);
+    const decompiled = run("decompile", text);
+    assert.equal(decompiled.status, 0, decompiled.stderr);
+    assert.match(decompiled.stdout, /local\.get\(x\)/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -16,6 +16,8 @@ import {
   TableType,
 } from "./types.ts";
 import { memoryConstructor } from "./memory.ts";
+import { parseWat } from "./text/wat.ts";
+import { printWat } from "./text/print.ts";
 import { TypeRegistry } from "./type-registry.ts";
 import type { NameMap, NameSection } from "./name-section.ts";
 import type { CustomSection } from "./module-binable.ts";
@@ -364,6 +366,10 @@ function createModule<Exports extends Record<string, Dependency.Export>>(
       let bytes = BinableModule.toBytes(module.module);
       return Uint8Array.from(bytes);
     },
+    /** The module in the WebAssembly text format, with names as identifiers. */
+    toWat() {
+      return printWat(module.module);
+    },
   };
   return module;
 }
@@ -390,6 +396,13 @@ const Module = Object.assign(ModuleConstructor, {
   ) {
     let binableModule = BinableModule.fromBytes(bytes);
     return createModule<Exports>(binableModule, importMap);
+  },
+  /** A module from the WebAssembly text format. */
+  fromWat<Exports extends Record<string, Dependency.Export>>(
+    text: string,
+    importMap: WebAssembly.Imports = {},
+  ) {
+    return createModule<Exports>(parseWat(text), importMap);
   },
 });
 
