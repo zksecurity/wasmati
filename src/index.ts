@@ -412,3 +412,5 @@ function removeContext<Args extends Tuple<any>, Return extends any>(
 }
 
 export { decompile } from "./decompile.ts";
+
+export { jsString, stringConstant } from "./js-string.ts";

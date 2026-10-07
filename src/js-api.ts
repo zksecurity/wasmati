@@ -11,5 +11,15 @@ declare global {
     function promising(run: Function): Function;
     /** JS Promise Integration: thrown when Wasm would suspend without a promising export. */
     class SuspendError extends Error {}
+    /** JS string builtins: builtin sets, and the import module of string constants. */
+    interface CompileOptions {
+      builtins?: string[];
+      importedStringConstants?: string;
+    }
+    function instantiate(
+      bytes: BufferSource,
+      imports: Imports | undefined,
+      options: CompileOptions,
+    ): Promise<WebAssemblyInstantiatedSource>;
   }
 }

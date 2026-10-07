@@ -19,6 +19,7 @@ import {
 import { memoryConstructor } from "./memory.ts";
 import { parseWat } from "./text/wat.ts";
 import { printWat } from "./text/print.ts";
+import { jsStringBuiltins, usesJSStringBuiltins } from "./js-string.ts";
 import { TypeRegistry } from "./type-registry.ts";
 import type { NameMap, NameSection } from "./name-section.ts";
 import type { CustomSection } from "./module-binable.ts";
@@ -361,6 +362,7 @@ function createModule<Exports extends Record<string, Dependency.Export>>(
       let { instance, module } = await WebAssembly.instantiate(
         Uint8Array.from(BinableModule.toBytes(binableModule)),
         importMap,
+        usesJSStringBuiltins(binableModule.imports) ? jsStringBuiltins : {},
       );
       return { instance: withPromisingExports(instance, promising), module } as {
         instance: WebAssembly.Instance & {
