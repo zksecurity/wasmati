@@ -265,3 +265,18 @@ test("modules without parameter names retain native calls", async () => {
   instance.exports.identity satisfies (value: number) => number;
   assert.equal(instance.exports.identity(42), 42);
 });
+
+test("errors at the end of a function name the function", () => {
+  assert.throws(
+    () =>
+      func({ name: "compute", in: [], out: [i32] }, () => {
+        i32.const(1);
+        i32.const(2);
+      }),
+    /^Error: end of function compute: expected stack to be empty after the results, got \[i32\]$/,
+  );
+  assert.throws(
+    () => func({ name: "compute", in: [], out: [i32] }, () => {}),
+    /end of function compute: expected i32 on the stack, got nothing/,
+  );
+});

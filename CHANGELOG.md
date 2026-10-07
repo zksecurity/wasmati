@@ -52,7 +52,7 @@ wasmati supports all of WebAssembly 3.0, verified by running the official spec t
 ### Fixes
 
 - `i32.gt_s` and `i64.gt_s` emitted unsigned comparisons.
-- Errors about the stack name the instruction, like `i32.add: expected i32 on the stack, got i64`.
+- Errors about the stack name the instruction or function, like `i32.add: expected i32 on the stack, got i64`.
 - Encoding fixes found by the spec suite, among them element segment flags, local declarations, and the order of globals that read other globals.
 
 ### Agent skill

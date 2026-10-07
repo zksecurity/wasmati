@@ -1,15 +1,17 @@
 ---
 name: wasmati
-description: Write WebAssembly modules in TypeScript with wasmati, a library whose API mirrors Wasm instructions. Covers functions, locals, instructions and their operands, control flow, types including GC structs and arrays, memories, tables, globals, constant expressions, imports and exports, async imports and exports (JSPI), JS string builtins, the text format, decompiling, and `wasmati build`. Use when writing, reading or debugging code that imports wasmati.
+description: Write WebAssembly in TypeScript with wasmati, whose API mirrors Wasm instructions one to one. Explains Wasm's core concepts (the stack machine, structured control flow, linear memory, tables, references, garbage-collected structs and arrays, exceptions) through the wasmati API, and how to build, test, debug and ship modules. Use when writing, reading or debugging code that uses wasmati, or when learning how WebAssembly works.
 ---
 
 # wasmati
 
-wasmati builds Wasm modules from TypeScript. Builder calls like `i32.add()` emit one instruction each into the function being built, and wasmati checks the operand stack as you go: a type error throws at the call that caused it. `Module({ exports })` collects everything the exports need and produces the module.
+WebAssembly (Wasm) is a compact, low-level language that JS engines compile to machine code. wasmati lets you write Wasm from TypeScript: each builder call, like `i32.add()`, appends one Wasm instruction to the function being built, and `Module(...)` turns your definitions into a Wasm module that JS can instantiate. Since the API mirrors Wasm, learning wasmati means learning Wasm, and this guide teaches both.
+
+wasmati suits hand-written, performance-critical code and code generators. It is not a compiler: the module contains exactly the instructions you write, in the order you write them, and TypeScript only makes writing them comfortable. Where this guide stays brief, the [WebAssembly specification](https://webassembly.github.io/spec/core/) and the [MDN WebAssembly reference](https://developer.mozilla.org/en-US/docs/WebAssembly/Reference) have the details; the spec's [index of instructions](https://webassembly.github.io/spec/core/appendix/index-instructions.html) lists every instruction with its type.
 
 Every example below that starts with an import runs in wasmati's test suite.
 
-## A module
+## A first module
 
 ```ts
 import { Module, func, i32, local } from "wasmati";
@@ -25,13 +27,40 @@ const { instance } = await module.instantiate();
 instance.exports.add(1, 2); // 3, typed as (x: number, y: number) => number
 ```
 
-- `func({ in, out, locals }, body)`: parameters are named and ordered, `in: [{ x: i32 }, { y: i64 }]`. The body gets parameters and locals as `Local` objects, and must leave exactly the results on the stack.
-- JS sees `i32`, `f32` and `f64` as numbers, `i64` as bigints, and references as JS values.
-- `module.toBytes()` gives the binary, `module.toWat()` the text format. `Module.fromBytes(bytes)` and `Module.fromWat(text)` read modules back.
+A **module** is a set of definitions, like functions, memories, tables and globals, together with the **imports** it needs from its host and the **exports** it offers. `func` defines a function: its parameters (`in`), results (`out`) and body. `Module({ exports })` collects everything the exports need, and `instantiate()` compiles the module and instantiates it in the JS engine. To see what wasmati produced, print `module.toWat()`, the module in the [WebAssembly text format](https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Understanding_the_text_format).
 
-## Instructions and operands
+## Values and types
 
-Instructions take their operands from the stack. They also accept them as arguments: numbers become constants, locals and globals are read, and instruction results are used where they are. Each instruction returns its result, which can be an operand of the next one. `$` stands for the value on top of the stack.
+Wasm has few value types:
+
+- `i32` and `i64`: 32- and 64-bit integers. They have no sign: instructions decide how to interpret them, like `i32.div_s` (signed) and `i32.div_u` (unsigned).
+- `f32` and `f64`: IEEE floating-point numbers.
+- `v128`: 128 bits for SIMD instructions, which operate on several lanes at once, like four `i32`s.
+- References: handles to functions, to JS values, or to garbage-collected objects. Wasm code cannot see their address.
+
+At the boundary with JS, values convert as follows:
+
+| Wasm               | JS                                                                  |
+| ------------------ | ------------------------------------------------------------------- |
+| `i32`              | number, as a signed 32-bit integer; `x >>> 0` reads it as unsigned |
+| `i64`              | bigint, signed                                                      |
+| `f32`, `f64`       | number                                                              |
+| `v128`             | not allowed at the boundary                                         |
+| `funcref`          | a Wasm function                                                     |
+| `externref`        | any JS value                                                        |
+| `i31ref`           | number                                                              |
+| structs and arrays | opaque objects, which JS can pass back but not read                 |
+| null references    | `null`                                                              |
+
+Functions with several results return them to JS as an array.
+
+## The stack machine
+
+Wasm instructions operate on an implicit **operand stack**: each instruction pops its operands and pushes its results. `i32.const(2)` pushes 2; `i32.add()` pops two `i32` values and pushes their sum. A function's body must leave exactly its results on the stack.
+
+Wasm is **validated** before it runs: the engine checks that every instruction finds operands of the right types. wasmati checks the same while you build, so a mistake throws at the call that caused it, with a stack trace into your code, like `i32.add: expected i32 on the stack, got i64`.
+
+wasmati also lets you pass operands as arguments. Numbers become constants, locals and globals are read, and each instruction returns its result, which can be the operand of another one. `$` stands for the value already on the stack.
 
 ```ts
 import { Module, func, i32, i64, local, $ } from "wasmati";
@@ -40,7 +69,7 @@ const f = func(
   { in: [{ x: i32 }], locals: { y: i64 }, out: [i32] },
   ({ x }, { y }) => {
     local.set(y, i64.extend_i32_u(x));
-    const doubled = i32.mul(x, 2); // local.get x, i32.const 2, i32.mul
+    const doubled = i32.mul(x, 2); // local.get x; i32.const 2; i32.mul
     i32.add(doubled, i32.wrap_i64(y));
     i32.shl($, 1); // shifts the value on the stack
   },
@@ -50,23 +79,62 @@ const { instance } = await Module({ exports: { f } }).instantiate();
 instance.exports.f(5); // ((5 * 2) + 5) << 1 = 30
 ```
 
-- Namespaces follow Wasm: `i32`, `i64`, `f32`, `f64`, `v128` and the lane shapes `i8x16` to `f64x2`, `local`, `global`, `ref`, `memory`, `data`, `table`, `elem`, `struct`, `array`, `i31`, `any`, `extern`, `atomic`. Control instructions are exported directly: `block`, `loop`, `if_` (also `control.if`), `br`, `br_if`, `br_table`, `return_`, `call`, `call_indirect`, `call_ref`, `throw_`, `try_table`, `drop`, `select`, `nop`, `unreachable`, and so on.
-- Constants: `i32.const(1)`, `i64.const(1n)`, `f64.const(1.5)`. `i64` values are always bigints.
-- Operand types are checked in TypeScript and when building: `i32.add(x, u)` with an `i64` local `u` is a type error.
+Both styles produce the same instructions, in the order the calls run. Some instructions take named operands, like `call(f, { x, y })` and `struct.new(type, { a, b })`: there, operands that are instruction results must be written in the declared order, because they are pushed in the order they are evaluated, and wasmati throws otherwise. The stack style matches the text format and the spec; the expression style reads like code. Mix them freely. TypeScript checks operand types too: an `i64` local where `i32.add` expects an `i32` is a type error.
 
-## Functions and calls
+## Control flow
+
+Wasm has no `goto`: control flow is structured into nested **blocks**. A branch instruction names an enclosing block by its **label**. Branching to a `block` jumps to its end; branching to a `loop` jumps back to its start. `if_` runs one of two bodies, depending on an `i32` that counts as true when nonzero. Blocks are typed like functions: by the values they take from the stack and the values they leave on it.
+
+In wasmati, block instructions take optional options, `{ in, out }` for their types, and then their bodies, which receive their label. Instructions named like JS keywords end with `_`: `if_`, `return_`, `throw_`. They are also available without it on the `control` namespace, like `control.if`.
 
 ```ts
-import { Module, func, declareFunc, importFunc, i32, call, control } from "wasmati";
+import { Module, func, i32, local, block, loop, br, br_if, if_ } from "wasmati";
 
-const log = importFunc({ in: [{ value: i32 }], out: [] }, (value) => console.log(value));
+const sumTo = func({ in: [{ n: i32 }], locals: { sum: i32 }, out: [i32] }, ({ n }, { sum }) => {
+  block((done) => {
+    loop((next) => {
+      i32.eqz(n);
+      br_if(done); // leave the loop when n is 0
+      local.set(sum, i32.add(sum, n));
+      local.set(n, i32.sub(n, 1));
+      br(next); // run the loop again
+    });
+  });
+  local.get(sum);
+});
 
-// Declare first to allow recursion, or calls before the definition.
+const sign = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => {
+  i32.lt_s(x, 0);
+  if_(
+    { out: [i32] },
+    () => i32.const(-1),
+    () => i32.const(1),
+  );
+});
+
+const { instance } = await Module({ exports: { sumTo, sign } }).instantiate();
+instance.exports.sumTo(4); // 10
+instance.exports.sign(-5); // -1
+```
+
+- `br(label)` branches; `br_if(label)` branches if the `i32` on the stack is nonzero; `br_table(labels, default)` branches to one of several labels by index, like a `switch`. Branches carry the values their target expects: a block's results, or a loop's parameters.
+- After an unconditional branch, `return_()` or `unreachable()`, the rest of the block never runs. Such code is still validated, but accepts any stack.
+- `select()` picks one of two values by a condition, without branching.
+- `if_` and `br_if` accept a branch hint, `{ likely: true }`, which helps engines lay out the code.
+- Some faults **trap**: integer division by zero, out-of-bounds memory access, `unreachable()`. A trap aborts the Wasm code and throws a `WebAssembly.RuntimeError` in JS.
+
+[MDN's control flow reference](https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/Control_flow) describes each instruction.
+
+## Functions, locals and calls
+
+```ts
+import { Module, func, declareFunc, i32, call, if_ } from "wasmati";
+
+// Declaring first allows recursion, and calls before the definition.
 const factorial = declareFunc({ name: "factorial", in: [{ n: i32 }], out: [i32] });
 factorial.define(({ n }) => {
-  call(log, { value: n });
   i32.le_s(n, 1);
-  control.if(
+  if_(
     { out: [i32] },
     () => i32.const(1),
     () => i32.mul(n, call(factorial, { n: i32.sub(n, 1) })),
@@ -78,165 +146,198 @@ const { instance } = await Module({ exports: { run } }).instantiate();
 instance.exports.run(); // 120
 ```
 
-- `call(f, { name: value })` passes operands by parameter name. Operands that are instruction results must be written in parameter order, because they are on the stack in the order they are evaluated; wasmati throws otherwise. Numbers, locals and globals may come in any order.
-- `call(f)` without operands takes them from the stack.
-- Parameter, local and export names go into the name section, so names show up in stack traces and decompiled code.
+- **Locals** are a function's variables: its parameters, and the `locals` it declares, which start at zero, or null for references. Locals of non-null reference types must be set before they are read. `local.get`, `local.set` and `local.tee` (set, and keep the value on the stack) read and write them. `localArray(type, n)` declares several locals of one type.
+- **Calls**: `call(f, { name: value })` passes arguments by parameter name; `call(f)` takes them from the stack.
+- **Results** are the values left on the stack; `return_()` returns early.
+- Function names come from the `name` option, a named callback, or the export key. They, and parameter and local names, go into the module's name section, so they show up in stack traces and in the text format.
 
-## Control flow
+## Linear memory
 
-Block instructions take optional options, then their bodies. Bodies get their label, which `br`, `br_if` and `br_table` take, as do relative depths.
+A **memory** is a resizable array of bytes, which code reads and writes with load and store instructions at numeric addresses. Its size is counted in pages of 64 KiB. JS sees it as an `ArrayBuffer`, which makes memory the way to exchange bulk data with JS.
 
 ```ts
-import { Module, func, i32, local, block, loop, br, br_if, control } from "wasmati";
+import { Module, func, memory, data, i32, local, block, loop, br_if, br } from "wasmati";
 
-const sumTo = func({ in: [{ n: i32 }], locals: { sum: i32 }, out: [i32] }, ({ n }, { sum }) => {
-  block((done) => {
-    loop((next) => {
-      i32.eqz(n);
-      br_if(done);
-      local.set(sum, i32.add(sum, n));
-      local.set(n, i32.sub(n, 1));
-      br(next);
+const mem = memory({ min: 1 }); // one page
+data({ memory: mem, offset: 16 }, [1, 2, 3, 4]); // copied to bytes 16 to 19 when instantiated
+
+const sumBytes = func(
+  { in: [{ start: i32 }, { end: i32 }], locals: { sum: i32 }, out: [i32] },
+  ({ start, end }, { sum }) => {
+    block((done) => {
+      loop((next) => {
+        i32.ge_u(start, end);
+        br_if(done);
+        local.set(sum, i32.add(sum, i32.load8_u({}, start)));
+        local.set(start, i32.add(start, 1));
+        br(next);
+      });
     });
-  });
-  local.get(sum);
-});
-
-const sign = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => {
-  i32.lt_s(x, 0);
-  control.if(
-    { out: [i32] },
-    () => i32.const(-1),
-    () => i32.const(1),
-  );
-});
-
-const { instance } = await Module({ exports: { sumTo, sign } }).instantiate();
-instance.exports.sumTo(4); // 10
-```
-
-- Options: `{ in, out }` types the block's parameters and results; `if_` and `br_if` take `likely: boolean` as a branch hint; `try_table` takes `catches`.
-- `if_` takes its condition from the stack, and an optional else body.
-- `return_()` returns from the function.
-
-## Types
-
-Value types: `i32`, `i64`, `f32`, `f64`, `v128`, and reference types. `funcref`, `externref`, `anyref`, `eqref`, `i31ref`, `structref`, `arrayref`, `exnref` and the null types are nullable references to abstract heap types. `refType(heap, { nullable })` makes others: `refType("any")` is a non-null `anyref`.
-
-Defined types:
-
-```ts
-import { Module, func, struct, array, funcType, rec, mut, i8, i32, f64, refType, local } from "wasmati";
-
-const point = struct({ x: i32, y: mut(i32) });
-const bytes = array(mut(i8)); // packed: read and written as i32
-const binary = funcType({ in: [i32, i32], out: [i32] });
-
-// Recursive types refer to each other through the callback's argument.
-const { node } = rec((types) => ({
-  node: struct({ value: f64, next: refType(types.node, { nullable: true }) }),
-}));
-
-// Subtypes: types are final unless `final: false`.
-const shape = struct({ area: f64 }, { final: false });
-const circle = struct({ area: f64, radius: f64 }, { supertype: shape });
-
-const id = func({ in: [{ p: refType(point) }], out: [refType(point)] }, ({ p }) => local.get(p));
-Module({ exports: { id } });
-```
-
-- Struct field names are their keys, in order. `mut(t)` makes a field mutable; `i8` and `i16` are packed storage types.
-- Equivalent types are the same Wasm type, as in Wasm's isorecursive type system.
-
-## Garbage collection
-
-```ts
-import { Module, func, struct, array, mut, i32, i8, f64, refType, ref, local } from "wasmati";
-
-const point = struct({ x: mut(i32), y: i32 });
-const values = array(mut(f64));
-
-const f = func({ in: [], locals: { p: refType(point) }, out: [i32] }, (_, { p }) => {
-  local.set(p, struct.new(point, { x: 1, y: 2 }));
-  struct.set(point, "x", p, 10);
-  i32.add(struct.get(point, "x", p), struct.get(point, "y", p));
-});
-
-const g = func({ in: [], out: [f64] }, () => {
-  const a = array.new_fixed(values, [1.5, 2.5]);
-  array.get(values, a, 1);
-});
-
-const isPoint = func({ in: [{ v: refType("any", { nullable: true }) }], out: [i32] }, ({ v }) =>
-  ref.test(refType(point), v),
+    local.get(sum);
+  },
 );
 
-const { instance } = await Module({ exports: { f, g, isPoint } }).instantiate();
-instance.exports.f(); // 12
+const { instance } = await Module({ exports: { sumBytes, mem } }).instantiate();
+new Uint8Array(instance.exports.mem.buffer)[20] = 5; // JS writes memory directly
+instance.exports.sumBytes(16, 21); // 15
 ```
 
-- Fields are accessed by name, and reads and writes have the field's type in TypeScript. Packed fields need `get_s` or `get_u`.
-- Arrays: `array.new(type, value, length)`, `new_default`, `new_fixed(type, length | elements)`, `new_data`, `new_elem`, `get`, `set`, `len`, `fill`, `copy`, `init_data`, `init_elem`.
-- References: `ref.null(type)`, `ref.is_null`, `ref.as_non_null`, `ref.eq`, `ref.test(type)`, `ref.cast(type)`, `ref.i31` with `i31.get_s`/`get_u`, `br_on_cast(label, from, to)`, `br_on_cast_fail`, `any.convert_extern`, `extern.convert_any`.
+- Loads take a **memory argument** and the address; stores take a memory argument, the address and the value: `i32.store({}, address, value)`. The memory argument, `{ offset, align, memory }`, has a constant added to the address, an alignment hint in bytes, and the memory; `{}` means no offset, natural alignment, and the module's only memory. Narrow variants access fewer bytes: `i32.load8_u` loads one byte and zero-extends it, `i32.load8_s` sign-extends it, and `i32.store8` stores the lowest byte.
+- Values are stored little-endian. Accesses need not be aligned, except atomic ones; alignment only hints at performance.
+- `memory.size()` pushes a memory's size in pages, and `memory.grow()` grows it by the number of pages on the stack, pushing the old size, or -1 if it cannot grow. Growing replaces the memory's `ArrayBuffer`: JS must create its views, like `new Uint8Array(mem.buffer)`, again afterwards. `memory.copy`, `memory.fill` and `memory.init` work on byte ranges.
+- **Data segments** initialize memory: active ones are copied at instantiation, passive ones, `data("passive", bytes)`, by `memory.init`.
+- A module may have several memories. Memories created with `address: "i64"` have 64-bit addresses (memory64), so their addresses and sizes are `i64`. Instructions without a `memory` use the module's only memory, which must have 32-bit addresses; otherwise, they must name it.
+- A memory with `shared: true` can be shared between workers, which synchronize with atomic instructions, like `i32.atomic.rmw.add` and `memory.atomic.wait32`.
 
-## Memory, tables and globals
+## Globals and constant expressions
+
+A **global** is a module-level variable, mutable or not, which can be exported or imported. Its initial value is a **constant expression**: a few instructions that can be evaluated before any code runs. wasmati builds them with the normal instruction API, inside `constant(() => ...)`.
 
 ```ts
-import { Module, func, memory, data, table, elem, global, constant, funcref, i32, i64 } from "wasmati";
-
-const mem = memory({ min: 1, max: 2 });
-data({ memory: mem, offset: 0 }, [1, 2, 3, 4]); // an active data segment
-
-const read = func({ in: [{ address: i32 }], out: [i32] }, ({ address }) =>
-  i32.load({ memory: mem, offset: 0, align: 4 }, address),
-);
+import { Module, func, global, constant, i32 } from "wasmati";
 
 const counter = global(constant(() => i32.const(0)), { mutable: true });
+const limit = global(constant(() => i32.mul(10, 10))); // constants can add, subtract and multiply
+
 const increment = func({ in: [], out: [i32] }, () => {
   global.set(counter, i32.add(global.get(counter), 1));
   global.get(counter);
 });
 
-const functions = table({ type: funcref, min: 1 });
-elem({ type: funcref, mode: { table: functions, offset: 0 } }, [increment]);
-
-const big = memory({ min: 1, address: "i64" }); // memory64: addresses are i64
-const size = func({ in: [], out: [i64] }, () => memory.size(big));
-
-const { instance } = await Module({ exports: { read, increment, mem, size } }).instantiate();
-instance.exports.read(0); // 0x04030201
+const { instance } = await Module({ exports: { increment, limit } }).instantiate();
+instance.exports.increment(); // 1
+instance.exports.limit.value; // 100, read through a WebAssembly.Global
 ```
 
-- Memory instructions take a memory argument `{ memory, offset, align }`, with `align` in bytes. Without `memory`, they use the module's only memory, which must be 32-bit. Modules with several memories name them in every instruction.
-- Addresses and sizes have the memory's or table's address type: `i64` for `address: "i64"`.
-- Data and element segments are active with `{ memory | table, offset }`, or `"passive"`; element segments can be `"declarative"`. Offsets are numbers or constant expressions.
-- `constant(() => ...)` builds constant expressions with the normal instruction API: constants, `global.get`, `ref.null`, `ref.func`, `i32`/`i64` `add`, `sub` and `mul`, and GC allocations. It is used for global initializers, offsets, element items and table initializers.
-- `Module({ exports, memory: { min } })` adds a memory without exporting it by name.
+Constant expressions also give the offsets of data and element segments, where numbers work too, and the values that fill tables.
 
-## Imports and exports
+## Imports, exports and JS
 
 ```ts
-import { Module, func, importFunc, importGlobal, importMemory, i32, call, global } from "wasmati";
+import { Module, func, importFunc, importGlobal, i32, call, global } from "wasmati";
 
 const log = importFunc({ in: [{ x: i32 }], out: [] }, (x) => console.log(x));
 const base = importGlobal(i32, 100);
-const shared = importMemory({ min: 1 }, new WebAssembly.Memory({ initial: 1 }));
+
 const f = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => {
   call(log, { x });
   i32.add(x, global.get(base));
 });
 
-const module = Module({ exports: { f, shared } });
-const { instance } = await module.instantiate(); // the import object is built for you
+const { instance } = await Module({ exports: { f } }).instantiate();
+instance.exports.f(1); // logs 1, returns 101
 ```
 
-- Imports declare their type together with their JS value; `module.importMap` holds the import object. `module` and `field` set an explicit import path.
-- Exports are the keys of `exports`: functions, globals, memories, tables and tags.
-- Only what the exports and the start function need ends up in the module. `dependencies` adds more.
+- Imports declare their type together with their JS value: `importFunc`, `importGlobal`, `importMemory`, `importTable` and `importTag`. wasmati assembles the import object, which is also available as `module.importMap`. The `module` and `field` options set explicit import names.
+- Exports are the keys of `exports`, and their types in `instance.exports` are inferred.
+- Only what the exports and the `start` function need ends up in the module; the `dependencies` option adds more. The start function runs when the module is instantiated.
 
-## Async imports and exports (JSPI)
+## Tables and indirect calls
 
-Wasm can wait for async JS: an async import returns a promise, and Wasm suspends until it resolves. JS must enter such Wasm through an async export, which returns a promise.
+Functions do not live in linear memory, so there are no function pointers. To call functions by an integer index, store references to them in a **table**: `call_indirect` calls the function at an index of a table. The engine checks the function's type at runtime and traps on a mismatch. Tables implement function pointers and virtual methods, and **element segments** fill them.
+
+```ts
+import { Module, func, table, elem, funcref, call_indirect, i32, local } from "wasmati";
+
+const double = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => i32.mul(x, 2));
+const square = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => i32.mul(x, x));
+
+const operations = table({ type: funcref, min: 2 });
+elem({ type: funcref, mode: { table: operations, offset: 0 } }, [double, square]);
+
+const apply = func({ in: [{ op: i32 }, { x: i32 }], out: [i32] }, ({ op, x }) => {
+  local.get(x); // the argument
+  local.get(op); // the index into the table
+  call_indirect(operations, { in: [i32], out: [i32] });
+});
+
+const { instance } = await Module({ exports: { apply } }).instantiate();
+instance.exports.apply(1, 7); // square(7) = 49
+```
+
+References to functions are also values: `ref.func(f)` makes one, and `call_ref(type)` calls it without a table. `return_call`, `return_call_indirect` and `return_call_ref` are tail calls, which replace the caller's stack frame.
+
+## Garbage-collected data
+
+Besides linear memory, Wasm can allocate **structs** and **arrays** that the engine manages and collects, like JS objects. Code refers to them through typed references, and there is no address arithmetic and no manual freeing. You define their types, allocate them with `struct.new` and `array.new`, and access fields by name.
+
+```ts
+import { Module, func, struct, array, rec, mut, i32, f64, refType, ref, local, call, block, loop, br, br_if } from "wasmati";
+
+const point = struct({ x: f64, y: f64 });
+const numbers = array(mut(i32)); // mut: elements can be set
+// Types that refer to themselves or to each other are defined together.
+const { node } = rec((types) => ({
+  node: struct({ value: i32, next: refType(types.node, { nullable: true }) }),
+}));
+const list = refType(node, { nullable: true });
+
+const lengthSquared = func({ in: [{ p: refType(point) }], out: [f64] }, ({ p }) => {
+  f64.mul(struct.get(point, "x", p), struct.get(point, "x", p));
+  f64.mul(struct.get(point, "y", p), struct.get(point, "y", p));
+  f64.add();
+});
+
+const sum = func({ in: [{ l: list }], locals: { total: i32 }, out: [i32] }, ({ l }, { total }) => {
+  block((done) => {
+    loop((next) => {
+      local.get(l);
+      ref.is_null();
+      br_if(done);
+      local.set(total, i32.add(total, struct.get(node, "value", l)));
+      local.set(l, struct.get(node, "next", l));
+      br(next);
+    });
+  });
+  local.get(total);
+});
+
+const main = func({ in: [], out: [f64, i32, i32] }, () => {
+  call(lengthSquared, { p: struct.new(point, { x: 3, y: 4 }) });
+  call(sum, { l: struct.new(node, { value: 1, next: struct.new(node, { value: 2, next: ref.null(list) }) }) });
+  array.len(array.new_fixed(numbers, [1, 2, 3]));
+});
+
+const { instance } = await Module({ exports: { main } }).instantiate();
+instance.exports.main(); // [25, 3, 3]
+```
+
+- `refType(type)` is a non-null reference; `refType(type, { nullable: true })` may be null. `ref.null(referenceType)` creates a null reference, and `ref.is_null()` tests for one. Using a null reference traps.
+- JS cannot create structs or arrays, nor read their fields: export functions that do.
+- `struct({ ... })` defines fields in order. `mut(type)` makes a field mutable, so that `struct.set(type, "field", reference, value)` can write it. `i8` and `i16` are packed integer fields, read with `get_s` or `get_u`. Field reads and writes have the field's type, also in TypeScript.
+- Arrays: `array.new(type, value, length)`, `new_default`, `new_fixed`, `get`, `set`, `len`, `fill` and `copy`.
+- **Subtyping**: types are final unless defined with `{ final: false }`, and a subtype adds fields at the end: `struct({ x: f64, y: f64, z: f64 }, { supertype: point })`, where `point` is not final. A reference to a subtype can be used where the supertype is expected. `ref.test(type)` checks a reference's runtime type, `ref.cast(type)` casts it, trapping if it fails, and `br_on_cast` branches on the result.
+- Abstract reference types sit above all defined types: `anyref` holds any GC value, `eqref` those comparable with `ref.eq`, `structref` and `arrayref`, and `i31ref` small integers stored in a reference (`ref.i31`). `externref` holds JS values, which `any.convert_extern` and `extern.convert_any` move between the two worlds.
+- Equivalent types are the same type, and `rec` groups are compared as a whole, as Wasm's type system defines.
+
+## Exceptions
+
+Wasm exceptions carry values described by a **tag**. `throw_(tag)` throws with values from the stack. `try_table` catches exceptions from its body: each catch clause names a tag and an enclosing label, where execution continues with the exception's values.
+
+```ts
+import { Module, func, tag, throw_, try_table, block, i32 } from "wasmati";
+
+const failure = tag({ in: [i32] });
+
+const f = func({ in: [], out: [i32] }, () => {
+  block({ out: [i32] }, (caught) => {
+    try_table({ catches: [{ tag: failure, label: caught }] }, () => {
+      i32.const(42);
+      throw_(failure);
+    });
+    i32.const(0); // not reached
+  });
+});
+
+const { instance } = await Module({ exports: { f } }).instantiate();
+instance.exports.f(); // 42
+```
+
+A clause without `tag` catches every exception, including JS ones; with `ref: true`, it adds a reference to the exception, which `throw_ref` rethrows. Uncaught exceptions arrive in JS as `WebAssembly.Exception`.
+
+## Waiting for async JS
+
+Wasm code runs synchronously, but it can wait for async JS through JS Promise Integration (JSPI). An async import may return a promise: Wasm suspends until the promise resolves, then continues with its value. JS must enter such code through an async export, which returns a promise.
 
 ```ts
 import { Module, func, importFunc, i32, call, async } from "wasmati";
@@ -245,6 +346,7 @@ const fetchValue = importFunc({ in: [{ id: i32 }], out: [i32], async: true }, as
   await new Promise((resolve) => setTimeout(resolve, 1));
   return id * 2;
 });
+
 const run = func({ in: [{ id: i32 }], out: [i32] }, ({ id }) => {
   i32.add(call(fetchValue, { id }), 1);
 });
@@ -253,71 +355,70 @@ const { instance } = await Module({ exports: { run: async(run) } }).instantiate(
 await instance.exports.run(20); // 41
 ```
 
-- Functions in between stay ordinary functions: the engine suspends the whole Wasm stack.
-- `Module` throws if an export that is not async, or the start function, can reach an async import through direct calls. Indirect calls fail at runtime with `WebAssembly.SuspendError`.
+Functions in between stay ordinary functions: the engine suspends the whole Wasm stack. JSPI is new in engines; [webassembly.org/features](https://webassembly.org/features/) lists which support it. `Module` throws if an export that is not async, or the start function, can reach an async import through direct calls. Through indirect calls, the call throws `WebAssembly.SuspendError` instead.
 
 ## JS strings
 
+Strings stay JS strings, held as `externref`. The JS string builtins are imports that the engine implements efficiently: `jsString.length`, `charCodeAt`, `concat`, `substring`, `equals`, and others. `stringConstant(text)` imports a string constant.
+
 ```ts
-import { Module, func, call, jsString, stringConstant, externref, global, i32 } from "wasmati";
+import { Module, func, call, jsString, stringConstant, externref, global } from "wasmati";
 
 const hello = stringConstant("hello ");
 const greet = func({ in: [{ name: externref }], out: [externref] }, ({ name }) =>
   call(jsString.concat, { first: global.get(hello), second: name }),
 );
-const length = func({ in: [{ s: externref }], out: [i32] }, ({ s }) =>
-  call(jsString.length, { string: s }),
-);
 
-const { instance } = await Module({ exports: { greet, length } }).instantiate();
+const { instance } = await Module({ exports: { greet } }).instantiate();
 instance.exports.greet("wasmati"); // "hello wasmati"
 ```
 
-`jsString` has the JS string builtins as imports, and `jsString.charCodeArray` is the `(array (mut i16))` type of the array builtins. Engines provide the builtins; elsewhere, their JS functions behave the same.
+Engines without the builtins use their JS versions, which behave the same. `jsString.charCodeArray` is the array type of `fromCharCodeArray` and `intoCharCodeArray`, which convert between strings and arrays of UTF-16 code units.
 
-## Exceptions
+## SIMD
+
+`v128` values hold several lanes: sixteen `i8`, eight `i16`, four `i32` or `f32`, or two `i64` or `f64`. Each lane shape has a namespace, from `i8x16` to `f64x2`, whose instructions work on all lanes at once.
 
 ```ts
-import { Module, func, tag, throw_, try_table, block, i32, drop } from "wasmati";
+import { Module, func, v128, i32x4, i32 } from "wasmati";
 
-const failure = tag({ in: [i32] });
 const f = func({ in: [], out: [i32] }, () => {
-  block({ out: [i32] }, (caught) => {
-    try_table({ catches: [{ tag: failure, label: caught }] }, () => {
-      i32.const(42);
-      throw_(failure);
-    });
-    i32.const(0);
-  });
+  v128.const("i32x4", [1, 2, 3, 4]);
+  v128.const("i32x4", [10, 20, 30, 40]);
+  i32x4.add();
+  i32x4.extract_lane(3);
 });
 
 const { instance } = await Module({ exports: { f } }).instantiate();
-instance.exports.f(); // 42
+instance.exports.f(); // 44
 ```
 
-Catch clauses branch to enclosing labels with the exception's values; `catch_all` clauses omit `tag`, and `ref: true` adds an `exnref` for `throw_ref`.
+## The text format and decompiling
 
-## Text format and decompiling
+- `Module.fromWat(text)` reads a module in the text format, and `module.toWat()` prints one. `Module.fromBytes(bytes)` and `module.toBytes()` do the same with the binary format.
+- `decompile(bytesOrWat)` turns any module into wasmati TypeScript, whose default export builds the module from an import object. Decompiling Wasm written elsewhere is a good way to see how its constructs look in wasmati.
+- The CLI does the same with files: `wasmati decompile input.wasm -o output.ts`, `wasmati wat input.wasm`, and `wasmati wasm input.wat -o output.wasm`. Every command takes either format.
 
-- `Module.fromWat(text)` and `module.toWat()` read and print the WebAssembly text format.
-- `decompile(bytesOrWat)` returns wasmati TypeScript whose default export builds the module from an import object.
-- CLI: `wasmati decompile input.wasm -o output.ts`, `wasmati wat input.wasm`, `wasmati wasm input.wat -o output.wasm`. Inputs may be Wasm or WAT.
+## Shipping without wasmati
 
-## Building modules without wasmati
+`wasmati build file.ts -o dir` turns a file that default-exports a `Module` into `dir/file.wasm`. JS imports it directly, `import { f } from "./dir/file.wasm"`, through the ESM integration of Wasm, without wasmati at runtime.
 
-`wasmati build file.ts -o dir` turns a file that default-exports a `Module` into `file.wasm`, which JS imports directly through the ESM integration of Wasm, `import { f } from "./dir/file.wasm"`, without the wasmati runtime.
+- Export types go to `file.d.wasm.ts`, which TypeScript reads with the `allowArbitraryExtensions` option.
+- Imports written inline are extracted into `file.host.js`, together with the top-level declarations and imports they use. The built file may only export its `Module`; state that the app shares with the imports belongs in another module.
+- The build rejects files it cannot copy faithfully, and its error says why: for example, an import function that uses a variable of an enclosing function, which only exists while the module is built.
+- With async exports, JS imports the generated `file.js` instead, which wraps them.
+- Built modules run in Node 22.19, 24.5 and later and in Deno 2.1 and later. Browsers need a bundler: Vite with `vite-plugin-wasm`, or Next.js with Turbopack. Modules that use JS string builtins also need the bundler to map `wasm:js-string` to the generated `js-string.js`.
 
-- The build writes export types to `file.d.wasm.ts` (TypeScript reads them with `allowArbitraryExtensions`).
-- Imports written inline are extracted into `file.host.js` with the top-level declarations and imports they use. The built file may only export its `Module`; share state with the app through another module.
-- The build rejects what it cannot copy faithfully: functions that use variables or `this` of an enclosing function, wasmati values, declarations that code running during the build also uses, and memories written during the build.
-- Async exports get an entry module, `file.js`, which JS imports instead.
-- Built modules run in Node 22.19 or 24.5 and later, and Deno 2.1 and later. Browsers need a bundler: Vite with `vite-plugin-wasm`, or Next.js with Turbopack. Modules that use JS string builtins also need the bundler to map `wasm:js-string` to the generated `js-string.js`.
+## Debugging
 
-## Pitfalls
+- Read the error: wasmati names the instruction and the types involved, and the stack trace points to your builder call.
+- Print `module.toWat()` to see the instructions you produced.
+- Traps throw `WebAssembly.RuntimeError` from the exported function you called, with a stack trace that includes Wasm function names.
+- Common mistakes: leaving values on the stack at the end of a function or block, passing numbers where `i64` expects bigints, writing instruction results as named operands out of order, not naming the memory when there are several or it is 64-bit, keeping JS views of a memory that has grown, and exporting a function that reaches an async import without `async(...)`.
+- JS calling an export with a value that does not fit a reference parameter, like `null` for a non-null reference, gets a `TypeError` from the engine.
 
-- A function body must leave exactly its results on the stack; leftover values throw `expected stack to be empty`.
-- Instruction results given as named operands, to `call` or `struct.new`, must come in parameter order.
-- `i64` values are bigints: `i64.const(1n)`, and `i64` operands take bigints, not numbers.
-- With a 64-bit memory or several memories, memory instructions must name their memory.
-- Exported async functions must be wrapped, `async(run)`, if they reach async imports.
-- After `br`, `return_`, `throw_` or `unreachable`, the rest of the block is unreachable code, where any stack types are accepted.
+## Further reading
+
+- [WebAssembly specification](https://webassembly.github.io/spec/core/): the [instructions](https://webassembly.github.io/spec/core/syntax/instructions.html) and their [index](https://webassembly.github.io/spec/core/appendix/index-instructions.html), and the [JS API](https://webassembly.github.io/spec/js-api/).
+- [MDN WebAssembly reference](https://developer.mozilla.org/en-US/docs/WebAssembly/Reference) and its guide to the [text format](https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Understanding_the_text_format).
+- [webassembly.org/features](https://webassembly.org/features/): Wasm features and proposals, and which engines support them.
