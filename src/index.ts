@@ -89,7 +89,7 @@ import {
 } from "./export.ts";
 import { constant as constantExpression } from "./constant.ts";
 import type { TupleN } from "./util.ts";
-import type { ModuleExport } from "./module.ts";
+import type { ModuleExport, Instance } from "./module.ts";
 import type { Input } from "./instruction/stack-args.ts";
 import {
   atomicOps,
@@ -219,6 +219,7 @@ export type {
   TupleN,
   Instruction,
   ModuleExport,
+  Instance,
   JSFunction,
   JSValue,
 };

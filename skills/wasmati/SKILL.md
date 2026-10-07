@@ -40,17 +40,17 @@ Wasm has few value types:
 
 At the boundary with JS, values convert as follows:
 
-| Wasm               | JS                                                                  |
-| ------------------ | ------------------------------------------------------------------- |
+| Wasm               | JS                                                                 |
+| ------------------ | ------------------------------------------------------------------ |
 | `i32`              | number, as a signed 32-bit integer; `x >>> 0` reads it as unsigned |
-| `i64`              | bigint, signed                                                      |
-| `f32`, `f64`       | number                                                              |
-| `v128`             | not allowed at the boundary                                         |
-| `funcref`          | a Wasm function                                                     |
-| `externref`        | any JS value                                                        |
-| `i31ref`           | number                                                              |
-| structs and arrays | opaque objects, which JS can pass back but not read                 |
-| null references    | `null`                                                              |
+| `i64`              | bigint, signed                                                     |
+| `f32`, `f64`       | number                                                             |
+| `v128`             | not allowed at the boundary                                        |
+| `funcref`          | a Wasm function                                                    |
+| `externref`        | any JS value                                                       |
+| `i31ref`           | number                                                             |
+| structs and arrays | opaque objects, which JS can pass back but not read                |
+| null references    | `null`                                                             |
 
 Functions with several results return them to JS as an array.
 
@@ -65,15 +65,12 @@ wasmati also lets you pass operands as arguments. Numbers become constants, loca
 ```ts
 import { Module, func, i32, i64, local, $ } from "wasmati";
 
-const f = func(
-  { in: [{ x: i32 }], locals: { y: i64 }, out: [i32] },
-  ({ x }, { y }) => {
-    local.set(y, i64.extend_i32_u(x));
-    const doubled = i32.mul(x, 2); // local.get x; i32.const 2; i32.mul
-    i32.add(doubled, i32.wrap_i64(y));
-    i32.shl($, 1); // shifts the value on the stack
-  },
-);
+const f = func({ in: [{ x: i32 }], locals: { y: i64 }, out: [i32] }, ({ x }, { y }) => {
+  local.set(y, i64.extend_i32_u(x));
+  const doubled = i32.mul(x, 2); // local.get x; i32.const 2; i32.mul
+  i32.add(doubled, i32.wrap_i64(y));
+  i32.shl($, 1); // shifts the value on the stack
+});
 
 const { instance } = await Module({ exports: { f } }).instantiate();
 instance.exports.f(5); // ((5 * 2) + 5) << 1 = 30
@@ -196,7 +193,10 @@ A **global** is a module-level variable, mutable or not, which can be exported o
 ```ts
 import { Module, func, global, constant, i32 } from "wasmati";
 
-const counter = global(constant(() => i32.const(0)), { mutable: true });
+const counter = global(
+  constant(() => i32.const(0)),
+  { mutable: true },
+);
 const limit = global(constant(() => i32.mul(10, 10))); // constants can add, subtract and multiply
 
 const increment = func({ in: [], out: [i32] }, () => {
@@ -231,6 +231,17 @@ instance.exports.f(1); // logs 1, returns 101
 - Imports declare their type together with their JS value: `importFunc`, `importGlobal`, `importMemory`, `importTable` and `importTag`. wasmati assembles the import object, which is also available as `module.importMap`. The `module` and `field` options set explicit import names.
 - Exports are the keys of `exports`, and their types in `instance.exports` are inferred.
 - Only what the exports and the `start` function need ends up in the module; the `dependencies` option adds more. The start function runs when the module is instantiated.
+- Workers can instantiate a module that another thread compiled, without rebuilding it. Post the compiled module from `instantiate()` with the import object; this works while the imports can be posted, like a shared memory, but not JS functions. `Instance<typeof wasm>` types the result:
+
+```ts
+// main thread
+const { module } = await wasm.instantiate();
+worker.postMessage({ module, imports: wasm.importMap });
+
+// worker
+const { instance } = await WebAssembly.instantiate(module, imports);
+const { exports } = instance as Instance<typeof wasm>;
+```
 
 ## Tables and indirect calls
 
@@ -262,7 +273,24 @@ References to functions are also values: `ref.func(f)` makes one, and `call_ref(
 Besides linear memory, Wasm can allocate **structs** and **arrays** that the engine manages and collects, like JS objects. Code refers to them through typed references, and there is no address arithmetic and no manual freeing. You define their types, allocate them with `struct.new` and `array.new`, and access fields by name.
 
 ```ts
-import { Module, func, struct, array, rec, mut, i32, f64, refType, ref, local, call, block, loop, br, br_if } from "wasmati";
+import {
+  Module,
+  func,
+  struct,
+  array,
+  rec,
+  mut,
+  i32,
+  f64,
+  refType,
+  ref,
+  local,
+  call,
+  block,
+  loop,
+  br,
+  br_if,
+} from "wasmati";
 
 const point = struct({ x: f64, y: f64 });
 const numbers = array(mut(i32)); // mut: elements can be set
@@ -294,7 +322,9 @@ const sum = func({ in: [{ l: list }], locals: { total: i32 }, out: [i32] }, ({ l
 
 const main = func({ in: [], out: [f64, i32, i32] }, () => {
   call(lengthSquared, { p: struct.new(point, { x: 3, y: 4 }) });
-  call(sum, { l: struct.new(node, { value: 1, next: struct.new(node, { value: 2, next: ref.null(list) }) }) });
+  call(sum, {
+    l: struct.new(node, { value: 1, next: struct.new(node, { value: 2, next: ref.null(list) }) }),
+  });
   array.len(array.new_fixed(numbers, [1, 2, 3]));
 });
 

@@ -26,7 +26,7 @@ import { TypeRegistry } from "./type-registry.ts";
 import type { NameMap, NameSection } from "./name-section.ts";
 import type { CustomSection } from "./module-binable.ts";
 
-export { Module, type ModuleExport };
+export { Module, type ModuleExport, type Instance };
 
 type Module = ReturnType<typeof ModuleConstructor>;
 
@@ -467,9 +467,7 @@ function createModule<Exports extends Record<string, ExportInput>>(
         usesJSStringBuiltins(binableModule.imports) ? jsStringBuiltins : {},
       );
       return { instance: withAsyncExports(instance, asyncExports), module } as {
-        instance: WebAssembly.Instance & {
-          exports: { [K in keyof Exports]: ModuleExport<Exports[K]> };
-        };
+        instance: ModuleInstance<Exports>;
         module: WebAssembly.Module;
       };
     },
@@ -497,6 +495,17 @@ function withAsyncExports(instance: WebAssembly.Instance, asyncExports: string[]
   let exports = Object.freeze({ ...instance.exports, ...wrapped });
   return Object.create(instance, { exports: { value: exports } }) as WebAssembly.Instance;
 }
+
+/** An instance with the inferred types of a module's exports. */
+type ModuleInstance<Exports extends Record<string, ExportInput>> = WebAssembly.Instance & {
+  exports: { [K in keyof Exports]: ModuleExport<Exports[K]> };
+};
+
+/**
+ * The instance of a module, as `instantiate()` returns it, for instances created otherwise: for
+ * example in a worker, from the compiled module and the import object of the module.
+ */
+type Instance<M extends Module> = Awaited<ReturnType<M["instantiate"]>>["instance"];
 
 type ModuleExport<Export extends ExportInput> =
   Export extends AsyncExport<infer F>
