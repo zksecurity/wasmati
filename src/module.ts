@@ -359,5 +359,11 @@ let module = Module({
 `);
     }
   }
+  // Instructions that do not name a memory assume 32-bit addresses.
+  let [memory] = [...dependencyByKind.importMemory, ...dependencyByKind.memory];
+  if (dependencyByKind.hasMemory.length > 0 && memory?.type.limits.address === "i64")
+    throw Error(
+      "Module(): instructions that do not name their memory need a 32-bit memory. Pass the 64-bit memory to them, e.g. i32.load({ memory }, address).",
+    );
   return dependencyByKind.memory[0]?.type;
 }

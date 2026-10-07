@@ -1,39 +1,90 @@
 import { Const } from "./dependency.ts";
+import { uint64, type U64 } from "./immediate.ts";
 import * as Dependency from "./dependency.ts";
-import { RefType, type RefTypeObject, valueTypeLiteral } from "./types.ts";
+import {
+  type AddressType,
+  type Limits,
+  RefType,
+  type RefTypeObject,
+  valueTypeLiteral,
+} from "./types.ts";
 
-export { memoryConstructor, dataConstructor, tableConstructor, elemConstructor };
+export {
+  memoryConstructor,
+  dataConstructor,
+  tableConstructor,
+  elemConstructor,
+  limits,
+  jsLimits,
+  constOffset,
+};
 
-function memoryConstructor(
+function memoryConstructor<A extends AddressType = "i32">(
   {
     min,
     max,
     shared = false,
+    address = "i32" as A,
   }: {
-    min: number;
-    max?: number;
+    min: U64;
+    max?: U64;
     shared?: boolean;
+    address?: A;
   },
   ...content: (number[] | Uint8Array)[]
-): Dependency.Memory {
-  let memory: Dependency.Memory = {
+): Dependency.Memory<A> {
+  let memory: Dependency.Memory<A> = {
     kind: "memory",
-    type: { limits: { min, max, shared } },
+    type: { limits: limits(min, max, shared, address) },
+    address,
     deps: [],
   };
   let offset = 0;
   for (let init of content) {
-    dataConstructor({ memory, offset: Const.i32(offset) }, init);
+    dataConstructor({ memory, offset: constOffset(address, offset) }, init);
     offset += init.length;
   }
   return memory;
+}
+
+/** Limits record a 64-bit address type only when present, as in decoded modules. */
+function limits(min: U64, max: U64 | undefined, shared: boolean, address: AddressType): Limits {
+  const size = (n: U64) => uint64(BigInt(n));
+  const sizes = { min: size(min), max: max === undefined ? undefined : size(max), shared };
+  return address === "i64" ? { ...sizes, address } : sizes;
+}
+
+/** The JS API descriptor of a memory, whose 64-bit sizes are bigints. */
+function jsLimits({
+  min,
+  max,
+  shared,
+  address,
+}: {
+  min: U64;
+  max?: U64;
+  shared: boolean;
+  address?: AddressType;
+}) {
+  const size = (n: U64 | undefined) =>
+    n === undefined ? undefined : address === "i64" ? BigInt(n) : Number(n);
+  return {
+    initial: size(min),
+    maximum: size(max),
+    shared,
+    ...(address === "i64" ? { address } : {}),
+  } as WebAssembly.MemoryDescriptor;
+}
+
+function constOffset(address: AddressType, offset: number): Dependency.Offset {
+  return address === "i64" ? Const.i64(offset) : Const.i32(offset);
 }
 
 function dataConstructor(
   mode:
     | {
         memory?: Dependency.AnyMemory;
-        offset: Const.i32 | Const.globalGet<"i32">;
+        offset: Dependency.Offset;
       }
     | "passive",
   [...init]: number[] | Uint8Array,
@@ -58,25 +109,28 @@ function dataConstructor(
   return result;
 }
 
-function tableConstructor(
+function tableConstructor<A extends AddressType = "i32">(
   {
     type,
     min,
     max,
+    address = "i32" as A,
   }: {
     type: RefTypeObject;
-    min: number;
-    max?: number;
+    min: U64;
+    max?: U64;
+    address?: A;
   },
   content?: (Const.refFunc | Const.refNull<RefType>)[],
-): Dependency.Table {
-  let table = {
+): Dependency.Table<A> {
+  let table: Dependency.Table<A> = {
     kind: "table" as const,
-    type: { type: valueTypeLiteral(type), limits: { min, max, shared: false } },
+    type: { type: valueTypeLiteral(type), limits: limits(min, max, false, address) },
+    address,
     deps: [],
   };
   if (content !== undefined) {
-    elemConstructor({ type, mode: { table, offset: Const.i32(0) } }, content);
+    elemConstructor({ type, mode: { table, offset: constOffset(address, 0) } }, content);
   }
   return table;
 }
@@ -92,7 +146,7 @@ function elemConstructor(
       | "declarative"
       | {
           table: Dependency.AnyTable;
-          offset: Const.i32 | Const.globalGet<"i32">;
+          offset: Dependency.Offset;
         };
   },
   init: (Const.refFunc | Const.refNull<RefType>)[],

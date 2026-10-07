@@ -32,7 +32,7 @@ import {
   declareFunc as originalDeclareFunc,
   type ToTypeTuple,
 } from "./func.ts";
-import type { Instruction, FunctionTypeInput } from "./instruction/base.ts";
+import type { Instruction, FunctionTypeInput, WithPublicSignature } from "./instruction/base.ts";
 import {
   f32x4Ops,
   f64x2Ops,
@@ -292,7 +292,15 @@ function removeContexts<
   return result;
 }
 
-type RemoveContext<F extends (ctx: LocalContext, ...args: any) => any> = F extends (
+/** An instruction without its context argument: its public signature, if it declares one. */
+type RemoveContext<F extends (ctx: LocalContext, ...args: any) => any> =
+  F extends WithPublicSignature<infer Signature>
+    ? unknown extends Signature
+      ? WithoutContext<F>
+      : Signature
+    : WithoutContext<F>;
+
+type WithoutContext<F extends (ctx: LocalContext, ...args: any) => any> = F extends (
   ctx: LocalContext,
   ...args: infer CreateArgs
 ) => infer Return

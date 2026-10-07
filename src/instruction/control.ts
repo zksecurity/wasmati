@@ -22,6 +22,7 @@ import {
   LabelIndex,
   TableIndex,
   TypeIndex,
+  addressType,
   ValueType,
   valueTypeLiteral,
   type ValueTypeObject,
@@ -188,7 +189,7 @@ const call_indirect = baseInstruction("call_indirect", tuple([TypeIndex, TableIn
   create(_, table: Dependency.AnyTable, type: FunctionTypeInput) {
     let t = typeFromInput(type);
     return {
-      in: [...t.args, "i32"],
+      in: [...t.args, addressType(table.type.limits)],
       out: t.results,
       deps: [Dependency.type(t), table],
     };

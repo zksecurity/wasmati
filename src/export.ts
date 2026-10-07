@@ -1,6 +1,7 @@
 import { Binable, byteEnum, record } from "./binable.ts";
-import { Name, U32 } from "./immediate.ts";
+import { Name, U32, type U64 } from "./immediate.ts";
 import {
+  type AddressType,
   FunctionType,
   type Type,
   GlobalType,
@@ -22,7 +23,7 @@ import {
   type CheckedParameters,
 } from "./parameters.ts";
 import type { ImportFunc } from "./func-types.ts";
-import { dataConstructor } from "./memory.ts";
+import { constOffset, dataConstructor, jsLimits, limits } from "./memory.ts";
 
 export { Export, Import, type ExternType, importFunc, importGlobal, importMemory, importTable };
 
@@ -131,55 +132,65 @@ function importGlobal<V extends ValueType>(
   return { kind: "importGlobal", module, field, type: globalType, deps: [], value: value_ };
 }
 
-function importMemory(
+function importMemory<A extends AddressType = "i32">(
   {
     min,
     max,
     shared = false,
+    address = "i32" as A,
     module,
     field,
   }: {
-    min: number;
-    max?: number;
+    min: U64;
+    max?: U64;
     shared?: boolean;
+    address?: A;
   } & Dependency.ImportPath,
   memory?: WebAssembly.Memory,
   ...content: (number[] | Uint8Array)[]
 ) {
-  let type = { limits: { min, max, shared } };
-  let value = memory ?? new WebAssembly.Memory({ initial: min, maximum: max, shared });
-  let memory_: Dependency.ImportMemory = {
+  let type = { limits: limits(min, max, shared, address) };
+  let value = memory ?? new WebAssembly.Memory(jsLimits({ min, max, shared, address }));
+  let memory_: Dependency.ImportMemory<A> = {
     kind: "importMemory",
     module,
     field,
     type,
+    address,
     deps: [],
     value,
   };
   let offset = 0;
   for (let init of content) {
-    dataConstructor({ memory: memory_, offset: Dependency.Const.i32(offset) }, init);
+    dataConstructor({ memory: memory_, offset: constOffset(address, offset) }, init);
     offset += init.length;
   }
   return memory_;
 }
 
 /** Import an existing table, retaining its identity and element-segment dependencies. */
-function importTable(
+function importTable<A extends AddressType = "i32">(
   {
     type,
     min,
     max,
+    address = "i32" as A,
     module,
     field,
-  }: { type: Type<"funcref" | "externref">; min: number; max?: number } & Dependency.ImportPath,
+  }: {
+    type: Type<"funcref" | "externref">;
+    min: U64;
+    max?: U64;
+    address?: A;
+  } & Dependency.ImportPath,
   value: WebAssembly.Table,
-): Dependency.ImportTable {
+): Dependency.ImportTable<A> {
   return {
     kind: "importTable",
     module,
     field,
-    type: { type: type.kind, limits: { min, max, shared: false } },
+    type: { type: type.kind, limits: limits(min, max, false, address) },
+    address,
     value,
     deps: [],
   };

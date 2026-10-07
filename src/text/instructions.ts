@@ -1,6 +1,6 @@
 import "../index.ts";
 import { Byte, Undefined } from "../binable.ts";
-import { F32, F64, I32, I64, U8 } from "../immediate.ts";
+import { F32, F64, I32, I64, U8, type U64 } from "../immediate.ts";
 import { lookupInstruction, type ResolvedInstruction } from "../instruction/base.ts";
 import { Block, IfBlock } from "../instruction/binable.ts";
 import { RefType, type IndexSpace, type ValueType } from "../types.ts";
@@ -251,7 +251,7 @@ function label(c: Cursor, scope: Scope): number {
 }
 
 function memArg(c: Cursor, natural: number) {
-  let offset = 0;
+  let offset: U64 = 0;
   let align = natural;
   if (c.peekAtom()?.startsWith("offset=")) offset = c.parse((text) => parseU64(text.slice(7)));
   if (c.peekAtom()?.startsWith("align=")) {
@@ -383,7 +383,7 @@ function printImmediate(name: string, value: any, names: Names): string[] {
   throw new UnsupportedTextError(`text immediate of ${name} is not implemented`);
 }
 
-function memArgText({ offset, align }: { offset: number; align: number }, natural: number) {
+function memArgText({ offset, align }: { offset: U64; align: number }, natural: number) {
   return [
     ...(offset === 0 ? [] : [`offset=${offset}`]),
     ...(align === natural ? [] : [`align=${2n ** BigInt(align)}`]),
