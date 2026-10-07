@@ -1,4 +1,4 @@
-import { Binable, Undefined, Writer } from "../binable.ts";
+import { Binable, Undefined } from "../binable.ts";
 import type { Code, Immediate } from "../code.ts";
 import type * as Dependency from "../dependency.ts";
 import {
@@ -73,7 +73,7 @@ type BaseInstruction = Immediate & {
   opcode: number | [number, number];
   immediate: Binable<any> | undefined;
   /** The opcode's encoding. */
-  opcodeBytes: Uint8Array;
+  opcodeBytes: number[];
   /** Whether the immediate may contain defined types, which Module() replaces by their indices. */
   typed: boolean;
   /** What the instruction changes that operands of later instructions may read. */
@@ -145,16 +145,17 @@ function baseInstruction<
 } {
   resolve ??= noResolve;
   let opcode = nameToOpcode[string];
-  let opcodeBytes = new Writer(8);
-  if (typeof opcode === "number") opcodeBytes.byte(opcode);
-  else {
-    opcodeBytes.byte(opcode[0]);
-    opcodeBytes.unsigned(opcode[1]);
-  }
+  // A prefix byte and an unsigned LEB128 subcode, below 2^14 for all instructions.
+  let opcodeBytes =
+    typeof opcode === "number"
+      ? [opcode]
+      : opcode[1] < 0x80
+        ? [opcode[0], opcode[1]]
+        : [opcode[0], (opcode[1] & 0x7f) | 0x80, opcode[1] >> 7];
   let instruction: BaseInstruction = {
     string,
     opcode,
-    opcodeBytes: opcodeBytes.result(),
+    opcodeBytes,
     immediate,
     resolve,
     typed: typedInstructions.has(string),
