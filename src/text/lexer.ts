@@ -67,6 +67,9 @@ const numeric = new RegExp(
 );
 const encoder = new TextEncoder();
 
+/** Annotations that the parser reads, as lists headed by `@custom` or `@name`. */
+const readAnnotation = /\(@(custom|name)(?=[ \t\r\n()";]|$)/y;
+
 /** Tokenize WAT/WAST, discarding whitespace, nested comments, and unrecognized annotations. */
 function tokenize(source: string): Token[] {
   // JavaScript strings can contain unpaired surrogates, unlike the spec's source character set.
@@ -177,6 +180,14 @@ function tokenize(source: string): Token[] {
       continue;
     }
     if (comment()) continue;
+    readAnnotation.lastIndex = offset;
+    const read = readAnnotation.exec(source);
+    if (read !== null) {
+      tokens.push({ kind: "(", text: "(", offset });
+      tokens.push({ kind: "atom", text: `@${read[1]}`, offset: offset + 1 });
+      offset += read[0].length;
+      continue;
+    }
     if (source.startsWith("(@", offset)) {
       annotation();
       continue;

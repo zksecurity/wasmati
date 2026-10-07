@@ -5,6 +5,7 @@ import { parseWat } from "../text/wat.ts";
 import { printWat } from "../text/print.ts";
 import { decompileModule } from "../decompile.ts";
 import { buildTextModule } from "./text-helpers.ts";
+import { Module as BinaryModule } from "../module-binable.ts";
 import { TextSyntaxError, UnsupportedTextError } from "../text/lexer.ts";
 
 async function instantiate(source: string, imports: WebAssembly.Imports = {}) {
@@ -265,4 +266,60 @@ test("modules convert from and to the text format", async () => {
   assert.deepEqual(Module.fromWat(module.toWat()).module, module.module);
   const add = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => i32.add(x, y));
   assert.match(Module({ exports: { add } }).toWat(), /\(export "add" \(func \$add\)\)/);
+});
+
+test("@custom annotations are custom sections, placed relative to other sections", () => {
+  const module = parseWat(`(module
+    (@custom "a" (before first) "\\01")
+    (@custom "b" (before global) "x" "y")
+    (@custom "c" (after code))
+    (@custom "d" "end")
+    (func))`);
+  assert.deepEqual(module.customSections, [
+    { name: "a", data: [1], after: 0 },
+    { name: "b", data: [0x78, 0x79], after: 13 },
+    { name: "c", data: [], after: 10 },
+    { name: "d", data: [0x65, 0x6e, 0x64] },
+  ]);
+  assert.deepEqual(parseWat(printWat(module)), module);
+  assert.deepEqual(BinaryModule.fromBytes(BinaryModule.toBytes(module)).customSections, [
+    { name: "a", data: [1], after: 0 },
+    { name: "b", data: [0x78, 0x79], after: 3 },
+    { name: "c", data: [], after: 10 },
+    { name: "d", data: [0x65, 0x6e, 0x64], after: 10 },
+  ]);
+  for (const source of [
+    '(module (@custom "a" here))',
+    '(module (@custom "a" (aft type)))',
+    '(module (@custom "a" (before types)))',
+    '(module (func (@custom "a")))',
+    '(module (func) (@name "M"))',
+  ])
+    assert.throws(() => parseWat(source), TextSyntaxError, source);
+});
+
+test("@name annotations name modules, functions and tags, and print where identifiers cannot", () => {
+  const module = parseWat(`(module $m (@name "Modül")
+    (func (@name "λ")) (func $lambda (@name "λ")) (tag $t (@name "θ")))`);
+  assert.deepEqual(module.names?.module, "Modül");
+  assert.deepEqual(module.names?.functions, { 0: "λ", 1: "λ" });
+  assert.deepEqual(module.names?.tags, { 0: "θ" });
+  assert.match(printWat(module), /\(func \(@name "λ"\)/);
+  assert.deepEqual(parseWat(printWat(module)), module);
+});
+
+test("type uses print inline where the signature implies the type, and by name otherwise", () => {
+  const module = parseWat(`(module
+    (type $binary (func (param i32 i32) (result i32)))
+    (type (func (param i64)))
+    (table 1 funcref)
+    (func $f (param $x i64))
+    (func (type $binary) (call_indirect (type $binary) (local.get 0) (local.get 1) (i32.const 0)))
+    (func (call_indirect (param i64) (i64.const 0) (i32.const 0))))`);
+  const printed = printWat(module);
+  assert.match(printed, /\(func \$f \(param \$x i64\)/);
+  assert.match(printed, /call_indirect \(type \$binary\)/);
+  assert.match(printed, /call_indirect \(param i64\)/);
+  assert.doesNotMatch(printed, /\(type 1\)/);
+  assert.deepEqual(parseWat(printed), module);
 });

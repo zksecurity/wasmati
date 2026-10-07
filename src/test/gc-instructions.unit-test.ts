@@ -170,3 +170,21 @@ test("GC instructions roundtrip through text, binary and decompiled builders", a
   const { instance } = await rebuilt.instantiate();
   assert.equal((instance.exports as any).f(null), 1);
 });
+
+test("GC instructions take operands as arguments, and struct fields by name", async () => {
+  const point = struct({ x: i32, y: mut(i32) });
+  const bytes = array(mut(i8));
+  const origin = global(constant(() => struct.new(point, { y: 2, x: 1 })));
+  const f = func(
+    { in: [{ v: i32 }], out: [i32], locals: { a: refType(bytes) } },
+    ({ v }, { a }) => {
+      local.set(a, array.new_fixed(bytes, [v, 2, 3]));
+      array.set(bytes, a, 1, i32.add(v, 1));
+      struct.set(point, "y", global.get(origin), array.get_s(bytes, a, 1));
+      i32.add(struct.get(point, "y", global.get(origin)), ref.test(refType(point), ref.i31(0)));
+    },
+  );
+  const { instance } = await Module({ exports: { f } }).instantiate();
+  assert.equal(instance.exports.f(-2), -1);
+  assert.throws(() => struct.new(point, { x: 1 }), /Unsupported input|Expected/);
+});

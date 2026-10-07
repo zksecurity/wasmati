@@ -1,6 +1,6 @@
 import { Binable, Undefined } from "../binable.ts";
 import type { AnyGlobal } from "../dependency.ts";
-import { Dependency } from "../index.ts";
+import type * as Dependency from "../dependency.ts";
 import { formatStack, pushStack } from "../local-context.ts";
 import { popStack } from "../local-context.ts";
 import { emptyContext } from "../local-context.ts";
