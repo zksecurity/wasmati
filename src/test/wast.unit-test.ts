@@ -77,10 +77,10 @@ test("references, the spectest host module, and module definitions", async () =>
 
 test("negative assertions cannot pass on unsupported parsing or decompilation", async () => {
   const result = await runWast(`
-    (assert_malformed (module (type (array i32))) "unexpected token")
+    (assert_malformed (module (func ref.i31 drop)) "unexpected token")
     (assert_invalid (module (memory i64 1)) "unsupported memory64")
     (assert_malformed (module quote "(func)") "unexpected token")
-    (assert_malformed (module (type (struct))) "unexpected token")
+    (assert_malformed (module (func any.convert_extern drop)) "unexpected token")
     (assert_malformed (module (func (param (ref null func)))) "unexpected token")`);
   assert.equal(result.passed, 0);
   assert.deepEqual(
@@ -95,7 +95,7 @@ test("missing modules, incorrect results, incorrect traps and earlier failures c
     (assert_trap (invoke "missing") "unreachable")
     (assert_return (invoke $missing "id" (i32.const 1)) (i32.const 1))
     (assert_trap (invoke "id" (i32.const 1)) "unreachable")
-    (module (func (export "id") (param i32) (result i32) local.get 0) (type (struct)))
+    (module (func (export "id") (param i32) (result i32) local.get 0) (func ref.i31))
     (assert_return (invoke "id" (i32.const 1)) (i32.const 1))`);
   assert.equal(result.passed, 1);
   assert.equal(result.failures.length, 6);

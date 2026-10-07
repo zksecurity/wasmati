@@ -39,6 +39,8 @@ import {
   baseInstruction,
   createExpressionWithType,
   type FunctionTypeInput,
+  type FunctionTypeReference,
+  functionTypeOf,
   resolveExpression,
   baseInstructionWithImmediate,
   typeFromInput,
@@ -194,12 +196,12 @@ const call = baseInstruction("call", FunctionIndex, {
 });
 
 const call_indirect = baseInstruction("call_indirect", tuple([TypeIndex, TableIndex]), {
-  create(_, table: Dependency.AnyTable, type: FunctionTypeInput) {
-    let t = typeFromInput(type);
+  create(_, table: Dependency.AnyTable, reference: FunctionTypeReference) {
+    let { type, defined } = functionTypeOf(reference);
     return {
-      in: [...t.args, addressType(table.type.limits)],
-      out: t.results,
-      deps: [Dependency.type(t), table],
+      in: [...type.args, addressType(table.type.limits)],
+      out: type.results,
+      deps: [defined, table],
     };
   },
   resolve: ([typeIdx, tableIdx]) => [typeIdx, tableIdx],
@@ -228,10 +230,10 @@ const return_call_indirect = baseInstruction(
   "return_call_indirect",
   tuple([TypeIndex, TableIndex]),
   {
-    create(ctx, table: Dependency.AnyTable, type: FunctionTypeInput) {
-      let t = typeFromInput(type);
-      tailCall(ctx, t, [addressType(table.type.limits)]);
-      return { in: [], out: [], deps: [Dependency.type(t), table] };
+    create(ctx, table: Dependency.AnyTable, reference: FunctionTypeReference) {
+      let { type, defined } = functionTypeOf(reference);
+      tailCall(ctx, type, [addressType(table.type.limits)]);
+      return { in: [], out: [], deps: [defined, table] };
     },
     resolve: ([typeIdx, tableIdx]) => [typeIdx, tableIdx],
   },
@@ -239,22 +241,22 @@ const return_call_indirect = baseInstruction(
 
 /** Call a function reference of the given type. */
 const call_ref = baseInstruction("call_ref", TypeIndex, {
-  create(_, type: FunctionTypeInput) {
-    let t = typeFromInput(type);
+  create(_, reference: FunctionTypeReference) {
+    let { type, defined } = functionTypeOf(reference);
     return {
-      in: [...t.args, refType(t, true)],
-      out: t.results,
-      deps: [Dependency.type(t)],
+      in: [...type.args, refType(defined, true)],
+      out: type.results,
+      deps: [defined],
     };
   },
   resolve: ([typeIdx]) => typeIdx,
 });
 
 const return_call_ref = baseInstruction("return_call_ref", TypeIndex, {
-  create(ctx, type: FunctionTypeInput) {
-    let t = typeFromInput(type);
-    tailCall(ctx, t, [refType(t, true)]);
-    return { in: [], out: [], deps: [Dependency.type(t)] };
+  create(ctx, reference: FunctionTypeReference) {
+    let { type, defined } = functionTypeOf(reference);
+    tailCall(ctx, type, [refType(defined, true)]);
+    return { in: [], out: [], deps: [defined] };
   },
   resolve: ([typeIdx]) => typeIdx,
 });

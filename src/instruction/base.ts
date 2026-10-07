@@ -11,7 +11,10 @@ import {
   withContext,
 } from "../local-context.ts";
 import {
+  type DefinedType,
   FunctionType,
+  isFunctionType,
+  referencedTypes,
   ValueType,
   valueTypeLiterals,
   type ValueTypeObject,
@@ -33,6 +36,8 @@ export {
   lookupOpcode,
   lookupSubcode,
   typeFromInput,
+  functionTypeOf,
+  type FunctionTypeReference,
   type Instruction,
   isInstruction,
   type Instruction_,
@@ -203,6 +208,22 @@ type FunctionTypeInput = {
   in?: ValueTypeObject[];
   out?: ValueTypeObject[];
 } | null;
+
+/** A function type: a signature, or a defined type such as a subtype or a type of a recursion group. */
+type FunctionTypeReference = FunctionTypeInput | DefinedType;
+
+/** The signature and defined type of a function type reference. */
+function functionTypeOf(reference: FunctionTypeReference): {
+  type: FunctionType;
+  defined: DefinedType;
+} {
+  if (reference !== null && "kind" in reference) {
+    if (!isFunctionType(reference.type)) throw Error("expected a function type");
+    return { type: reference.type, defined: reference };
+  }
+  let type = typeFromInput(reference);
+  return { type, defined: { kind: "type", type, deps: referencedTypes(type) } };
+}
 
 function typeFromInput(type: FunctionTypeInput): FunctionType {
   return {

@@ -12,16 +12,26 @@ import {
   f64,
   v128,
   i64x2,
+  ref,
   funcref,
   externref,
   exnref,
 } from "../index.ts";
 import type { Module as ModuleValue } from "../module-binable.ts";
 import {
+  type DefinedType,
+  type FieldType,
+  type FunctionType,
+  type HeapType,
+  isFunctionType,
   isRefType,
   printValueType,
-  type FunctionType,
+  referenced,
+  referencedTypes,
+  refType,
+  type StorageType,
   type Type,
+  type TypeDefinition,
   type ValueType,
 } from "../types.ts";
 import { jsLimits } from "../memory.ts";
@@ -220,6 +230,7 @@ const trapMessages: [string, RegExp][] = [
   ["out of bounds", /out of bounds/],
   ["null function reference", /dereferencing a null pointer/],
   ["null reference", /dereferencing a null pointer|null/],
+  ["indirect call", /function signature mismatch|null function/],
 ];
 
 /** A trap matches if V8 reports the same kind of trap as the spec message. */
@@ -256,8 +267,9 @@ function placeholders(module: ModuleValue, imports: WebAssembly.Imports): WebAss
         element,
       } as WebAssembly.TableDescriptor);
     } else if (description.kind === "tag") {
-      const parameters = module.types[description.value]?.args ?? [];
-      if (parameters.some((t) => typeof t === "object" || t === "exnref"))
+      const type = module.types[description.value];
+      const parameters = type !== undefined && isFunctionType(type) ? type.args : [];
+      if (parameters.some((t) => isRefType(t) && t !== "funcref" && t !== "externref"))
         throw Error("placeholders for tags of these types are not supported");
       fields[name] = new WebAssembly.Tag({
         parameters: parameters.map((t) =>
@@ -266,9 +278,9 @@ function placeholders(module: ModuleValue, imports: WebAssembly.Imports): WebAss
       });
     } else {
       const { value, mutable } = description.value;
-      if (value === "v128" || value === "exnref" || typeof value === "object")
+      if (value === "v128" || (isRefType(value) && value !== "funcref" && value !== "externref"))
         throw Error("placeholders for globals of this type are not supported");
-      const type = value === "funcref" ? "anyfunc" : value;
+      const type = (value === "funcref" ? "anyfunc" : value) as WebAssembly.ValueType;
       const initial = type === "i64" ? 0n : type === "anyfunc" || type === "externref" ? null : 0;
       fields[name] = new WebAssembly.Global({ value: type, mutable }, initial);
     }
@@ -335,7 +347,8 @@ function spectest(): WebAssembly.ModuleImports {
   };
 }
 
-type Signature = FunctionType & { global?: { mutable: boolean } };
+/** An export's type: a function's signature and defined type, or a global's type as a result. */
+type Signature = FunctionType & { defined?: DefinedType; global?: { mutable: boolean } };
 
 /** Exported globals are treated like functions without parameters that return the global's value. */
 function exportSignature(module: ModuleValue, name: string): Signature {
@@ -348,8 +361,13 @@ function exportSignature(module: ModuleValue, name: string): Signature {
       description.value < imports.length
         ? (imports[description.value].description.value as number)
         : module.funcs[description.value - imports.length].typeIdx;
-    const { args, results } = module.types[typeIndex];
-    return { args: args.map((t) => lift(module, t)), results: results.map((t) => lift(module, t)) };
+    const type = module.types[typeIndex];
+    if (!isFunctionType(type)) throw Error(`export ${name} does not have a function type`);
+    return {
+      args: type.args.map((t) => lift(module, t)),
+      results: type.results.map((t) => lift(module, t)),
+      defined: (lift(module, refType(typeIndex, false)) as { ref: DefinedType }).ref,
+    };
   }
   if (description.kind === "global") {
     const imports = imported("global");
@@ -366,22 +384,62 @@ const types = { i32, i64, f32, f64, v128, funcref, externref, exnref } as const;
 
 /** The builder type object of a value type. */
 function typeObject(type: ValueType): Type<ValueType> {
-  return typeof type === "object" ? { kind: type } : types[type];
+  return typeof type === "object" || !(type in types)
+    ? { kind: type }
+    : types[type as keyof typeof types];
 }
 
-/** Builders describe referenced function types structurally rather than by index. */
+/**
+ * Builders refer to defined types as objects. Rebuild the module's types in their recursion groups,
+ * so that a wrapper module defines equivalent types.
+ */
+const builderTypes = new WeakMap<ModuleValue, DefinedType[]>();
 function lift(module: ModuleValue, type: ValueType): ValueType {
   if (typeof type !== "object" || typeof type.ref !== "number") return type;
-  const { args, results } = module.types[type.ref];
-  const heap = {
-    args: args.map((t) => lift(module, t)),
-    results: results.map((t) => lift(module, t)),
-  };
-  return { ref: heap, nullable: type.nullable };
+  let defined = builderTypes.get(module);
+  if (defined === undefined) builderTypes.set(module, (defined = defineTypes(module)));
+  return { ref: defined[type.ref], nullable: type.nullable };
+}
+
+function defineTypes(module: ModuleValue): DefinedType[] {
+  const defined: DefinedType[] = [];
+  const heap = (h: HeapType) => (typeof h === "number" ? defined[h] : h);
+  const value = <T extends StorageType>(t: T): T =>
+    typeof t === "object" ? ({ ref: heap(t.ref), nullable: t.nullable } as T) : t;
+  let start = 0;
+  for (const size of module.recGroups ?? module.types.map(() => 1)) {
+    const group = Array.from({ length: size }, (_, i): DefinedType => {
+      const type: DefinedType = { kind: "type", type: {} as TypeDefinition, deps: [] };
+      defined[start + i] = type;
+      return type;
+    });
+    group.forEach((type, i) => {
+      const definition = module.types[start + i];
+      const field = (f: FieldType) => ({ type: value(f.type), mutable: f.mutable });
+      const composite =
+        "struct" in definition
+          ? { struct: definition.struct.map(field) }
+          : "array" in definition
+            ? { array: field(definition.array) }
+            : { args: definition.args.map(value), results: definition.results.map(value) };
+      type.type = {
+        ...composite,
+        ...(definition.final === false ? { final: false as const } : {}),
+        ...(definition.supertype === undefined
+          ? {}
+          : { supertype: heap(definition.supertype) as DefinedType }),
+      };
+      type.deps = referencedTypes(type.type);
+      if (size > 1) type.group = group;
+    });
+    start += size;
+  }
+  return defined;
 }
 
 /** Types that cross the JS boundary: floats as integer bits, vectors as two 64-bit halves. */
 function jsTypes(type: ValueType): ValueType[] {
+  if (isException(type)) return ["i32"];
   return type === "f32"
     ? ["i32"]
     : type === "f64"
@@ -389,6 +447,11 @@ function jsTypes(type: ValueType): ValueType[] {
       : type === "v128"
         ? ["i64", "i64"]
         : [type];
+}
+
+/** Exception references cannot pass into JS; the wrapper returns whether they are null instead. */
+function isException(type: ValueType): boolean {
+  return isRefType(type) && ["exn", "noexn"].includes(referenced(type).ref as string);
 }
 
 async function buildWrapper(signature: Signature, exported: unknown) {
@@ -405,6 +468,7 @@ async function buildWrapper(signature: Signature, exported: unknown) {
           {
             in: signature.args.map((type, i) => ({ [`a${i}`]: typeObject(type) })),
             out: signature.results.map(typeObject),
+            type: signature.defined,
           } as any,
           exported as any,
         )
@@ -437,6 +501,7 @@ async function buildWrapper(signature: Signature, exported: unknown) {
         local.get(results[`r${i}`]);
         i64x2.extract_lane(1);
       }
+      if (isException(type)) ref.is_null();
     });
   });
   const { instance } = await Builder({ exports: { wrapper } }).instantiate();
@@ -466,6 +531,7 @@ function fromJS(
   if (type === "i64" || type === "f64") return BigInt.asUintN(64, at(0) as bigint);
   if (type === "v128")
     return BigInt.asUintN(64, at(0) as bigint) | (BigInt.asUintN(64, at(1) as bigint) << 64n);
+  if (isException(type)) return at(0) === 1 ? null : { exception: true };
   return at(0);
 }
 

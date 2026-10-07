@@ -11,8 +11,11 @@ import {
   withContext,
 } from "./local-context.ts";
 import {
+  type DefinedType,
   FunctionIndex,
   FunctionType,
+  functionTypeEquals,
+  isFunctionType,
   type JSValue,
   type Local,
   type Type,
@@ -36,7 +39,7 @@ import type { Func } from "./func-types.ts";
 // external
 export { func, declareFunc, type Local };
 // internal
-export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple };
+export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple, explicitType };
 
 /**
  * Declare named parameters and locals, preserving each key's Wasm type in the callback.
@@ -54,6 +57,8 @@ function func<
     in: CheckedParameters<Args>;
     locals?: Locals;
     out: ToTypeTuple<Results>;
+    /** An explicit function type, such as a subtype; it must match the signature. */
+    type?: DefinedType;
   },
   run: (
     args: ToLocal<ParameterValues<ParameterSchema<Args>>>,
@@ -136,6 +141,7 @@ function func<
     ...(name === undefined ? {} : { name }),
     localNames,
     type,
+    ...explicitType(signature.type, type),
     body,
     deps,
     locals: sortedLocals,
@@ -160,13 +166,17 @@ function declareFunc<
     in: CheckedParameters<Args>;
     locals?: Locals;
     out: ToTypeTuple<Results>;
+    /** An explicit function type, such as a subtype; it must match the signature. */
+    type?: DefinedType;
   },
 ) {
   const args = createParameters<Args>(signature.in);
+  const type = { args: args.types, results: valueTypeLiterals<Results>(signature.out) };
   const declaration: Func<ParameterSchema<Args>, Results> = {
     kind: "function",
     params: args,
-    type: { args: args.types, results: valueTypeLiterals<Results>(signature.out) },
+    type,
+    ...explicitType(signature.type, type),
     name: signature.name,
     locals: [],
     body: [],
@@ -217,6 +227,14 @@ type FinalizedFunc = {
 };
 
 // helper
+
+/** An explicit function type must have the function's signature. */
+function explicitType(definedType: DefinedType | undefined, signature: FunctionType) {
+  if (definedType === undefined) return {};
+  if (!isFunctionType(definedType.type) || !functionTypeEquals(definedType.type, signature))
+    throw Error("func: the type does not match the signature");
+  return { definedType };
+}
 
 function sortLocals(locals: ValueType[], offset: number) {
   let typeIndex: Record<string, number> = {};

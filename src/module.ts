@@ -16,6 +16,7 @@ import {
   TableType,
 } from "./types.ts";
 import { memoryConstructor } from "./memory.ts";
+import { TypeRegistry } from "./type-registry.ts";
 import type { NameMap, NameSection } from "./name-section.ts";
 import type { CustomSection } from "./module-binable.ts";
 
@@ -77,10 +78,14 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   // process imports, along with types of imported functions
   let imports: Import[] = [];
   let importMap: WebAssembly.Imports = {};
-  let types: FunctionType[] = [];
+  let registry = new TypeRegistry();
+  // Types listed as dependencies come first, in order, so decompiled modules keep their type indices.
+  for (let type of dependencyByKind.type) {
+    depToIndex.set(type, registry.index(type));
+  }
 
   dependencyByKind.importFunction.forEach((func, funcIdx) => {
-    let typeIdx = pushType(types, func.type);
+    let typeIdx = registry.index(Dependency.typeOf(func));
     let description = { kind: "function" as const, value: typeIdx };
     depToIndex.set(func, funcIdx);
     let imp = addImport(func, description, funcIdx, importMap);
@@ -94,7 +99,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   });
   dependencyByKind.importTag.forEach((tag, tagIdx) => {
     depToIndex.set(tag, tagIdx);
-    let description = { kind: "tag" as const, value: pushType(types, tag.type) };
+    let description = { kind: "tag" as const, value: registry.index(Dependency.typeOf(tag)) };
     imports.push(addImport(tag, description, tagIdx, importMap));
   });
   dependencyByKind.importTable.forEach((table, tableIdx) => {
@@ -115,21 +120,16 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   let nImportFuncs = dependencyByKind.importFunction.length;
   for (let func of dependencyByKind.function) {
     if (!func.defined) throw Error(`Module: function ${func.name ?? "<unnamed>"} is not defined`);
-    let typeIdx = pushType(types, func.type);
+    let typeIdx = registry.index(Dependency.typeOf(func));
     let funcIdx = nImportFuncs + funcs0.length;
     funcs0.push({ ...func, typeIdx, funcIdx });
     depToIndex.set(func, funcIdx);
   }
 
-  // index other types
-  for (let type of dependencyByKind.type) {
-    let typeIdx = pushType(types, type.type);
-    depToIndex.set(type, typeIdx);
-  }
   // index tags
   let nImportTags = dependencyByKind.importTag.length;
   dependencyByKind.tag.forEach((tag, tagIdx) => depToIndex.set(tag, tagIdx + nImportTags));
-  let tags = dependencyByKind.tag.map((tag) => pushType(types, tag.type));
+  let tags = dependencyByKind.tag.map((tag) => registry.index(Dependency.typeOf(tag)));
   // index globals
   let nImportGlobals = dependencyByKind.importGlobal.length;
   dependencyByKind.global.forEach((global, globalIdx) =>
@@ -253,7 +253,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     }
   }
   let binableModule: BinableModule = {
-    types,
+    types: registry.types,
     funcs,
     imports,
     exports,
@@ -267,7 +267,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(indexTypes(binableModule), importMap);
+  return createModule<Exports>(indexTypes(binableModule, registry), importMap);
 }
 
 function orderGlobals(globals: Dependency.Global[]): Dependency.Global[] {
@@ -284,39 +284,17 @@ function orderGlobals(globals: Dependency.Global[]): Dependency.Global[] {
 }
 
 /**
- * Builders describe the function types of reference types structurally. Give each its type index,
- * adding types as needed, so that the module refers to types by index only.
+ * Builders refer to defined types as objects. Give each its type index, adding types as needed, so
+ * that the module refers to types by index only, and record type and field names.
  */
-function indexTypes(module: BinableModule): BinableModule {
-  const { types } = module;
-  const heapIndex = (heap: HeapType): HeapType =>
-    typeof heap === "object" ? pushType(types, heap) : heap;
-  const value = <T extends ValueType>(type: T): T => indexValueType(types, type);
-  const signature = ({ args, results }: FunctionType) => ({
-    args: args.map(value),
-    results: results.map(value),
-  });
-  const instructions = (body: ResolvedInstruction[]): ResolvedInstruction[] =>
-    body.map(({ name, immediate }) => {
-      if (name === "ref.null") return { name, immediate: heapIndex(immediate) };
-      if (name === "select_t") return { name, immediate: immediate.map(value) };
-      if (name === "block" || name === "loop")
-        return {
-          name,
-          immediate: { ...immediate, instructions: instructions(immediate.instructions) },
-        };
-      if (name === "if") {
-        const { if: then, else: otherwise } = immediate.instructions;
-        const branches = { if: instructions(then), else: otherwise && instructions(otherwise) };
-        return { name, immediate: { ...immediate, instructions: branches } };
-      }
-      return { name, immediate };
-    });
-  return {
+function indexTypes(module: BinableModule, registry: TypeRegistry): BinableModule {
+  const value = <T extends ValueType>(type: T): T => registry.value(type);
+  const instructions = (body: ResolvedInstruction[]) => registry.instructions(body);
+  const indexed: BinableModule = {
     ...module,
     funcs: module.funcs.map((func) => ({
       ...func,
-      type: signature(func.type),
+      type: registry.signature(func.type),
       locals: func.locals.map(value),
       body: instructions(func.body),
     })),
@@ -340,25 +318,27 @@ function indexTypes(module: BinableModule): BinableModule {
     })),
     imports: module.imports.map((imp) => {
       const { description } = imp;
-      if (description.kind === "global")
-        return {
-          ...imp,
-          description: {
-            ...description,
-            value: { ...description.value, value: value(description.value.value) },
-          },
-        };
-      if (description.kind === "table")
-        return {
-          ...imp,
-          description: {
-            ...description,
-            value: { ...description.value, type: value(description.value.type) },
-          },
-        };
+      if (description.kind === "global") {
+        const type = { ...description.value, value: value(description.value.value) };
+        return { ...imp, description: { ...description, value: type } };
+      }
+      if (description.kind === "table") {
+        const type = { ...description.value, type: value(description.value.type) };
+        return { ...imp, description: { ...description, value: type } };
+      }
       return imp;
     }),
   };
+  if (registry.groups.some((size) => size !== 1)) indexed.recGroups = registry.groups;
+  // Names given in the builder, unless the module's names override them.
+  const { names: typeNames, fieldNames } = registry;
+  if (Object.keys(typeNames).length > 0 || Object.keys(fieldNames).length > 0) {
+    const names = { ...indexed.names };
+    if (Object.keys(typeNames).length > 0) names.types = { ...typeNames, ...names.types };
+    if (Object.keys(fieldNames).length > 0) names.fields = { ...fieldNames, ...names.fields };
+    indexed.names = names;
+  }
+  return indexed;
 }
 
 function createModule<Exports extends Record<string, Dependency.Export>>(
@@ -429,29 +409,6 @@ function resolveConst(
   if (constant.operands === undefined) return [resolveInstruction(constant, depToIndex)];
   const operands = constant.operands.flatMap((o) => resolveConst(o, depToIndex));
   return [...operands, { name: constant.string, immediate: undefined }];
-}
-
-/**
- * Add a function type and return its index. Function types that it refers to are added first, since
- * a type may only refer to earlier types; structurally equal types share an index.
- */
-function pushType(types: FunctionType[], { args, results }: FunctionType) {
-  let type = {
-    args: args.map((t) => indexValueType(types, t)),
-    results: results.map((t) => indexValueType(types, t)),
-  };
-  let typeIndex = types.findIndex((t) => functionTypeEquals(t, type));
-  if (typeIndex === -1) {
-    typeIndex = types.length;
-    types.push(type);
-  }
-  return typeIndex;
-}
-
-/** Refer to a function type by its index rather than structurally. */
-function indexValueType<T extends ValueType>(types: FunctionType[], type: T): T {
-  if (typeof type !== "object" || typeof type.ref !== "object") return type;
-  return refType(pushType(types, type.ref), type.nullable) as T;
 }
 
 function addImport(

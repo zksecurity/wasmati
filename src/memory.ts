@@ -1,8 +1,10 @@
 import { Const } from "./dependency.ts";
+import { explicitType } from "./func.ts";
 import { uint64, type U64 } from "./immediate.ts";
 import * as Dependency from "./dependency.ts";
 import {
   type AddressType,
+  type DefinedType,
   type Limits,
   RefType,
   type RefTypeObject,
@@ -23,8 +25,16 @@ export {
 };
 
 /** An exception tag; exceptions with it carry values of the given types. */
-function tagConstructor({ in: args = [] }: { in?: ValueTypeObject[] }): Dependency.Tag {
-  return { kind: "tag", type: { args: valueTypeLiterals(args), results: [] }, deps: [] };
+function tagConstructor({
+  in: args = [],
+  type: definedType,
+}: {
+  in?: ValueTypeObject[];
+  /** An explicit function type, such as a type of a recursion group; it must match the parameters. */
+  type?: DefinedType;
+}): Dependency.Tag {
+  let type = { args: valueTypeLiterals(args), results: [] };
+  return { kind: "tag", type, ...explicitType(definedType, type), deps: [] };
 }
 
 function memoryConstructor(
