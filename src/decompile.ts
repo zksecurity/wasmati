@@ -84,6 +84,8 @@ class Source {
   private usedApi = new Set(["Module"]);
   private lines: string[] = [];
   private dependencies: string[] = [];
+  /** Functions that `ref.func` references. */
+  private referencedFunctions = new Set<number>();
 
   private module: DecodedModule;
   private importPath: string;
@@ -340,6 +342,7 @@ class Source {
     if (this.module.start !== undefined)
       this.line(`start: ${this.reference(this.functions, this.module.start)},`, 2);
     this.line(`dependencies: [${this.dependencies.join(", ")}],`, 2);
+    if (this.hasUndeclaredReferences()) this.line("declareReferences: false,", 2);
     if (this.module.customSections?.length)
       this.line(`customSections: ${literal(this.module.customSections)},`, 2);
     this.line("});");
@@ -595,6 +598,23 @@ class Source {
     return [...imported, ...defined][index]?.limits.address ?? "i32";
   }
 
+  /** Whether code references functions that exports and segments don't declare, which is invalid. */
+  private hasUndeclaredReferences(): boolean {
+    const { exports, elems, globals, tables } = this.module;
+    const declared = new Set(
+      exports.flatMap(({ description: { kind, value } }) => (kind === "function" ? [value] : [])),
+    );
+    const expressions = [
+      ...elems.flatMap(({ init }) => init),
+      ...globals.map(({ init }) => init),
+      ...tables.flatMap(({ init }) => (init === undefined ? [] : [init])),
+    ];
+    for (const expression of expressions)
+      for (const { name, immediate } of expression)
+        if (name === "ref.func") declared.add(immediate);
+    return [...this.referencedFunctions].some((index) => !declared.has(index));
+  }
+
   /** Element items and table initializers that reference a function are the function. */
   private referenceOrConstant(expression: ResolvedInstruction[]): string {
     const [instruction] = expression;
@@ -644,7 +664,10 @@ class Source {
           args = [this.reference(this.globals, imm)];
           break;
         case "call":
+          args = [this.reference(this.functions, imm)];
+          break;
         case "ref.func":
+          this.referencedFunctions.add(imm);
           args = [this.reference(this.functions, imm)];
           break;
         case "call_indirect":

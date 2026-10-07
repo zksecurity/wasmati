@@ -14,9 +14,10 @@ import {
   type JSValue,
   Limits,
   MemoryType,
+  funcref,
   TableType,
 } from "./types.ts";
-import { memoryConstructor } from "./memory.ts";
+import { elemConstructor, memoryConstructor } from "./memory.ts";
 import { parseWat } from "./text/wat.ts";
 import { printWat } from "./text/print.ts";
 import { jsStringBuiltins, usesJSStringBuiltins } from "./js-string.ts";
@@ -41,6 +42,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   names,
   customSections,
   dependencies: inputDependencies = [],
+  declareReferences = true,
 }: {
   exports: Exports;
   /**
@@ -55,6 +57,11 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   customSections?: CustomSection[];
   /** Include declarations even when exports and the start function do not reference them. */
   dependencies?: Dependency.t[];
+  /**
+   * Declare the functions that code references with `ref.func`, as Wasm requires, unless exports or
+   * segments declare them. The decompiler turns this off to reproduce modules without it faithfully.
+   */
+  declareReferences?: boolean;
 }) {
   // collect all dependencies (by kind)
   let dependencies = new Set<Dependency.t>();
@@ -162,6 +169,19 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   dependencyByKind.table.forEach((table, tableIdx) =>
     depToIndex.set(table, tableIdx + nImportTables),
   );
+  // Functions that code references must be declared outside of code; a declarative segment declares the rest.
+  let declared = new Set<Dependency.t>(allExports.map(([, exp]) => exp));
+  for (let dep of [...dependencyByKind.elem, ...dependencyByKind.global, ...dependencyByKind.table])
+    dep.deps.forEach((d) => declared.add(d));
+  let undeclared = new Set(
+    dependencyByKind.function
+      .flatMap((func) => func.deps)
+      .flatMap((dep) => (dep.kind === "hasRefTo" && !declared.has(dep.value) ? [dep.value] : [])),
+  );
+  if (declareReferences && undeclared.size > 0)
+    dependencyByKind.elem.push(
+      elemConstructor({ type: funcref, mode: "declarative" }, [...undeclared]),
+    );
   // index elems
   dependencyByKind.elem.forEach((elem, elemIdx) => depToIndex.set(elem, elemIdx));
   // index memories

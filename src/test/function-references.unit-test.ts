@@ -45,14 +45,33 @@ test("typed function references are called with call_ref and tail calls", async 
     ref.func(double);
     return_call_ref(unary);
   });
-  // Functions referenced in code must be declared, here by a declarative segment.
-  const declared = elem({ type: funcref, mode: "declarative" }, [double]);
-  const module = Module({ exports: { apply, tail, tailRef }, dependencies: [declared] });
+  // Functions referenced in code are declared by a declarative segment.
+  const module = Module({ exports: { apply, tail, tailRef } });
+  assert.deepEqual(
+    module.module.elems.map(({ mode }) => mode),
+    ["declarative"],
+  );
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.apply(4), 8);
   assert.equal(instance.exports.tail(5), 10);
   assert.equal(instance.exports.tailRef(6), 12);
   assert.throws(() => func({ in: [], out: [] }, () => return_call(double)), /results must match/);
+});
+
+test("functions referenced in code are declared once", () => {
+  const double = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => i32.add(x, x));
+  const apply = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => {
+    local.get(x);
+    ref.func(double);
+    call_ref(unary);
+  });
+  const declared = elem({ type: funcref, mode: "declarative" }, [double]);
+  const modes = (module: { module: { elems: { mode: unknown }[] } }) =>
+    module.module.elems.map(({ mode }) => mode);
+  assert.deepEqual(modes(Module({ exports: { apply }, dependencies: [declared] })), [
+    "declarative",
+  ]);
+  assert.deepEqual(modes(Module({ exports: { apply, double } })), []);
 });
 
 test("null checks narrow nullable references", async () => {

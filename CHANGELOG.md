@@ -54,6 +54,7 @@ wasmati supports all of WebAssembly 3.0, verified by running the official spec t
 - `i32.gt_s` and `i64.gt_s` emitted unsigned comparisons.
 - Errors about the stack name the instruction or function, like `i32.add: expected i32 on the stack, got i64`.
 - Numbers, locals and globals passed after instruction results were inserted in the wrong place after `drop`, `select` and branches on references, could be read before writes that came after earlier operands, and globals among them were missing from the module.
+- Functions that code references with `ref.func` are declared, as Wasm requires, by a declarative element segment unless exports or segments declare them. Such modules failed to compile.
 - Encoding fixes found by the spec suite, among them element segment flags, local declarations, and the order of globals that read other globals.
 - Libraries can export wasmati values with inferred types and emit declarations: every type in wasmati's public signatures is exported, and the value types that are also instruction namespaces have named types, `I32`, `I64`, `F32`, `F64` and `V128`, which declarations use instead of spelling out every instruction.
 
