@@ -16,6 +16,7 @@ import {
   type Description,
   type Instruction_,
   baseInstruction,
+  emitResults,
   emitSimple,
   writeInstruction,
 } from "./base.ts";
@@ -100,7 +101,7 @@ function instruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueT
     if (actualArgs.length > 0) processStackArgs(ctx, name, instr.in, actualArgs);
     if (simple)
       return emitSimple(ctx, instruction, instr.in, result) as Instruction_<Args, Results>;
-    return createInstr(ctx);
+    return emitResults(ctx, instruction, instr.in, instr.out) as Instruction_<Args, Results>;
   };
 }
 

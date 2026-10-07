@@ -38,6 +38,7 @@ export {
   type Description,
   emit,
   emitSimple,
+  emitResults,
   writeInstruction,
   runBlock,
   checkAllowed,
@@ -235,6 +236,23 @@ function emitSimple(
   if (result !== undefined) return pushResult(ctx, result, start);
   placeResults(ctx, start);
   return undefined;
+}
+
+/** Like `emitSimple()`, for an instruction of several results, which it returns. */
+function emitResults(
+  ctx: LocalContext,
+  instruction: BaseInstruction,
+  args: ValueType[],
+  results: ValueType[],
+): StackVar<ValueType>[] {
+  let { code } = ctx;
+  if (ctx.allowed !== undefined) checkAllowed(ctx, instruction.string);
+  let start = code.length;
+  if (args.length > 0) popTypes(ctx, args, instruction.string);
+  code.bytes(instruction.opcodeBytes);
+  let pushed = pushStack(ctx, results) as StackVar<ValueType>[];
+  placeResults(ctx, start);
+  return pushed;
 }
 
 /**
