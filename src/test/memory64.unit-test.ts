@@ -38,6 +38,7 @@ test("instructions on a 64-bit memory take 64-bit addresses and sizes", async ()
   assert.throws(
     () =>
       func({ in: [{ address: i32 }], out: [i32] }, ({ address }) =>
+        // @ts-expect-error a 32-bit address for a 64-bit memory is also a type error
         i32.load({ memory: mem }, address),
       ),
     /expected type i64/i,
@@ -108,4 +109,18 @@ test("sizes have the address type of their memory or table, i32 by default", asy
   });
   const { instance } = await Module({ exports: { sizes64 } }).instantiate();
   assert.deepEqual(instance.exports.sizes64(), [2n, 3n]);
+});
+
+test("addresses are typed by the memory of the access", () => {
+  const mem64 = memory({ min: 1, address: "i64" });
+  func({ in: [{ a: i32 }], out: [i32] }, ({ a }) => i32.load({}, a));
+  func({ in: [{ a: i64 }], out: [] }, ({ a }) => i32.store({ memory: mem64, offset: 4 }, a, 5));
+  assert.throws(() =>
+    // @ts-expect-error a 64-bit address for the default memory
+    func({ in: [{ a: i64 }], out: [i32] }, ({ a }) => i32.load({}, a)),
+  );
+  assert.throws(() =>
+    // @ts-expect-error a 64-bit size where an i32 is expected
+    func({ in: [], out: [i32] }, () => i32.add(memory.size(mem64), 1)),
+  );
 });
