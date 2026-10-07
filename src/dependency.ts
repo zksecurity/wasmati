@@ -8,6 +8,7 @@
 import { FunctionType, GlobalType, MemoryType, RefType, TableType, ValueType } from "./types.ts";
 import type { Parameters } from "./parameters.ts";
 import { Byte } from "./binable.ts";
+import type { F32, F64 } from "./immediate.ts";
 
 export {
   type t,
@@ -237,7 +238,7 @@ const Const = {
       resolveArgs: [BigInt(x)],
     };
   },
-  f32(x: number): Const.f32 {
+  f32(x: F32): Const.f32 {
     return {
       string: "f32.const",
       type: { args: [], results: ["f32"] },
@@ -245,7 +246,7 @@ const Const = {
       resolveArgs: [x],
     };
   },
-  f64(x: number): Const.f64 {
+  f64(x: F64): Const.f64 {
     return {
       string: "f64.const",
       type: { args: [], results: ["f64"] },

@@ -26,8 +26,8 @@ type ShapeType = {
   i16x8: number;
   i32x4: number;
   i64x2: bigint;
-  f32x4: number;
-  f64x2: number;
+  f32x4: F32;
+  f64x2: F64;
 };
 
 type V128Generic<Shape extends VectorShape> = [

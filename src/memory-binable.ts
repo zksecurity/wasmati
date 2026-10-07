@@ -67,8 +67,9 @@ const Elem = Binable<Elem>({
     // write code
     let isPassive = Number(typeof mode === "string");
     let isExplicit = Number(!(type === "funcref" && isFuncIdx(init)));
+    // Active segments need the explicit form for another table or a type other than funcref.
     let isBit1 = Number(
-      typeof mode !== "string" ? mode.table !== 0 && !isExplicit : mode === "declarative",
+      typeof mode !== "string" ? mode.table !== 0 || type !== "funcref" : mode === "declarative",
     );
     let bytes = U32.toBytes((isPassive << 0) | (isBit1 << 1) | (isExplicit << 2));
     // in active mode, write table and offset

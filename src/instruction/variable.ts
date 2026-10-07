@@ -1,9 +1,17 @@
 import { Undefined } from "../binable.ts";
 import { Const } from "../dependency.ts";
 import * as Dependency from "../dependency.ts";
-import { U32 } from "../immediate.ts";
 import { baseInstruction } from "./base.ts";
-import { type Local, RefType, type RefTypeObject, ValueType, valueTypeLiteral } from "../types.ts";
+import {
+  FunctionIndex,
+  GlobalIndex,
+  LocalIndex,
+  type Local,
+  RefType,
+  type RefTypeObject,
+  ValueType,
+  valueTypeLiteral,
+} from "../types.ts";
 import { type LocalContext, StackVar } from "../local-context.ts";
 import { globalGet, localGet } from "./variable-get.ts";
 import { type Input, processStackArgs } from "./stack-args.ts";
@@ -12,7 +20,7 @@ export { localOps, bindLocalOps, globalOps, bindGlobalOps, globalConstructor, re
 
 const localOps = {
   get: localGet,
-  set: baseInstruction("local.set", U32, {
+  set: baseInstruction("local.set", LocalIndex, {
     create({ locals }, x: Local) {
       let local = locals[x.index];
       if (local === undefined) throw Error(`local with index ${x.index} not available`);
@@ -20,7 +28,7 @@ const localOps = {
     },
     resolve: (_, x: Local) => x.index,
   }),
-  tee: baseInstruction("local.tee", U32, {
+  tee: baseInstruction("local.tee", LocalIndex, {
     create({ locals }, x: Local) {
       let type = locals[x.index];
       if (type === undefined) throw Error(`local with index ${x.index} not available`);
@@ -48,7 +56,7 @@ function bindLocalOps(ctx: LocalContext) {
 
 const globalOps = {
   get: globalGet,
-  set: baseInstruction("global.set", U32, {
+  set: baseInstruction("global.set", GlobalIndex, {
     create(_, global: Dependency.AnyGlobal) {
       if (!global.type.mutable) {
         throw Error("global.set used on immutable global");
@@ -100,7 +108,7 @@ const refOps = {
     },
     resolve: () => undefined,
   }),
-  func: baseInstruction("ref.func", U32, {
+  func: baseInstruction("ref.func", FunctionIndex, {
     create(_, func: Dependency.AnyFunc) {
       return {
         in: [],

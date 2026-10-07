@@ -281,7 +281,8 @@ function or<Types extends Tuple<any>>(
       for (let i = 0; i < n; i++) {
         try {
           let [value, end] = binables[i].readBytes(bytes, offset);
-          if (distinguish(value) === binables[i]) return [value, end];
+          let selected = distinguish(value);
+          if (selected === binables[i] || selected === i) return [value, end];
         } catch {}
       }
       throw Error("or: could not parse any of the possible types");

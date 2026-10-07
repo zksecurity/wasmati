@@ -1,9 +1,10 @@
 import * as api from "./index.ts";
 import type { Module as DecodedModule } from "./module-binable.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
-import type { FunctionType, ValueType } from "./types.ts";
+import { functionTypeEquals, type FunctionType, type GlobalType, type ValueType } from "./types.ts";
+import type { F32, F64 } from "./immediate.ts";
 
-export { decompile };
+export { decompile, decompileModule };
 
 /**
  * Decode Wasm using the existing Binable codecs and emit editable, stack-style wasmati TypeScript.
@@ -13,6 +14,11 @@ export { decompile };
  */
 function decompile(bytes: Uint8Array, { importPath = "wasmati" } = {}): string {
   const module = api.Module.fromBytes(bytes).module;
+  return decompileModule(module, { importPath });
+}
+
+/** Emit from the shared module representation, without encoding and decoding it through Wasm first. */
+function decompileModule(module: DecodedModule, { importPath = "wasmati" } = {}): string {
   return new Source(module, importPath).emit();
 }
 
@@ -189,12 +195,19 @@ class Source {
       this.dependencies.push(variable);
     }
     for (const f of this.module.funcs) {
+      // Builders derive type indices from signatures, so a mismatching index would silently be repaired.
+      const declared = this.module.types[f.typeIdx];
+      if (declared === undefined || !functionTypeEquals(declared, f.type))
+        throw Error(`decompile: function ${f.funcIdx} does not have type ${f.typeIdx}`);
       this.line(
         `const ${this.functions[f.funcIdx]} = ${this.use("declareFunc")}(${this.signature(f.funcIdx, f.type, f.locals)});`,
       );
       this.dependencies.push(this.functions[f.funcIdx]);
     }
     for (const g of this.module.globals) {
+      // Builders derive a global's type from its initializer.
+      if (this.constantType(g.init) !== g.type.value)
+        throw Error(`decompile: global initializer does not have type ${g.type.value}`);
       const variable = this.globals[nextIndex.global++];
       this.line(
         `const ${variable} = ${this.use("global")}(${this.constant(g.init)}, { mutable: ${g.type.mutable} });`,
@@ -297,6 +310,20 @@ class Source {
     return `{ in: [${type.args.map((t) => this.use(t)).join(", ")}], out: [${type.results.map((t) => this.use(t)).join(", ")}] }`;
   }
 
+  private constantType(expression: ResolvedInstruction[]): ValueType | undefined {
+    if (expression.length === 0) return undefined;
+    const [{ name, immediate }] = expression;
+    if (name === "ref.null") return immediate;
+    if (name === "ref.func") return "funcref";
+    if (name !== "global.get") return name.slice(0, name.indexOf(".")) as ValueType;
+    const imported = this.module.imports.filter((i) => i.description.kind === "global");
+    const global =
+      immediate < imported.length
+        ? (imported[immediate].description.value as GlobalType)
+        : this.module.globals[immediate - imported.length]?.type;
+    return global?.value;
+  }
+
   private constant(expression: ResolvedInstruction[]): string {
     if (expression.length !== 1)
       throw Error("decompile: extended constant expressions are not supported by the builder yet");
@@ -304,9 +331,10 @@ class Source {
     switch (name) {
       case "i32.const":
       case "i64.const":
+        return `${this.use("Const")}.${name.slice(0, 3)}(${literal(immediate)})`;
       case "f32.const":
       case "f64.const":
-        return `${this.use("Const")}.${name.slice(0, 3)}(${literal(immediate)})`;
+        return `${this.use("Const")}.${name.slice(0, 3)}(${floatLiteral(immediate)})`;
       case "ref.func":
         return `${this.use("Const")}.refFunc(${this.reference(this.functions, immediate)})`;
       case "ref.null":
@@ -409,6 +437,10 @@ class Source {
           break;
         case "atomic.fence":
           break;
+        case "f32.const":
+        case "f64.const":
+          args = [floatLiteral(imm)];
+          break;
         default:
           if (imm !== undefined) {
             if (typeof imm === "object" && imm !== null && "memArg" in imm)
@@ -453,6 +485,12 @@ function literal(value: unknown): string {
       .join(", ")} }`;
   }
   return JSON.stringify(value);
+}
+
+/** NaNs keep their exact bits, written in hex so sign and payload stay readable. */
+function floatLiteral(value: F32 | F64): string {
+  if (typeof value === "number") return literal(value);
+  return `{ bits: 0x${value.bits.toString(16)}${typeof value.bits === "bigint" ? "n" : ""} }`;
 }
 
 function jsSignature(type: FunctionType): string {
