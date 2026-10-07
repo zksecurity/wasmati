@@ -122,7 +122,8 @@ const hasMemory: HasMemory = { kind: "hasMemory", deps: [] };
 type Data = {
   kind: "data";
   init: Byte[];
-  mode: "passive" | { memory: 0; offset: Offset };
+  /** Active segments without a memory use the default memory. */
+  mode: "passive" | { memory: AnyMemory | undefined; offset: Offset };
   deps: (HasMemory | AnyGlobal | AnyMemory)[];
 };
 

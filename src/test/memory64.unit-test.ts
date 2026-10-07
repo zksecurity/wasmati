@@ -73,7 +73,7 @@ test("64-bit address types roundtrip through text and decompiled builders", asyn
     (func $f (export "f") (param i64) (result i64)
       (i64.store offset=8 (local.get 0) (memory.size))
       (i64.load offset=8 (local.get 0))))`);
-  assert.equal(parsed.memory?.limits.address, "i64");
+  assert.equal(parsed.memories[0].limits.address, "i64");
   assert.match(printWat(parsed), /\(memory \$m i64 1 2\)/);
   assert.deepEqual(parseWat(printWat(parsed)), parsed);
   const { instance } = await (await buildTextModule(parsed)).instantiate();

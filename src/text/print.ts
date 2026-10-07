@@ -90,8 +90,9 @@ function printWat(module: Module): string {
   module.tables.forEach((table, i) =>
     field("table", label("table", next.table + i), tableType(table)),
   );
-  if (module.memory !== undefined)
-    field("memory", label("memory", next.memory), memoryType(module.memory));
+  module.memories.forEach((memory, i) =>
+    field("memory", label("memory", next.memory + i), memoryType(memory)),
+  );
   module.globals.forEach((global, i) =>
     field(
       "global",

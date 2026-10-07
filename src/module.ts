@@ -166,14 +166,15 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
         : mode;
     return { type, init: init_, mode: mode_ };
   });
-  // finalize memory
-  let memory = checkMemory(dependencyByKind);
-  // finalize datas
+  // finalize memories
+  checkDefaultMemory(dependencyByKind);
+  let memories = dependencyByKind.memory.map(({ type }) => type);
+  // finalize datas: without a memory, active segments use the default memory
   let datas: Data[] = dependencyByKind.data.map(({ init, mode }) => {
     let mode_: Data["mode"] =
       mode !== "passive"
         ? {
-            memory: mode.memory,
+            memory: mode.memory === undefined ? 0 : depToIndex.get(mode.memory)!,
             offset: [resolveInstruction(mode.offset, depToIndex)],
           }
         : mode;
@@ -243,7 +244,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     elems,
     tables,
     globals,
-    memory,
+    memories,
     start,
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
@@ -342,11 +343,15 @@ function addImport(
   return import_;
 }
 
-function checkMemory(dependencyByKind: {
+/**
+ * Instructions and segments that do not name a memory use the default memory, which must exist, be the
+ * only memory, and have 32-bit addresses.
+ */
+function checkDefaultMemory(dependencyByKind: {
   importMemory: Dependency.ImportMemory[];
   memory: Dependency.Memory[];
   hasMemory: Dependency.HasMemory[];
-}): MemoryType | undefined {
+}) {
   let nMemoriesTotal = dependencyByKind.importMemory.length + dependencyByKind.memory.length;
   if (nMemoriesTotal === 0) {
     if (dependencyByKind.hasMemory.length > 0) {
@@ -359,11 +364,13 @@ let module = Module({
 `);
     }
   }
-  // Instructions that do not name a memory assume 32-bit addresses.
-  let [memory] = [...dependencyByKind.importMemory, ...dependencyByKind.memory];
-  if (dependencyByKind.hasMemory.length > 0 && memory?.type.limits.address === "i64")
+  let memories = [...dependencyByKind.importMemory, ...dependencyByKind.memory];
+  if (dependencyByKind.hasMemory.length > 0 && memories.length > 1)
+    throw Error(
+      "Module(): with several memories, memory instructions and data segments must name their memory, e.g. i32.load({ memory }, address).",
+    );
+  if (dependencyByKind.hasMemory.length > 0 && memories[0]?.type.limits.address === "i64")
     throw Error(
       "Module(): instructions that do not name their memory need a 32-bit memory. Pass the 64-bit memory to them, e.g. i32.load({ memory }, address).",
     );
-  return dependencyByKind.memory[0]?.type;
 }
