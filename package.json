@@ -30,6 +30,8 @@
   "files": [
     "src",
     "build",
+    "!src/test",
+    "!build/test",
     "skills",
     "CHANGELOG.md"
   ],
