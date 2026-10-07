@@ -140,23 +140,26 @@ function instructionWithArg<
   };
 }
 
-/**
- * Named operands, in parameter order. Operands that are instruction results are already on the stack
- * in the order they were evaluated, which is the order of the object's keys, so they must be given in
- * parameter order; other operands are emitted in parameter order.
- */
-function namedInputs(
-  string: string,
-  names: string[],
-  values: Record<string, Input<any>>,
-): Input<any>[] {
-  let evaluated = Object.keys(values).filter((name) => isStackVar(values[name]));
-  let ordered = names.filter((name) => evaluated.includes(name));
-  if (evaluated.some((name, i) => name !== ordered[i]))
-    throw Error(
-      `${string}: operands that are instruction results must be given in order (${names.join(", ")}), got ${evaluated.join(", ")}`,
-    );
+/** Named operands, in parameter order. */
+function namedInputs(names: string[], values: Record<string, Input<any>>): Input<any>[] {
   return names.map((name) => values[name]);
+}
+
+/**
+ * Operands that are instruction results are on the stack already, where they were pushed. They must
+ * be the latest values on the stack, in the order of the operands, or the instruction would take
+ * other values. `$` stands for whatever value is there. Unreachable code accepts any stack.
+ */
+function checkStackOperands(ctx: LocalContext, string: string, operands: Input<any>[]) {
+  if (ctx.frames[0]?.unreachable) return;
+  let results = operands.filter(isStackVar);
+  let top = ctx.stack.slice(ctx.stack.length - results.length);
+  results.forEach((result, i) => {
+    if (result.type === Unknown || result.id === top[i]?.id) return;
+    throw Error(
+      `${string}: operands that are instruction results must be the latest values on the stack, in order. Compute them in the order they are passed, and use each once.`,
+    );
+  });
 }
 
 function processStackArgs(
@@ -170,6 +173,7 @@ function processStackArgs(
   if (actualArgs.length !== n) {
     throw Error(`${string}: Expected 0 or ${n} arguments, got ${actualArgs.length}.`);
   }
+  checkStackOperands(ctx, string, actualArgs);
 
   let mustReorder = false;
   let hadNewInstr = false;

@@ -381,7 +381,7 @@ function bindControlOps(ctx: LocalContext) {
           ctx,
           "call",
           func.type.args,
-          namedInputs("call", func.params.names, args) as Input<ValueType>[],
+          namedInputs(func.params.names, args) as Input<ValueType>[],
         );
       }
       return call(ctx, func) as any;
