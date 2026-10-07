@@ -1,6 +1,6 @@
 ---
 name: wasmati
-description: Write WebAssembly in TypeScript with wasmati, whose API mirrors Wasm instructions one to one. Explains Wasm's core concepts (the stack machine, structured control flow, linear memory, tables, references, garbage-collected structs and arrays, exceptions) through the wasmati API, and how to build, test, debug and ship modules. Use when writing, reading or debugging code that uses wasmati, or when learning how WebAssembly works.
+description: Writing, reading or debugging WebAssembly with wasmati, a TypeScript library.
 ---
 
 # wasmati
