@@ -3,15 +3,18 @@ import type { Import, Export } from "../export.ts";
 import type { Elem, Data } from "../memory-binable.ts";
 import type { ResolvedInstruction } from "../instruction/base.ts";
 import type { NameMap, NameSection } from "../name-section.ts";
-import type {
-  AddressType,
-  FunctionType,
-  GlobalType,
-  IndexSpace,
-  MemoryType,
-  RefType,
-  TableType,
-  ValueType,
+import {
+  type AddressType,
+  type FunctionType,
+  type GlobalType,
+  type IndexSpace,
+  isRefType,
+  refType,
+  type MemoryType,
+  type RefType,
+  type TableType,
+  typeEquals,
+  type ValueType,
 } from "../types.ts";
 import { Cursor } from "./cursor.ts";
 import { readTree, withLocation, UnsupportedTextError, type List } from "./lexer.ts";
@@ -77,8 +80,12 @@ class ModuleParser {
   private locals: Record<number, NameMap> = {};
   private defined = false;
 
+  /** Type definitions can refer to later types, and other fields to all of them. */
+  private typeDefinitions: (() => void)[] = [];
+
   parse(c: Cursor, name: string | undefined): Module {
     const definitions = c.until((c) => this.field(c.list()));
+    for (const define of this.typeDefinitions) define();
     for (const define of definitions) define();
     return { ...this.module, ...this.names(name) };
   }
@@ -144,10 +151,12 @@ class ModuleParser {
     const head = c.peekHead();
     if (head === "sub" || head === "struct" || head === "array" || head === "rec")
       throw new UnsupportedTextError(`${head} types are not supported`);
-    const func = c.list("func");
-    this.module.types[index] = this.signature(func, true).type;
-    func.end();
-    c.end();
+    this.typeDefinitions.push(() => {
+      const func = c.list("func");
+      this.module.types[index] = this.signature(func, true).type;
+      func.end();
+      c.end();
+    });
     return () => {};
   }
 
@@ -223,7 +232,11 @@ class ModuleParser {
 
   private table(c: Cursor, index: number, segment: number | undefined) {
     if (segment === undefined) {
-      this.module.tables.push(this.tableType(c));
+      // A table may initialize its elements with a constant expression.
+      const type = this.tableType(c);
+      this.module.tables.push(
+        c.done ? type : { ...type, init: parseInstructions(c, this.scope()) },
+      );
       return;
     }
     const address = this.address(c);
@@ -233,6 +246,7 @@ class ModuleParser {
     items.end();
     const size = init.length;
     this.module.tables.push({ type, limits: limits(size, size, false, address) });
+    // The inline segment has the table's type, even when given as function indices.
     this.module.elems[segment] = { type, init, mode: { table: index, offset: zero(address) } };
   }
 
@@ -275,13 +289,15 @@ class ModuleParser {
   private elem(c: Cursor, index: number) {
     let mode: Elem["mode"] = "passive";
     if (c.maybeKeyword("declare")) mode = "declarative";
-    else if (c.peek()?.kind === "list") {
+    // An active segment starts with its table or offset; a reference type may start a passive one.
+    else if (c.peek()?.kind === "list" && c.peekHead() !== "ref") {
       const table = c.maybeList("table");
       const tableIndex = table === undefined ? 0 : this.index(table, "table");
       table?.end();
       mode = { table: tableIndex, offset: this.offset(c) };
     }
-    let type: RefType = "funcref";
+    // Function indices denote non-null function references.
+    let type: RefType = refType("func", false);
     let init: ResolvedInstruction[][];
     if (c.maybeKeyword("func") || (typeof mode === "object" && (c.done || c.peekIndex())))
       init = this.functions(c);
@@ -330,10 +346,14 @@ class ModuleParser {
 
   // Types
 
+  private valueType(c: Cursor): ValueType {
+    return parseValueType(c, (c) => this.index(c, "type"));
+  }
+
   private refType(c: Cursor): RefType {
     const node = c.peek();
-    const type = parseValueType(c);
-    if (type !== "funcref" && type !== "externref") c.fail("expected reference type", node);
+    const type = this.valueType(c);
+    if (!isRefType(type)) c.fail("expected reference type", node);
     return type;
   }
 
@@ -353,9 +373,7 @@ class ModuleParser {
   private tableType(c: Cursor): TableType {
     const address = this.address(c);
     const { min, max } = this.sizes(c);
-    const type = this.refType(c);
-    if (!c.done) throw new UnsupportedTextError("table initializers are not supported");
-    return { type, limits: limits(min, max, false, address) };
+    return { type: this.refType(c), limits: limits(min, max, false, address) };
   }
 
   private memoryType(c: Cursor): MemoryType {
@@ -369,8 +387,8 @@ class ModuleParser {
 
   private globalType(c: Cursor): GlobalType {
     const mutable = c.maybeList("mut");
-    if (mutable === undefined) return { value: parseValueType(c), mutable: false };
-    const value = parseValueType(mutable);
+    if (mutable === undefined) return { value: this.valueType(c), mutable: false };
+    const value = this.valueType(mutable);
     mutable.end();
     return { value, mutable: true };
   }
@@ -378,7 +396,7 @@ class ModuleParser {
   /** `(param $id? t)` or `(param t*)`, and likewise for locals. */
   private group(c: Cursor) {
     const name = c.identifier();
-    const types = c.until(parseValueType);
+    const types = c.until((c) => this.valueType(c));
     if (name !== undefined && types.length !== 1) c.fail("a named parameter or local has one type");
     return { names: types.map(() => name), types };
   }
@@ -387,7 +405,7 @@ class ModuleParser {
     const params = c.lists("param", (p) => this.group(p));
     if (!named && params.some((p) => p.names.some((name) => name !== undefined)))
       c.fail("unexpected parameter identifier");
-    const results = c.lists("result", (r) => r.until(parseValueType)).flat();
+    const results = c.lists("result", (r) => r.until((c) => this.valueType(c))).flat();
     const type = { args: params.flatMap((p) => p.types), results };
     return {
       type,
@@ -424,7 +442,7 @@ class ModuleParser {
 
   private blockType(c: Cursor): BlockType {
     if (c.peekHead() !== "type" && c.peekHead() !== "param") {
-      const results = c.lists("result", (r) => r.until(parseValueType)).flat();
+      const results = c.lists("result", (r) => r.until((c) => this.valueType(c))).flat();
       if (results.length <= 1) return results[0] ?? "empty";
       return this.findType({ args: [], results });
     }
@@ -494,7 +512,7 @@ function equal(a: FunctionType, b: FunctionType) {
   return (
     a.args.length === b.args.length &&
     a.results.length === b.results.length &&
-    a.args.every((type, i) => type === b.args[i]) &&
-    a.results.every((type, i) => type === b.results[i])
+    a.args.every((type, i) => typeEquals(type, b.args[i])) &&
+    a.results.every((type, i) => typeEquals(type, b.results[i]))
   );
 }

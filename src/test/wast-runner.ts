@@ -16,7 +16,13 @@ import {
   externref,
 } from "../index.ts";
 import type { Module as ModuleValue } from "../module-binable.ts";
-import type { FunctionType, ValueType } from "../types.ts";
+import {
+  isRefType,
+  printValueType,
+  type FunctionType,
+  type Type,
+  type ValueType,
+} from "../types.ts";
 import { jsLimits } from "../memory.ts";
 import { TextSyntaxError, UnsupportedTextError } from "../text/lexer.ts";
 import {
@@ -211,6 +217,8 @@ const trapMessages: [string, RegExp][] = [
   ["uninitialized element", /null function/],
   ["indirect call type mismatch", /function signature mismatch/],
   ["out of bounds", /out of bounds/],
+  ["null function reference", /dereferencing a null pointer/],
+  ["null reference", /dereferencing a null pointer|null/],
 ];
 
 /** A trap matches if V8 reports the same kind of trap as the spec message. */
@@ -245,7 +253,8 @@ function placeholders(module: ModuleValue, imports: WebAssembly.Imports): WebAss
         ...jsLimits(value.limits),
         element,
       } as WebAssembly.TableDescriptor);
-    } else if (value.value === "v128") throw Error("v128 global placeholders are not supported");
+    } else if (value.value === "v128" || typeof value.value === "object")
+      throw Error("placeholders for globals of this type are not supported");
     else {
       const type = value.value === "funcref" ? "anyfunc" : value.value;
       const initial = type === "i64" ? 0n : type === "anyfunc" || type === "externref" ? null : 0;
@@ -327,7 +336,8 @@ function exportSignature(module: ModuleValue, name: string): Signature {
       description.value < imports.length
         ? (imports[description.value].description.value as number)
         : module.funcs[description.value - imports.length].typeIdx;
-    return module.types[typeIndex];
+    const { args, results } = module.types[typeIndex];
+    return { args: args.map((t) => lift(module, t)), results: results.map((t) => lift(module, t)) };
   }
   if (description.kind === "global") {
     const imports = imported("global");
@@ -335,12 +345,28 @@ function exportSignature(module: ModuleValue, name: string): Signature {
       description.value < imports.length
         ? (imports[description.value].description.value as { value: ValueType; mutable: boolean })
         : module.globals[description.value - imports.length].type;
-    return { args: [], results: [type.value], global: { mutable: type.mutable } };
+    return { args: [], results: [lift(module, type.value)], global: { mutable: type.mutable } };
   }
   throw Error(`export ${name} is not a function or global`);
 }
 
 const types = { i32, i64, f32, f64, v128, funcref, externref } as const;
+
+/** The builder type object of a value type. */
+function typeObject(type: ValueType): Type<ValueType> {
+  return typeof type === "object" ? { kind: type } : types[type];
+}
+
+/** Builders describe referenced function types structurally rather than by index. */
+function lift(module: ModuleValue, type: ValueType): ValueType {
+  if (typeof type !== "object" || typeof type.ref !== "number") return type;
+  const { args, results } = module.types[type.ref];
+  const heap = {
+    args: args.map((t) => lift(module, t)),
+    results: results.map((t) => lift(module, t)),
+  };
+  return { ref: heap, nullable: type.nullable };
+}
 
 /** Types that cross the JS boundary: floats as integer bits, vectors as two 64-bit halves. */
 function jsTypes(type: ValueType): ValueType[] {
@@ -354,20 +380,24 @@ function jsTypes(type: ValueType): ValueType[] {
 }
 
 async function buildWrapper(signature: Signature, exported: unknown) {
-  const params = signature.args.flatMap(jsTypes).map((type, i) => ({ [`p${i}`]: types[type] }));
-  const locals = Object.fromEntries(signature.results.map((type, i) => [`r${i}`, types[type]]));
-  const out = signature.results.flatMap(jsTypes).map((type) => types[type]);
+  const params = signature.args
+    .flatMap(jsTypes)
+    .map((type, i) => ({ [`p${i}`]: typeObject(type) }));
+  const locals = Object.fromEntries(
+    signature.results.map((type, i) => [`r${i}`, typeObject(type)]),
+  );
+  const out = signature.results.flatMap(jsTypes).map(typeObject);
   const imported =
     signature.global === undefined
       ? importFunc(
           {
-            in: signature.args.map((type, i) => ({ [`a${i}`]: types[type] })),
-            out: signature.results.map((type) => types[type]),
+            in: signature.args.map((type, i) => ({ [`a${i}`]: typeObject(type) })),
+            out: signature.results.map(typeObject),
           } as any,
           exported as any,
         )
       : importGlobal(
-          types[signature.results[0]] as any,
+          typeObject(signature.results[0]) as any,
           exported as WebAssembly.Global,
           signature.global,
         );
@@ -436,7 +466,7 @@ function matches(
   if (expected.type === "either")
     return expected.options.some((option) => matches(option, type, actual, host));
   if (expected.type === "ref") {
-    if (type !== "funcref" && type !== "externref") return false;
+    if (!isRefType(type)) return false;
     if (expected.ref === "null") return actual === null;
     if (expected.ref === "func") return typeof actual === "function";
     return expected.host === undefined ? actual !== null : actual === host(expected.host);
@@ -458,5 +488,6 @@ function show(expected: Expected): string {
 }
 
 function showActual({ type, value }: { type: ValueType; value: unknown }): string {
-  return typeof value === "bigint" ? `${type} 0x${value.toString(16)}` : `${type} ${String(value)}`;
+  const name = printValueType(type);
+  return typeof value === "bigint" ? `${name} 0x${value.toString(16)}` : `${name} ${String(value)}`;
 }

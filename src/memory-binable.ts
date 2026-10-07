@@ -1,9 +1,37 @@
 import { Binable, Byte, record } from "./binable.ts";
 import { U32, vec } from "./immediate.ts";
 import { ConstExpression, Expression } from "./instruction/binable.ts";
-import { FunctionIndex, GlobalType, RefType, TableIndex } from "./types.ts";
+import {
+  FunctionIndex,
+  GlobalType,
+  RefType,
+  refType,
+  TableIndex,
+  TableType,
+  typeEquals,
+} from "./types.ts";
 
-export { Global, Data, Elem };
+/** The type of segments given as function indices. */
+const functionReference = refType("func", false);
+
+export { Global, Data, Elem, Table };
+
+/** A table, initialized with null unless it has an initializer: `0x40 0x00` precedes those. */
+type Table = TableType & { init?: ConstExpression };
+const Table = Binable<Table>({
+  toBytes({ init, ...type }) {
+    if (init === undefined) return TableType.toBytes(type);
+    return [0x40, 0x00, ...TableType.toBytes(type), ...ConstExpression.toBytes(init)];
+  },
+  readBytes(bytes, offset) {
+    if (bytes[offset] !== 0x40) return TableType.readBytes(bytes, offset);
+    if (bytes[offset + 1] !== 0x00) throw Error("malformed table");
+    let [type, end] = TableType.readBytes(bytes, offset + 2);
+    let init: ConstExpression;
+    [init, end] = ConstExpression.readBytes(bytes, end);
+    return [{ ...type, init }, end];
+  },
+});
 
 type Global = { type: GlobalType; init: ConstExpression };
 const Global = record<Global>({ type: GlobalType, init: ConstExpression });
@@ -65,10 +93,12 @@ const Elem = Binable<Elem>({
   toBytes({ type, init, mode }) {
     // write code
     let isPassive = Number(typeof mode === "string");
-    let isExplicit = Number(!(type === "funcref" && isFuncIdx(init)));
-    // Active segments need the explicit form for another table or a type other than funcref.
+    // Function indices denote non-null function references.
+    let isExplicit = Number(!(typeEquals(type, functionReference) && isFuncIdx(init)));
+    // Active segments on table 0 imply their type: (ref func) for indices, funcref for expressions.
+    let implied = !isExplicit || typeEquals(type, "funcref");
     let isBit1 = Number(
-      typeof mode !== "string" ? mode.table !== 0 || type !== "funcref" : mode === "declarative",
+      typeof mode !== "string" ? mode.table !== 0 || !implied : mode === "declarative",
     );
     let bytes = U32.toBytes((isPassive << 0) | (isBit1 << 1) | (isExplicit << 2));
     // in active mode, write table and offset
@@ -103,7 +133,7 @@ const Elem = Binable<Elem>({
       mode = { table, offset: tableOffset };
     }
     // parse type
-    let type: RefType = "funcref";
+    let type: RefType = isExplicit ? "funcref" : functionReference;
     if (isPassive | isBit1) {
       if (isExplicit) [type, offset] = RefType.readBytes(bytes, offset);
       else if (bytes[offset++] !== 0x00) throw Error("Elem: invalid elemkind");

@@ -1,6 +1,6 @@
 import type * as Dependency from "./dependency.ts";
 import type { InstructionName } from "./instruction/opcodes.ts";
-import { ValueType } from "./types.ts";
+import { isSubtype, printValueType, typeEquals, ValueType } from "./types.ts";
 
 export {
   type LocalContext,
@@ -112,9 +112,11 @@ function popStack({ stack, frames }: LocalContext, values: StackType[]): StackTy
     let value = values[i];
     if (
       (stackValue === undefined && !frames[0].unreachable) ||
-      (stackValue !== undefined && !isSameType(value, stackValue.type))
+      (stackValue !== undefined && !isAssignable(stackValue.type, value))
     ) {
-      throw Error(`expected ${value} on the stack, got ${stackValue?.type ?? "nothing"}`);
+      throw Error(
+        `expected ${format(value)} on the stack, got ${stackValue === undefined ? "nothing" : format(stackValue.type)}`,
+      );
     }
     popped.unshift(stackValue?.type ?? Unknown);
   }
@@ -187,9 +189,18 @@ function isVectorType(type: ValueType | Unknown) {
 }
 
 function isSameType(t1: ValueType | Unknown, t2: ValueType | Unknown) {
-  return t1 === t2 || t1 === Unknown || t2 === Unknown;
+  return t1 === Unknown || t2 === Unknown || typeEquals(t1, t2);
+}
+
+/** Whether a value of type `actual` can be used where `expected` is required. */
+function isAssignable(actual: StackType, expected: StackType) {
+  return actual === Unknown || expected === Unknown || isSubtype(actual, expected);
 }
 
 function formatStack(stack: StackVar<StackType>[]): string {
-  return `[${stack.map((v) => v.type).join(",")}]`;
+  return `[${stack.map((v) => (v.type === Unknown ? v.type : printValueType(v.type))).join(",")}]`;
+}
+
+function format(type: StackType): string {
+  return type === Unknown ? type : printValueType(type);
 }

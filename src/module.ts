@@ -1,12 +1,15 @@
 import * as Dependency from "./dependency.ts";
 import { Export, Import } from "./export.ts";
 import type { FinalizedFunc, JSFunction } from "./func.ts";
-import { resolveInstruction } from "./instruction/base.ts";
+import { resolveInstruction, type ResolvedInstruction } from "./instruction/base.ts";
 import { Module as BinableModule } from "./module-binable.ts";
-import { Data, Elem, Global } from "./memory-binable.ts";
+import { Data, Elem, Global, Table } from "./memory-binable.ts";
 import {
   FunctionType,
   functionTypeEquals,
+  type HeapType,
+  refType,
+  type ValueType,
   type JSValue,
   Limits,
   MemoryType,
@@ -67,6 +70,8 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   for (let dep of dependencies) {
     (dependencyByKind[dep.kind] as Dependency.t[]).push(dep);
   }
+  // Globals may read earlier globals, so they follow the globals they read.
+  dependencyByKind.global = orderGlobals(dependencyByKind.global);
   let depToIndex = new Map<Dependency.t, number>();
 
   // process imports, along with types of imported functions
@@ -153,7 +158,9 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     return { type, init: init_ };
   });
   // finalize tables
-  let tables: TableType[] = dependencyByKind.table.map(({ type }) => type);
+  let tables: Table[] = dependencyByKind.table.map(({ type, init }) =>
+    init === undefined ? type : { ...type, init: [resolveInstruction(init, depToIndex)] },
+  );
   // finalize elems
   let elems: Elem[] = dependencyByKind.elem.map(({ type, init, mode }) => {
     let init_ = init.map((i) => [resolveInstruction(i, depToIndex)]);
@@ -249,7 +256,98 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(binableModule, importMap);
+  return createModule<Exports>(indexTypes(binableModule), importMap);
+}
+
+function orderGlobals(globals: Dependency.Global[]): Dependency.Global[] {
+  let ordered: Dependency.Global[] = [];
+  let visited = new Set<Dependency.Global>();
+  let visit = (global: Dependency.Global) => {
+    if (visited.has(global)) return;
+    visited.add(global);
+    for (let dep of global.deps) if (dep.kind === "global") visit(dep);
+    ordered.push(global);
+  };
+  globals.forEach(visit);
+  return ordered;
+}
+
+/**
+ * Builders describe the function types of reference types structurally. Give each its type index,
+ * adding types as needed, so that the module refers to types by index only.
+ */
+function indexTypes(module: BinableModule): BinableModule {
+  const { types } = module;
+  const heapIndex = (heap: HeapType): HeapType =>
+    typeof heap === "object" ? pushType(types, heap) : heap;
+  const value = <T extends ValueType>(type: T): T => indexValueType(types, type);
+  const signature = ({ args, results }: FunctionType) => ({
+    args: args.map(value),
+    results: results.map(value),
+  });
+  const instructions = (body: ResolvedInstruction[]): ResolvedInstruction[] =>
+    body.map(({ name, immediate }) => {
+      if (name === "ref.null") return { name, immediate: heapIndex(immediate) };
+      if (name === "select_t") return { name, immediate: immediate.map(value) };
+      if (name === "block" || name === "loop")
+        return {
+          name,
+          immediate: { ...immediate, instructions: instructions(immediate.instructions) },
+        };
+      if (name === "if") {
+        const { if: then, else: otherwise } = immediate.instructions;
+        const branches = { if: instructions(then), else: otherwise && instructions(otherwise) };
+        return { name, immediate: { ...immediate, instructions: branches } };
+      }
+      return { name, immediate };
+    });
+  return {
+    ...module,
+    funcs: module.funcs.map((func) => ({
+      ...func,
+      type: signature(func.type),
+      locals: func.locals.map(value),
+      body: instructions(func.body),
+    })),
+    globals: module.globals.map(({ type, init }) => ({
+      type: { ...type, value: value(type.value) },
+      init: instructions(init),
+    })),
+    tables: module.tables.map(({ type, init, ...table }) => ({
+      ...table,
+      type: value(type),
+      ...(init === undefined ? {} : { init: instructions(init) }),
+    })),
+    elems: module.elems.map(({ type, init, mode }) => ({
+      type: value(type),
+      init: init.map(instructions),
+      mode: typeof mode === "string" ? mode : { ...mode, offset: instructions(mode.offset) },
+    })),
+    datas: module.datas.map(({ init, mode }) => ({
+      init,
+      mode: mode === "passive" ? mode : { ...mode, offset: instructions(mode.offset) },
+    })),
+    imports: module.imports.map((imp) => {
+      const { description } = imp;
+      if (description.kind === "global")
+        return {
+          ...imp,
+          description: {
+            ...description,
+            value: { ...description.value, value: value(description.value.value) },
+          },
+        };
+      if (description.kind === "table")
+        return {
+          ...imp,
+          description: {
+            ...description,
+            value: { ...description.value, type: value(description.value.type) },
+          },
+        };
+      return imp;
+    }),
+  };
 }
 
 function createModule<Exports extends Record<string, Dependency.Export>>(
@@ -310,13 +408,27 @@ function pushDependency(existing: Set<Dependency.anyDependency>, dep: Dependency
   }
 }
 
-function pushType(types: FunctionType[], type: FunctionType) {
+/**
+ * Add a function type and return its index. Function types that it refers to are added first, since
+ * a type may only refer to earlier types; structurally equal types share an index.
+ */
+function pushType(types: FunctionType[], { args, results }: FunctionType) {
+  let type = {
+    args: args.map((t) => indexValueType(types, t)),
+    results: results.map((t) => indexValueType(types, t)),
+  };
   let typeIndex = types.findIndex((t) => functionTypeEquals(t, type));
   if (typeIndex === -1) {
     typeIndex = types.length;
     types.push(type);
   }
   return typeIndex;
+}
+
+/** Refer to a function type by its index rather than structurally. */
+function indexValueType<T extends ValueType>(types: FunctionType[], type: T): T {
+  if (typeof type !== "object" || typeof type.ref !== "object") return type;
+  return refType(pushType(types, type.ref), type.nullable) as T;
 }
 
 function addImport(

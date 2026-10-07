@@ -1,11 +1,18 @@
 import { Binable, Bool, Byte, record, withByteCode } from "./binable.ts";
-import { U32, U64, vec } from "./immediate.ts";
+import { S33, U32, U64, vec } from "./immediate.ts";
 import type { Tuple } from "./util.ts";
 
 export { i32t, i64t, f32t, f64t, v128t, funcref, externref };
 export { TypeIndex, FunctionIndex, MemoryIndex, TableIndex, ElemIndex, DataIndex };
 export { GlobalIndex, LocalIndex, LabelIndex, type Index, type IndexSpace };
 export {
+  HeapType,
+  refType,
+  isRefType,
+  referenced,
+  typeEquals,
+  isSubtype,
+  printValueType,
   type ValueTypeObject,
   type RefTypeObject,
   FunctionType,
@@ -32,8 +39,61 @@ export {
   valueTypeSet,
 };
 
-type RefType = "funcref" | "externref";
-type ValueType = "i32" | "i64" | "f32" | "f64" | "v128" | RefType;
+/**
+ * A heap type: abstract, or a defined type. Modules refer to types by index; builders describe a
+ * function type structurally until the module assigns its index.
+ */
+type HeapType = "func" | "extern" | number | FunctionType;
+/** References to a heap type. Nullable references to func and extern are written funcref and externref. */
+type RefType = "funcref" | "externref" | { ref: HeapType; nullable: boolean };
+type NumberOrVectorType = "i32" | "i64" | "f32" | "f64" | "v128";
+type ValueType = NumberOrVectorType | RefType;
+
+function refType(heap: HeapType, nullable: boolean): RefType {
+  if (nullable && heap === "func") return "funcref";
+  if (nullable && heap === "extern") return "externref";
+  return { ref: heap, nullable };
+}
+
+function isRefType(type: ValueType): type is RefType {
+  return typeof type === "object" || type === "funcref" || type === "externref";
+}
+
+/** The heap type and nullability of a reference type, including the funcref and externref shorthands. */
+function referenced(type: RefType): { ref: HeapType; nullable: boolean } {
+  if (type === "funcref") return { ref: "func", nullable: true };
+  if (type === "externref") return { ref: "extern", nullable: true };
+  return type;
+}
+
+function heapTypeEquals(a: HeapType, b: HeapType): boolean {
+  if (typeof a === "object" && typeof b === "object") return functionTypeEquals(a, b);
+  return a === b;
+}
+
+function typeEquals(a: ValueType, b: ValueType): boolean {
+  if (typeof a !== "object" || typeof b !== "object") return a === b;
+  return a.nullable === b.nullable && heapTypeEquals(a.ref, b.ref);
+}
+
+/**
+ * Subtyping of function references: non-null references are subtypes of nullable ones, and references
+ * to a defined function type are subtypes of references to func.
+ */
+function isSubtype(a: ValueType, b: ValueType): boolean {
+  if (typeEquals(a, b)) return true;
+  if (!isRefType(a) || !isRefType(b)) return false;
+  const [sub, sup] = [referenced(a), referenced(b)];
+  if (sub.nullable && !sup.nullable) return false;
+  const concrete = typeof sub.ref === "number" || typeof sub.ref === "object";
+  return heapTypeEquals(sub.ref, sup.ref) || (concrete && sup.ref === "func");
+}
+
+function printValueType(type: ValueType): string {
+  if (typeof type !== "object") return type;
+  const heap = typeof type.ref === "object" ? printFunctionType(type.ref) : String(type.ref);
+  return `(ref ${type.nullable ? "null " : ""}${heap})`;
+}
 
 type Type<L> = { kind: L };
 type Local<L = ValueType> = { kind: "local"; type: L; index: number };
@@ -56,7 +116,7 @@ function valueTypeLiterals<const L extends ValueType[]>(types: {
   return types.map((t) => t.kind) as L;
 }
 
-const valueTypeCodes: Record<ValueType, number> = {
+const valueTypeCodes: Record<NumberOrVectorType | "funcref" | "externref", number> = {
   i32: 0x7f,
   i64: 0x7e,
   f32: 0x7d,
@@ -77,18 +137,42 @@ const codeToValueType = invertRecord(valueTypeCodes);
 
 const valueTypeSet = new Set(Object.keys(valueTypeCodes) as ValueType[]);
 
+/** Abstract heap types as negative s33 values, which encode as the single bytes of funcref and externref. */
+const heapTypeCodes = { func: -0x10, extern: -0x11 } as const;
+
+/** Heap types: an s33, negative for abstract heap types, a type index otherwise. */
+const HeapType = Binable<HeapType>({
+  toBytes(heap) {
+    if (typeof heap === "object") throw Error("HeapType: function type has no index yet");
+    return S33.toBytes(typeof heap === "number" ? heap : heapTypeCodes[heap]);
+  },
+  readBytes(bytes, offset) {
+    let [code, end] = S33.readBytes(bytes, offset);
+    if (code >= 0) return [code, end];
+    if (code === heapTypeCodes.func) return ["func", end];
+    if (code === heapTypeCodes.extern) return ["extern", end];
+    throw Error(`heap type ${code} is not supported`);
+  },
+});
+
 type ValueTypeObject = { kind: ValueType };
 const ValueType = Binable<ValueType>({
   toBytes(type) {
+    if (typeof type === "object")
+      return [type.nullable ? 0x63 : 0x64, ...HeapType.toBytes(type.ref)];
     let code = valueTypeCodes[type];
     if (code === undefined) throw Error(`Invalid value type ${type}`);
     return [code];
   },
   readBytes(bytes, offset) {
-    let code = bytes[offset++];
+    let code = Byte.readBytes(bytes, offset)[0];
+    if (code === 0x63 || code === 0x64) {
+      let [heap, end] = HeapType.readBytes(bytes, offset + 1);
+      return [refType(heap, code === 0x63), end];
+    }
     let type = codeToValueType.get(code);
     if (type === undefined) throw Error(`Invalid value type code ${code.toString(16)}.`);
-    return [type, offset];
+    return [type, offset + 1];
   },
 });
 
@@ -99,7 +183,7 @@ const RefType = Binable<RefType>({
   },
   readBytes(bytes, offset) {
     let [type, end] = ValueType.readBytes(bytes, offset);
-    if (type !== "funcref" && type !== "externref") throw Error("invalid reftype");
+    if (!isRefType(type)) throw Error("invalid reftype");
     return [type, end];
   },
 });
@@ -190,16 +274,16 @@ function functionTypeEquals(
   let nResults = fResults.length;
   if (gArgs.length !== nArgs || gResults.length !== nResults) return false;
   for (let i = 0; i < nArgs; i++) {
-    if (fArgs[i] !== gArgs[i]) return false;
+    if (!typeEquals(fArgs[i], gArgs[i])) return false;
   }
   for (let i = 0; i < nResults; i++) {
-    if (fResults[i] !== gResults[i]) return false;
+    if (!typeEquals(fResults[i], gResults[i])) return false;
   }
   return true;
 }
 
 function printFunctionType({ args, results }: FunctionType) {
-  return `[${args}] -> [${results}]`;
+  return `[${args.map(printValueType)}] -> [${results.map(printValueType)}]`;
 }
 
 // infer JS values
@@ -218,4 +302,6 @@ type JSValue<T> = T extends "i32"
             ? Function | null
             : T extends "externref"
               ? unknown
-              : never;
+              : T extends { ref: HeapType }
+                ? unknown
+                : never;

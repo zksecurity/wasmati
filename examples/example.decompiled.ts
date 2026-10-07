@@ -85,8 +85,8 @@ export default function createModule(imports: WebAssembly.Imports = {}) {
   const elem0 = elem({ type: funcref, mode: { table: table0, offset: Const.i32(0) } }, [
     Const.refFunc(consoleLogFunc),
     Const.refFunc(myFunc),
-    Const.refFuncNull,
-    Const.refFuncNull,
+    Const.refNull(funcref),
+    Const.refNull(funcref),
   ]);
   exportedFunc.define(({ x, doLog }, { "vectors[0]": vectors_0_, "vectors[1]": vectors_1_, y }) => {
     ref.func(myFunc);

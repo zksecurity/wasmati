@@ -18,6 +18,8 @@ import {
   type Type,
   TypeIndex,
   ValueType,
+  printValueType,
+  typeEquals,
   valueTypeLiterals,
 } from "./types.ts";
 import type { Tuple } from "./util.ts";
@@ -218,15 +220,18 @@ type FinalizedFunc = {
 
 function sortLocals(locals: ValueType[], offset: number) {
   let typeIndex: Record<string, number> = {};
+  let types: ValueType[] = [];
   let nextIndex = 0;
   let count: number[] = [];
   let offsetWithin: number[] = [];
   for (let local of locals) {
-    if (typeIndex[local] === undefined) {
-      typeIndex[local] = nextIndex;
+    let key = printValueType(local);
+    if (typeIndex[key] === undefined) {
+      typeIndex[key] = nextIndex;
+      types.push(local);
       nextIndex++;
     }
-    let i = typeIndex[local];
+    let i = typeIndex[key];
     count[i] ??= 0;
     offsetWithin.push(count[i]);
     count[i]++;
@@ -237,11 +242,9 @@ function sortLocals(locals: ValueType[], offset: number) {
   }
   let localIndices: number[] = [];
   for (let j = 0; j < locals.length; j++) {
-    localIndices[j] = offset + typeOffset[typeIndex[locals[j]]] + offsetWithin[j];
+    localIndices[j] = offset + typeOffset[typeIndex[printValueType(locals[j])]] + offsetWithin[j];
   }
-  let sortedLocals: ValueType[] = Object.entries(typeIndex).flatMap(([type, i]) =>
-    Array(count[i]).fill(type as ValueType),
-  );
+  let sortedLocals: ValueType[] = types.flatMap((type, i) => Array(count[i]).fill(type));
   return { sortedLocals, localIndices };
 }
 
@@ -249,13 +252,15 @@ function sortLocals(locals: ValueType[], offset: number) {
 
 const CompressedLocals = vec(tuple([U32, ValueType]));
 const Locals = iso<[number, ValueType][], ValueType[]>(CompressedLocals, {
+  // Runs of equal types, which keeps locals in order.
   to(locals) {
-    let count: Record<string, number> = {};
+    let runs: [number, ValueType][] = [];
     for (let local of locals) {
-      count[local] ??= 0;
-      count[local]++;
+      let last = runs.at(-1);
+      if (last !== undefined && typeEquals(last[1], local)) last[0]++;
+      else runs.push([1, local]);
     }
-    return Object.entries(count).map(([kind, count]) => [count, kind as ValueType]);
+    return runs;
   },
   from(compressed) {
     let locals: ValueType[] = [];

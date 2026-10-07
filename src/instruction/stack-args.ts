@@ -5,7 +5,14 @@ import { formatStack, pushStack } from "../local-context.ts";
 import { popStack } from "../local-context.ts";
 import { emptyContext } from "../local-context.ts";
 import { type LocalContext, StackVar, Unknown } from "../local-context.ts";
-import { type Local, ValueType, valueTypeLiterals, type ValueTypeObjects } from "../types.ts";
+import {
+  isSubtype,
+  type Local,
+  printValueType,
+  ValueType,
+  valueTypeLiterals,
+  type ValueTypeObjects,
+} from "../types.ts";
 import type { Tuple } from "../util.ts";
 import { type Instruction_, baseInstruction } from "./base.ts";
 import { f32Const, f64Const, i32Const, i64Const } from "./const.ts";
@@ -156,18 +163,24 @@ function processStackArgs(
     let x = mustReorder ? actualArgs[n - 1 - i] : actualArgs[i];
     let type = mustReorder ? expectedArgs[n - 1 - i] : expectedArgs[i];
     if (isLocal(x)) {
-      if (x.type !== type)
-        throw Error(`${string}: Expected type ${type}, got local of type ${x.type}.`);
+      if (!isSubtype(x.type, type))
+        throw Error(
+          `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
+        );
       if (mustReorder) insertInstruction(ctx, i, localGet.create(ctx, x));
       else localGet(ctx, x);
     } else if (isGlobal(x)) {
-      if (x.type.value !== type)
-        throw Error(`${string}: Expected type ${type}, got global of type ${x.type.value}.`);
+      if (!isSubtype(x.type.value, type))
+        throw Error(
+          `${string}: Expected type ${printValueType(type)}, got global of type ${printValueType(x.type.value)}.`,
+        );
       if (mustReorder) insertInstruction(ctx, i, globalGet.create(ctx, x));
       else globalGet(ctx, x);
     } else if (isStackVar(x)) {
-      if (x.type !== type && x.type !== Unknown)
-        throw Error(`${string}: Expected argument of type ${type}, got ${x.type}.`);
+      if (x.type !== Unknown && !isSubtype(x.type, type))
+        throw Error(
+          `${string}: Expected argument of type ${printValueType(type)}, got ${printValueType(x.type)}.`,
+        );
     } else {
       // could be const
       let unsupported = `${string}: Unsupported input for type ${type}, got ${x}.`;

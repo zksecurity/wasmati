@@ -3,7 +3,13 @@ export { localArray, type LocalArray } from "./locals.ts";
 export { Module } from "./module.ts";
 export { NameSection, type NameMap, type IndirectNameMap } from "./name-section.ts";
 export type { CustomSection } from "./module-binable.ts";
-import { globalConstructor, refOps, bindLocalOps, bindGlobalOps } from "./instruction/variable.ts";
+import {
+  globalConstructor,
+  refOps,
+  refTypeConstructor,
+  bindLocalOps,
+  bindGlobalOps,
+} from "./instruction/variable.ts";
 import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.ts";
 import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.ts";
 import { bindControlOps, control as controlOps, parametric } from "./instruction/control.ts";
@@ -90,7 +96,25 @@ export {
   f64x2,
   atomic,
 };
-export { nop, unreachable, block, loop, if_, br, br_if, br_table, return_, call, call_indirect };
+export {
+  nop,
+  unreachable,
+  block,
+  loop,
+  if_,
+  br,
+  br_if,
+  br_table,
+  br_on_null,
+  br_on_non_null,
+  return_,
+  call,
+  call_indirect,
+  call_ref,
+  return_call,
+  return_call_indirect,
+  return_call_ref,
+};
 
 // other public API
 export { defaultCtx };
@@ -101,6 +125,7 @@ export { type Global, importGlobal, type ImportGlobal, type AnyGlobal };
 export {
   funcref,
   externref,
+  refTypeConstructor as refType,
   type Local,
   $,
   StackVar,
@@ -170,6 +195,12 @@ let {
   return: return_,
   call,
   call_indirect,
+  call_ref,
+  return_call,
+  return_call_indirect,
+  return_call_ref,
+  br_on_null,
+  br_on_non_null,
 } = control;
 
 const $: StackVar<any> = StackVar(Unknown);
