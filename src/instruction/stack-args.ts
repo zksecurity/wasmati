@@ -304,10 +304,9 @@ function insertInstruction(ctx: LocalContext, i: number, description: Descriptio
   writeInstruction(inserted, instruction, deps, resolveArgs);
   code.insert(position, inserted);
   shiftPlaces(ctx, position, inserted.length);
-  let [result] = pushStack(ctx, type.results);
-  stack.splice(stack.length - 1, 1);
-  stack.splice(below, 0, result);
+  let result = StackVar(type.results[0]);
   place(result, position, position + inserted.length);
+  stack.splice(below, 0, result);
   for (let dep of deps) ctx.deps.add(dep);
 }
 

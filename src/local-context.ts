@@ -312,15 +312,20 @@ function placeOf(value: StackVar<StackType>): { start: number; end: number } {
 
 /** Place a value, by default one computed by an instruction inserted at `start`. */
 function place(value: StackVar<StackType>, start: number, end = start + 1) {
-  Object.assign(placed(value), { start, end });
+  let p = placed(value);
+  p.start = start;
+  p.end = end;
 }
 
 /** Values computed from `position` on move by `n` bytes, after code is inserted there. */
 function shiftPlaces(ctx: LocalContext, position: number, n: number) {
-  for (let value of ctx.stack) {
-    let { start, end } = placeOf(value);
-    if (start >= position) placed(value).start = start + n;
-    if (end > position) placed(value).end = end + n;
+  // Values on the stack are in the order of their places: later values are above.
+  let { stack } = ctx;
+  for (let i = stack.length - 1; i >= 0; i--) {
+    let value = placed(stack[i]);
+    if (value.end <= position) break;
+    value.end += n;
+    if (value.start >= position) value.start += n;
   }
 }
 

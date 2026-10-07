@@ -47,9 +47,10 @@ class Code extends Writer {
 
   clear() {
     this.length = 0;
-    this.holes = [];
-    this.hints = [];
-    this.writes = [];
+    // Setting the length of arrays is slow, and they are mostly empty.
+    if (this.holes.length > 0) this.holes = [];
+    if (this.hints.length > 0) this.hints = [];
+    if (this.writes.length > 0) this.writes = [];
   }
 
   hole(immediate: Immediate, deps: Dependency.t[], args: unknown[]) {
@@ -66,7 +67,8 @@ class Code extends Writer {
     this.reserve(n);
     let { buffer } = this;
     buffer.copyWithin(position + n, position, this.length);
-    buffer.set(other.buffer.subarray(0, n), position);
+    let source = other.buffer;
+    for (let i = 0; i < n; i++) buffer[position + i] = source[i];
     this.length += n;
     let holes = this.holes;
     let i = holes.length;
