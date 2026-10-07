@@ -5,7 +5,15 @@
  * indices for them.
  */
 
-import { FunctionType, GlobalType, MemoryType, RefType, TableType, ValueType } from "./types.ts";
+import {
+  type AddressType,
+  FunctionType,
+  GlobalType,
+  MemoryType,
+  RefType,
+  TableType,
+  ValueType,
+} from "./types.ts";
 import type { Parameters } from "./parameters.ts";
 import { Byte } from "./binable.ts";
 import type { F32, F64 } from "./immediate.ts";
@@ -95,14 +103,17 @@ type Global<T extends ValueType = ValueType> = {
   deps: (AnyGlobal | AnyFunc)[];
 };
 
-type Table = {
+/** Memories and tables record their address type, which types the addresses and sizes of their instructions. */
+type Table<A extends AddressType = AddressType> = {
   kind: "table";
   type: TableType;
+  address: A;
   deps: Elem[];
 };
-type Memory = {
+type Memory<A extends AddressType = AddressType> = {
   kind: "memory";
   type: MemoryType;
+  address: A;
   deps: Data[];
 };
 type HasMemory = { kind: "hasMemory"; deps: [] };
@@ -149,23 +160,25 @@ type ImportGlobal<T = ValueType> = ImportPath & {
   value: WebAssembly.Global;
   deps: [];
 };
-type ImportTable = ImportPath & {
+type ImportTable<A extends AddressType = AddressType> = ImportPath & {
   kind: "importTable";
   type: TableType;
+  address: A;
   value: WebAssembly.Table;
   deps: Elem[];
 };
-type ImportMemory = ImportPath & {
+type ImportMemory<A extends AddressType = AddressType> = ImportPath & {
   kind: "importMemory";
   type: MemoryType;
+  address: A;
   value: WebAssembly.Memory;
   deps: Data[];
 };
 
 type AnyFunc = Func | ImportFunc;
 type AnyGlobal<T extends ValueType = ValueType> = Global<T> | ImportGlobal<T>;
-type AnyTable = Table | ImportTable;
-type AnyMemory = Memory | ImportMemory;
+type AnyTable<A extends AddressType = AddressType> = Table<A> | ImportTable<A>;
+type AnyMemory<A extends AddressType = AddressType> = Memory<A> | ImportMemory<A>;
 type AnyImport = ImportFunc | ImportGlobal | ImportTable | ImportMemory;
 
 const dependencyKinds = [
