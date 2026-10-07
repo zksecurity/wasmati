@@ -15,7 +15,7 @@ import type {
 import { Cursor } from "./cursor.ts";
 import { readTree, withLocation, UnsupportedTextError, type List } from "./lexer.ts";
 import { parseInstructions, parseValueType, type BlockType, type Scope } from "./instructions.ts";
-import { parseUnsigned } from "./numbers.ts";
+import { parseU64 } from "./numbers.ts";
 
 export { parseWat, parseModule };
 
@@ -338,8 +338,8 @@ class ModuleParser {
   private limits(c: Cursor) {
     if (c.peekAtom() === "i64")
       throw new UnsupportedTextError("64-bit address types are not supported");
-    const min = c.parse((text) => parseUnsigned(text, 64));
-    const max = c.peekIndex() ? c.parse((text) => parseUnsigned(text, 64)) : undefined;
+    const min = c.parse(parseU64);
+    const max = c.peekIndex() ? c.parse(parseU64) : undefined;
     return { min, max };
   }
 

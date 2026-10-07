@@ -2,7 +2,7 @@ import { type Instruction_, baseInstruction } from "./base.ts";
 import * as Dependency from "../dependency.ts";
 import type { LocalContext } from "../local-context.ts";
 import { U32, U8 } from "../immediate.ts";
-import { type Binable, record, tuple } from "../binable.ts";
+import { type Binable, record, tuple, withValidation } from "../binable.ts";
 import {
   DataIndex,
   ElemIndex,
@@ -173,7 +173,10 @@ const elemOps = {
 };
 
 type MemArg = { align: U32; offset: U32 };
-const MemArg = record({ align: U32, offset: U32 });
+// Alignment flags from 64 select a memory index, which wasmati does not support; from 128 they are malformed.
+const MemArg = withValidation(record({ align: U32, offset: U32 }), ({ align }) => {
+  if (align >= 64) throw Error(`unsupported memory alignment flags ${align}`);
+});
 
 /** A memory argument immediate that records the access's natural alignment exponent, the default. */
 type MemArgImmediate<T> = Binable<T> & { naturalAlign: number };

@@ -6,7 +6,14 @@ import { Block, IfBlock } from "../instruction/binable.ts";
 import { RefType, type IndexSpace, type ValueType } from "../types.ts";
 import { Cursor } from "./cursor.ts";
 import { TextSyntaxError, UnsupportedTextError } from "./lexer.ts";
-import { parseFloat, parseInteger, parseU32, parseUnsigned, printFloat } from "./numbers.ts";
+import {
+  parseFloat,
+  parseInteger,
+  parseU32,
+  parseU64,
+  parseUnsigned,
+  printFloat,
+} from "./numbers.ts";
 
 export { parseInstructions, printInstructions, parseValueType, printString };
 export type { Scope, Names, BlockType };
@@ -246,14 +253,13 @@ function label(c: Cursor, scope: Scope): number {
 function memArg(c: Cursor, natural: number) {
   let offset = 0;
   let align = natural;
-  if (c.peekAtom()?.startsWith("offset="))
-    offset = c.parse((text) => parseUnsigned(text.slice(7), 64));
+  if (c.peekAtom()?.startsWith("offset=")) offset = c.parse((text) => parseU64(text.slice(7)));
   if (c.peekAtom()?.startsWith("align=")) {
     align = c.parse((text) => {
-      const exponent = Math.log2(parseU32(text.slice(6)));
-      if (!Number.isInteger(exponent))
+      const bytes = parseUnsigned(text.slice(6), 64);
+      if (bytes === 0n || (bytes & (bytes - 1n)) !== 0n)
         throw new TextSyntaxError("alignment must be a power of two");
-      return exponent;
+      return bytes.toString(2).length - 1;
     });
   }
   return { offset, align };
@@ -380,7 +386,7 @@ function printImmediate(name: string, value: any, names: Names): string[] {
 function memArgText({ offset, align }: { offset: number; align: number }, natural: number) {
   return [
     ...(offset === 0 ? [] : [`offset=${offset}`]),
-    ...(align === natural ? [] : [`align=${2 ** align}`]),
+    ...(align === natural ? [] : [`align=${2n ** BigInt(align)}`]),
   ];
 }
 

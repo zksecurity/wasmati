@@ -278,12 +278,24 @@ class Source {
         memory: this.memories,
       };
       const variable = this.reference(refs[e.description.kind], e.description.value);
-      return e.name === variable ? variable : `${property(e.name)}: ${variable}`;
+      return { name: e.name, variable };
     });
+    // Repeated names cannot be keys of the exports object, so they need export entries.
+    const names = exports.map((e) => e.name);
+    const repeated = new Set(names).size !== names.length;
     this.line("return Module({");
     if (this.module.names?.module !== undefined)
       this.line(`name: ${literal(this.module.names.module)},`, 2);
-    this.line(`exports: { ${exports.join(", ")} },`, 2);
+    if (repeated) {
+      this.line("exports: {},", 2);
+      const entries = exports.map(({ name, variable }) => `[${literal(name)}, ${variable}]`);
+      this.line(`exportEntries: [${entries.join(", ")}],`, 2);
+    } else {
+      const properties = exports.map(({ name, variable }) =>
+        name === variable ? variable : `${property(name)}: ${variable}`,
+      );
+      this.line(`exports: { ${properties.join(", ")} },`, 2);
+    }
     if (this.module.start !== undefined)
       this.line(`start: ${this.reference(this.functions, this.module.start)},`, 2);
     this.line(`dependencies: [${this.dependencies.join(", ")}],`, 2);
@@ -335,6 +347,8 @@ class Source {
       case "f32.const":
       case "f64.const":
         return `${this.use("Const")}.${name.slice(0, 3)}(${floatLiteral(immediate)})`;
+      case "v128.const":
+        return `${this.use("Const")}.v128("i8x16", ${literal(immediate)})`;
       case "ref.func":
         return `${this.use("Const")}.refFunc(${this.reference(this.functions, immediate)})`;
       case "ref.null":

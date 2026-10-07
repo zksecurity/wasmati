@@ -10,12 +10,33 @@ export type { Command, Action, ModuleCommand, ModuleSource, Value, Expected, Num
  * time, so an unsupported command fails on its own; malformed modules stay unparsed until they run.
  */
 function readScript(source: string): List[] {
-  return readTree(source).map((node) => {
+  const lists = readTree(source).map((node) => {
     if (node.kind !== "list")
       throw new UnsupportedTextError(`unexpected script token ${node.text}`);
     return node;
   });
+  // A script of module fields is a single module.
+  if (lists.length > 0 && lists.every((list) => fields.has(Cursor.of(list).peekAtom() ?? ""))) {
+    const atom = { kind: "atom" as const, text: "module", offset: lists[0].offset };
+    return [{ kind: "list", items: [atom, ...lists], offset: lists[0].offset }];
+  }
+  return lists;
 }
+
+const fields = new Set([
+  "type",
+  "import",
+  "func",
+  "table",
+  "memory",
+  "global",
+  "export",
+  "start",
+  "elem",
+  "data",
+  "tag",
+  "rec",
+]);
 
 /** A module's source: the text form stays a syntax tree; quoted text and binary keep their bytes. */
 type ModuleSource =

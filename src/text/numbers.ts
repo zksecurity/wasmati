@@ -1,28 +1,35 @@
 import type { F32, F64 } from "../immediate.ts";
-import { TextSyntaxError } from "./lexer.ts";
+import { TextSyntaxError, UnsupportedTextError } from "./lexer.ts";
 
-export { parseU32, parseUnsigned, parseInteger, parseFloat, printFloat };
+export { parseU32, parseU64, parseUnsigned, parseInteger, parseFloat, printFloat };
 
 const digits = "[0-9](?:_?[0-9])*";
 const hexDigits = "[0-9a-fA-F](?:_?[0-9a-fA-F])*";
 const unsigned = new RegExp(`^(?:${digits}|0x${hexDigits})$`);
 const signed = new RegExp(`^[+-]?(?:${digits}|0x${hexDigits})$`);
 
-/** Unsigned 32-bit literal, used for indices, lanes and alignment. */
+/** Unsigned 32-bit literal, used for indices and lanes. */
 function parseU32(text: string): number {
-  return parseUnsigned(text, 32);
+  return Number(parseUnsigned(text, 32));
 }
 
 /**
- * Unsigned literal of up to `bits` bits. Offsets and limits are u64 in text: whether a value fits
- * a 32-bit memory or table is a matter of validation.
+ * Unsigned 64-bit literal, used for offsets and limits: whether a value fits a 32-bit memory or table
+ * is a matter of validation. Values beyond 2^53 only occur with 64-bit memories and tables.
  */
-function parseUnsigned(text: string, bits: 32 | 64): number {
+function parseU64(text: string): number {
+  const value = parseUnsigned(text, 64);
+  if (value > BigInt(Number.MAX_SAFE_INTEGER))
+    throw new UnsupportedTextError(`integer ${text} exceeds the supported range`);
+  return Number(value);
+}
+
+function parseUnsigned(text: string, bits: 32 | 64): bigint {
   if (!unsigned.test(text)) throw new TextSyntaxError(`expected unsigned integer, got ${text}`);
   const value = BigInt(text.replaceAll("_", ""));
   if (value >= 1n << BigInt(bits))
     throw new TextSyntaxError(`integer ${text} outside u${bits} range`);
-  return Number(value);
+  return value;
 }
 
 /**

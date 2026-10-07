@@ -120,3 +120,20 @@ test("traps must match the expected message, and link errors are not invalidity"
     ],
   );
 });
+
+test("tables, memories and functions do not link as number globals", async () => {
+  const result = await runWast(`(module
+    (table (export "table") 1 funcref) (memory (export "memory") 1) (func (export "func")))
+    (register "m")
+    (assert_unlinkable (module (import "m" "table" (global i32))) "incompatible import type")
+    (assert_unlinkable (module (import "m" "memory" (global i64))) "incompatible import type")
+    (assert_unlinkable (module (import "m" "func" (global f32))) "incompatible import type")`);
+  assert.deepEqual(result, { passed: 5, failures: [] });
+});
+
+test("a script of module fields is a single module", async () => {
+  assert.deepEqual(await runWast('(memory 1) (func (export "f") (result i32) i32.const 1)'), {
+    passed: 1,
+    failures: [],
+  });
+});

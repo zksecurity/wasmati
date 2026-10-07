@@ -119,6 +119,11 @@ function importGlobal<V extends ValueType>(
 ): Dependency.ImportGlobal<V> {
   let globalType = { value: valueTypeLiteral(type), mutable };
   let valueType: WebAssembly.ValueType = type.kind === "funcref" ? "anyfunc" : type.kind;
+  // Like instantiation, accept only globals or plain values: other objects cannot be numbers.
+  let isReference = type.kind === "funcref" || type.kind === "externref";
+  let isObject = typeof value === "object" || typeof value === "function";
+  if (!isReference && isObject && !(value instanceof WebAssembly.Global))
+    throw new WebAssembly.LinkError(`importGlobal: expected a global or a number, got ${value}`);
   let value_ =
     value instanceof WebAssembly.Global
       ? value

@@ -41,7 +41,7 @@ test("length-delimited codecs cannot read across their payload boundary", () => 
 
 test("sequences reject elements that consume no bytes or overrun the input", () => {
   assert.throws(() => sequence(constant(0)).fromBytes([1]), /element length/);
-  assert.throws(() => sequence(record({ a: Byte, b: Byte })).fromBytes([1]), /element length/);
+  assert.throws(() => sequence(record({ a: Byte, b: Byte })).fromBytes([1]), /unexpected end/);
 });
 
 test("interleaved records preserve extra entries around optional fields", () => {
