@@ -52,3 +52,8 @@ test("memory indices roundtrip through binary, text and decompiled builders", as
   const { instance } = await (await buildTextModule(parsed)).instantiate();
   assert.equal((instance.exports.f as Function)(), 42);
 });
+
+test("the decompiler rejects memory indices beyond the module's memories", () => {
+  const invalid = parseWat(`(module (memory 1) (func (export "f") (result i32) memory.size 1))`);
+  assert.throws(() => decompileModule(invalid), /missing reference at index 1/);
+});

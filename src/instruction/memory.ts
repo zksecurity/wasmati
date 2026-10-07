@@ -1,11 +1,10 @@
 import { type Instruction_, baseInstruction } from "./base.ts";
 import * as Dependency from "../dependency.ts";
-import type { LocalContext } from "../local-context.ts";
+import type { LocalContext, StackVar } from "../local-context.ts";
 import { U32, U64, U8, uint64 } from "../immediate.ts";
 import { Binable, record, tuple } from "../binable.ts";
 import {
   type AddressType,
-  addressType,
   DataIndex,
   ElemIndex,
   MemoryIndex,
@@ -18,7 +17,16 @@ import type { Tuple } from "../util.ts";
 import type { InstructionName } from "./opcodes.ts";
 import { type Input, processStackArgs } from "./stack-args.ts";
 
-export { memoryOps, dataOps, tableOps, elemOps, memoryInstruction, memoryLaneInstruction };
+export {
+  memoryOps,
+  bindMemoryOps,
+  dataOps,
+  tableOps,
+  bindTableOps,
+  elemOps,
+  memoryInstruction,
+  memoryLaneInstruction,
+};
 
 /**
  * Memory instructions can name their memory; without one they use the default memory, which must then
@@ -27,7 +35,7 @@ export { memoryOps, dataOps, tableOps, elemOps, memoryInstruction, memoryLaneIns
 function memoryUse(memory: Dependency.AnyMemory | undefined) {
   return memory === undefined
     ? { address: "i32" as const, deps: [Dependency.hasMemory] }
-    : { address: addressType(memory.type.limits), deps: [memory] };
+    : { address: memory.address, deps: [memory] };
 }
 
 /** A length spanning two memories or tables is 64-bit only if both are. */
@@ -35,21 +43,22 @@ function minAddress(a: AddressType, b: AddressType): AddressType {
   return a === "i64" && b === "i64" ? "i64" : "i32";
 }
 
+const memorySize = baseInstruction("memory.size", MemoryIndex, {
+  create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
+    const { address, deps } = memoryUse(memory);
+    return { in: [], out: [address], deps };
+  },
+  resolve: ([memoryIdx]) => memoryIdx,
+});
+const memoryGrow = baseInstruction("memory.grow", MemoryIndex, {
+  create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
+    const { address, deps } = memoryUse(memory);
+    return { in: [address], out: [address], deps };
+  },
+  resolve: ([memoryIdx]) => memoryIdx,
+});
+
 const memoryOps = {
-  size: baseInstruction("memory.size", MemoryIndex, {
-    create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
-      const { address, deps } = memoryUse(memory);
-      return { in: [], out: [address], deps };
-    },
-    resolve: ([memoryIdx]) => memoryIdx,
-  }),
-  grow: baseInstruction("memory.grow", MemoryIndex, {
-    create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
-      const { address, deps } = memoryUse(memory);
-      return { in: [address], out: [address], deps };
-    },
-    resolve: ([memoryIdx]) => memoryIdx,
-  }),
   init: baseInstruction("memory.init", tuple([DataIndex, MemoryIndex]), {
     create(
       _: LocalContext,
@@ -89,6 +98,16 @@ const memoryOps = {
   }),
 };
 
+/** Sizes have the memory's address type, i32 for the default memory. */
+function bindMemoryOps(ctx: LocalContext) {
+  return {
+    size: <A extends AddressType = "i32">(...memory: [] | [Dependency.AnyMemory<A>]) =>
+      memorySize(ctx, ...memory) as StackVar<A>,
+    grow: <A extends AddressType = "i32">(...memory: [] | [Dependency.AnyMemory<A>]) =>
+      memoryGrow(ctx, ...memory) as StackVar<A>,
+  };
+}
+
 const dataOps = {
   drop: baseInstruction("data.drop", DataIndex, {
     create(_: LocalContext, data: Dependency.Data) {
@@ -102,7 +121,21 @@ const dataOps = {
   }),
 };
 
-const tableAddress = (table: Dependency.AnyTable) => addressType(table.type.limits);
+const tableAddress = (table: Dependency.AnyTable) => table.address;
+
+const tableGrow = baseInstruction("table.grow", TableIndex, {
+  create(_: LocalContext, table: Dependency.AnyTable) {
+    const address = tableAddress(table);
+    return { in: [table.type.type, address], out: [address], deps: [table] };
+  },
+  resolve: ([tableIdx]) => tableIdx,
+});
+const tableSize = baseInstruction("table.size", TableIndex, {
+  create(_: LocalContext, table: Dependency.AnyTable) {
+    return { in: [], out: [tableAddress(table)], deps: [table] };
+  },
+  resolve: ([tableIdx]) => tableIdx,
+});
 
 const tableOps = {
   get: baseInstruction("table.get", TableIndex, {
@@ -130,19 +163,6 @@ const tableOps = {
     },
     resolve: ([tableIdx1, tableIdx2]) => [tableIdx1, tableIdx2],
   }),
-  grow: baseInstruction("table.grow", TableIndex, {
-    create(_: LocalContext, table: Dependency.AnyTable) {
-      const address = tableAddress(table);
-      return { in: [table.type.type, address], out: [address], deps: [table] };
-    },
-    resolve: ([tableIdx]) => tableIdx,
-  }),
-  size: baseInstruction("table.size", TableIndex, {
-    create(_: LocalContext, table: Dependency.AnyTable) {
-      return { in: [], out: [tableAddress(table)], deps: [table] };
-    },
-    resolve: ([tableIdx]) => tableIdx,
-  }),
   fill: baseInstruction("table.fill", TableIndex, {
     create(_: LocalContext, table: Dependency.AnyTable) {
       const address = tableAddress(table);
@@ -151,6 +171,16 @@ const tableOps = {
     resolve: ([tableIdx]) => tableIdx,
   }),
 };
+
+/** Sizes have the table's address type. */
+function bindTableOps(ctx: LocalContext) {
+  return {
+    size: <A extends AddressType>(table: Dependency.AnyTable<A>) =>
+      tableSize(ctx, table) as StackVar<A>,
+    grow: <A extends AddressType>(table: Dependency.AnyTable<A>) =>
+      tableGrow(ctx, table) as StackVar<A>,
+  };
+}
 
 const elemOps = {
   drop: baseInstruction("elem.drop", ElemIndex, {
