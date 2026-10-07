@@ -1,4 +1,4 @@
-import { record, tuple, Undefined } from "../binable.ts";
+import { lazy, record, tuple, Undefined } from "../binable.ts";
 import * as Dependency from "../dependency.ts";
 import type { AnyFunc } from "../func-types.ts";
 import { vec } from "../immediate.ts";
@@ -95,7 +95,7 @@ function blockType(type: FunctionType): { deps: Dependency.t[]; abbreviated?: Bl
 /** A block type that refers to a type by index, or to a defined type in a reference type. */
 const blockTypeImmediate: Immediate = {
   string: "blocktype",
-  immediate: BlockType,
+  immediate: lazy(() => BlockType),
   resolve: (deps: number[], abbreviated: BlockType | undefined) => abbreviated ?? deps[0],
 };
 
@@ -130,7 +130,11 @@ function endBlock<Args, Results>(
 
 function blockInstruction(name: "block" | "loop") {
   // The instruction's codec decodes and encodes blocks of modules that are not built here.
-  let { instruction } = baseInstruction(name, Block, { create: notBuilt });
+  let { instruction } = baseInstruction(
+    name,
+    lazy(() => Block),
+    { create: notBuilt },
+  );
   return function (ctx: LocalContext, ...args: BlockArgs) {
     let [options, run] = withOptions<BlockOptions, [Body]>(args, 1);
     let type = typeFromInput(options);
@@ -153,7 +157,11 @@ type BranchHint = { likely?: boolean };
 type IfOptions = BlockOptions & BranchHint;
 type IfArgs = [then: Body, otherwise?: Body] | [options: IfOptions, then: Body, otherwise?: Body];
 
-const ifInstruction = baseInstruction("if", IfBlock, { create: notBuilt }).instruction;
+const ifInstruction = baseInstruction(
+  "if",
+  lazy(() => IfBlock),
+  { create: notBuilt },
+).instruction;
 function if_(ctx: LocalContext, ...args: IfArgs) {
   let bodies = typeof args[0] === "function" ? args.length : args.length - 1;
   let [options, runIf, runElse] = withOptions<IfOptions, [Body, Body?]>(args, bodies);
@@ -370,7 +378,7 @@ type TryTableOptions = BlockOptions & { catches?: CatchInput[] };
 /** Catch clauses whose tags are referred to by index. */
 const catchesImmediate: Immediate = {
   string: "catches",
-  immediate: vec(Catch),
+  immediate: lazy(() => vec(Catch)),
   resolve(tags: number[], clauses: { kind: Catch["kind"]; label: number; tagged: boolean }[]) {
     let next = 0;
     return clauses.map(({ kind, label, tagged }) =>
@@ -379,9 +387,13 @@ const catchesImmediate: Immediate = {
   },
 };
 
-const tryTableInstruction = baseInstruction("try_table", TryTable, {
-  create: notBuilt,
-}).instruction;
+const tryTableInstruction = baseInstruction(
+  "try_table",
+  lazy(() => TryTable),
+  {
+    create: notBuilt,
+  },
+).instruction;
 
 /** A block whose exceptions are caught by its catch clauses, which branch to enclosing labels. */
 function try_table(

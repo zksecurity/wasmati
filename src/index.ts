@@ -436,9 +436,8 @@ function removeContexts<
   let result: {
     [K in keyof T]: RemoveContext<T[K]>;
   } = {} as any;
-  for (let k in instructions) {
-    result[k] = ((...args: any) => instructions[k](ctx, ...args)) as any;
-  }
+  // Bound functions pass their arguments on without collecting them.
+  for (let k in instructions) result[k] = instructions[k].bind(undefined, ctx) as any;
   return result;
 }
 
@@ -461,7 +460,7 @@ function removeContext<Args extends Tuple<any>, Return extends any>(
   ctx: LocalContext,
   op: (ctx: LocalContext, ...args: Args) => Return,
 ): (...args: Args) => Return {
-  return (...args: Args) => op(ctx, ...args);
+  return op.bind(undefined, ctx) as (...args: Args) => Return;
 }
 
 export { decompile } from "./decompile.ts";

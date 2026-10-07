@@ -7,6 +7,7 @@ import {
   placeResults,
   popStack,
   popTypes,
+  pushResult,
   pushStack,
   type RandomLabel,
   StackVar,
@@ -42,9 +43,8 @@ export {
   checkAllowed,
   hasDefinedType,
   type FunctionTypeInput,
-  lookupInstruction,
-  lookupOpcode,
-  lookupSubcode,
+  nameToInstruction,
+  opcodeToInstruction,
   typeFromInput,
   functionTypeOf,
   type FunctionTypeReference,
@@ -232,13 +232,9 @@ function emitSimple(
   if (instruction.immediate !== undefined) instruction.immediate.write(code, immediate);
   if (instruction.effect === "local")
     code.writes.push({ position: start, name: instruction.string, local: immediate as number });
-  let value: StackVar<ValueType> | undefined;
-  if (result !== undefined) {
-    value = StackVar(result);
-    ctx.stack.push(value);
-  }
+  if (result !== undefined) return pushResult(ctx, result, start);
   placeResults(ctx, start);
-  return value;
+  return undefined;
 }
 
 /**
@@ -412,21 +408,4 @@ function runBlock(
   popStack(inner, results);
   if (stack.length !== 0)
     throw Error(`expected stack to be empty at the end of block, got ${formatStack(stack)}`);
-}
-
-function lookupInstruction(name: string) {
-  let instr = nameToInstruction[name];
-  if (instr === undefined) throw Error(`invalid instruction name "${name}"`);
-  return instr;
-}
-function lookupOpcode(opcode: number) {
-  let instr = opcodeToInstruction[opcode];
-  if (instr === undefined) throw Error(`invalid opcode "${opcode}"`);
-  return instr;
-}
-
-function lookupSubcode(opcode: number, subcode: number, codes: Record<number, BaseInstruction>) {
-  let instr = codes[subcode];
-  if (instr === undefined) throw Error(`invalid opcode (${opcode}, ${subcode})`);
-  return instr;
 }

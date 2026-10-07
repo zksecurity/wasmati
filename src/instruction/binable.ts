@@ -1,14 +1,8 @@
 import { Binable, constant, or, record, withByteCode } from "../binable.ts";
 import { S33, U32, vec } from "../immediate.ts";
 import { ValueType } from "../types.ts";
-import {
-  type BaseInstruction,
-  isInstruction,
-  lookupInstruction,
-  lookupOpcode,
-  lookupSubcode,
-  type ResolvedInstruction,
-} from "./base.ts";
+import type { BaseInstruction, ResolvedInstruction } from "./base.ts";
+import { isInstruction, lookupInstruction, lookupOpcode, lookupSubcode } from "./all.ts";
 
 export {
   Instruction,

@@ -8,6 +8,8 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "vite";
+import { Module as WasmatiModule } from "wasmati";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const run = (command: string, ...args: string[]) =>
@@ -20,6 +22,34 @@ run("npm", "run", "build");
 const { increment, greet } = await import("./src/built/counter.wasm");
 increment(1);
 check("Node", `count ${increment(41)}, ${greet("wasmati")}`);
+
+// wasmati has no side effects: bundles keep only the code they use, and all instructions they decode.
+for (const entry of ["unused", "builder", "decode"])
+  await build({
+    configFile: false,
+    logLevel: "silent",
+    build: {
+      target: "esnext",
+      outDir: `dist/shake/${entry}`,
+      lib: { entry: join(root, "shake", `${entry}.js`), formats: ["es"], fileName: entry },
+    },
+  });
+const unused = await stat(join(root, "dist/shake/unused/unused.js"));
+if (unused.size > 1000) throw Error(`an unused import of wasmati bundles to ${unused.size} bytes`);
+console.log(`Vite without wasmati: ${unused.size} bytes`);
+const { add2 } = await import("./dist/shake/builder/builder.js");
+if ((await add2()) !== 2) throw Error("the bundled builder computes 1 + 1 wrong");
+console.log("Vite with the builder only: 1 + 1 = 2");
+const { names } = await import("./dist/shake/decode/decode.js");
+const wat = `(module (memory 1) (type $p (struct (field i32)))
+  (func (param i32) (result i32)
+    (block (result i32) (i32.add (local.get 0) (i32.load offset=4 (i32.const 0))))
+    (drop (struct.new $p (i32.const 1)))
+    (i64.add (i64.const 1) (i64.const 2)) (drop)))`;
+const decoded = names(WasmatiModule.fromWat(wat).toBytes()).join(" ");
+if (decoded !== "block i32.const struct.new drop i64.const i64.const i64.add drop")
+  throw Error(`the bundled decoder decodes ${decoded}`);
+console.log(`Vite with the decoder only: ${decoded}`);
 
 run("npx", "vite", "build");
 run("npx", "next", "build");

@@ -8,6 +8,7 @@ export {
   type StackType,
   StackVar,
   isStackVar,
+  pushResult,
   type StackVars,
   stackVars,
   Unknown,
@@ -246,11 +247,29 @@ class StackValue<T> {
   kind = "stack-var" as const;
   id = id();
   type: T;
-  start = -1;
-  end = -1;
-  constructor(type: T) {
+  start: number;
+  end: number;
+  constructor(type: T, start = -1, end = -1) {
     this.type = type;
+    this.start = start;
+    this.end = end;
   }
+}
+
+/**
+ * Push the result of an instruction that was written from `start` to the end of the code, after its
+ * operands were popped, and before any other instruction.
+ */
+function pushResult<T extends StackType>(ctx: LocalContext, type: T, start: number): StackVar<T> {
+  let frame: ControlFrame | undefined = ctx.frames[0];
+  let from = start;
+  if (frame !== undefined && frame.popsFrom !== undefined) {
+    if (frame.popsFrom < start) from = frame.popsFrom;
+    frame.popsFrom = undefined;
+  }
+  let value = new StackValue(type, from, ctx.code.length);
+  ctx.stack.push(value);
+  return value;
 }
 
 function StackVar<T extends ValueType | Unknown>(type: T): StackVar<T> {

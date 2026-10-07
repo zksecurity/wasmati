@@ -35,6 +35,7 @@
     "skills",
     "CHANGELOG.md"
   ],
+  "sideEffects": false,
   "keywords": [
     "webassembly",
     "wasm"

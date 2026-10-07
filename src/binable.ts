@@ -3,6 +3,7 @@ import type { Tuple } from "./util.ts";
 export {
   Binable,
   Writer,
+  lazy,
   tuple,
   record,
   array,
@@ -250,6 +251,15 @@ const Bool = Binable<boolean>({
     return [!!byte, offset + 1];
   },
 });
+
+/** A codec that is defined later, for codecs that refer to each other through modules. */
+function lazy<T>(get: () => Binable<T>): Binable<T> {
+  let codec: Binable<T> | undefined;
+  return Binable({
+    write: (writer, t) => (codec ??= get()).write(writer, t),
+    readBytes: (bytes, offset) => (codec ??= get()).readBytes(bytes, offset),
+  });
+}
 
 function withByteCode<T>(code: number, binable: Binable<T>): Binable<T> {
   return Binable({
