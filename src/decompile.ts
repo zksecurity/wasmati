@@ -352,7 +352,8 @@ class Source {
       i.description.kind === "memory" ? [i.description.value] : [],
     );
     const memories = [...imported, ...this.module.memories];
-    if (memories.length === 1 && memories[0].limits.address !== "i64") return [];
+    // Instructions use the only memory by default, if it is 32-bit; other indices are named.
+    if (index === 0 && memories.length === 1 && memories[0].limits.address !== "i64") return [];
     return [this.reference(this.memories, index)];
   }
 
