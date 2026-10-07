@@ -105,9 +105,10 @@ function pushInstruction(ctx: LocalContext, instr: Dependency.Instruction): Stac
   if (frame !== undefined) frame.popsFrom = undefined;
   body.push(instr);
   // Values that the instruction pushed or passed through follow it.
-  for (let i = stack.length - 1; i >= 0 && !ends.has(stack[i]); i--) {
-    ends.set(stack[i], body.length);
-    if (!starts.has(stack[i])) starts.set(stack[i], start);
+  for (let i = stack.length - 1; i >= 0 && placed(stack[i]).end < 0; i--) {
+    let value = placed(stack[i]);
+    value.end = body.length;
+    if (value.start < 0) value.start = start;
   }
   for (let dep of instr.deps) {
     if (!deps.includes(dep)) {
@@ -150,16 +151,16 @@ function checkStack(ctx: LocalContext, values: StackType[]) {
   let popped = popStack(ctx, values);
   pushStack(ctx, popped.slice(0, popped.length - kept.length));
   // The values pass through the instruction, so they follow it.
-  kept.forEach((value) => ends.delete(value));
+  kept.forEach((value) => (placed(value).end = -1));
   ctx.stack.push(...kept);
 }
 
 /** Pop a value, which the instruction being created computes from. */
 function popValue(ctx: LocalContext): StackVar<StackType> | undefined {
   let value = ctx.stack.pop();
-  let start = value && starts.get(value);
+  let start = value && placed(value).start;
   let frame: ControlFrame | undefined = ctx.frames[0];
-  if (start !== undefined && frame !== undefined)
+  if (start !== undefined && start >= 0 && frame !== undefined)
     frame.popsFrom = Math.min(frame.popsFrom ?? start, start);
   return value;
 }
@@ -205,7 +206,14 @@ function getFrameFromLabel(ctx: LocalContext, label: Label | number): [number, C
 }
 
 function StackVar<T extends ValueType | Unknown>(type: T): StackVar<T> {
-  return { kind: "stack-var", id: id(), type };
+  let value: StackVar<T> & { start: number; end: number } = {
+    kind: "stack-var",
+    id: id(),
+    type,
+    start: -1,
+    end: -1,
+  };
+  return value;
 }
 
 type StackVars<Results extends readonly ValueType[]> = {
@@ -215,41 +223,40 @@ type StackVars<Results extends readonly ValueType[]> = {
 /** The parameters of a block, which are on its stack at the start of its body. */
 function stackVars(types: ValueType[]) {
   let values = types.map(StackVar);
-  values.forEach((value) => {
-    starts.set(value, 0);
-    ends.set(value, 0);
-  });
+  values.forEach((value) => place(value, 0, 0));
   return values;
 }
 
 /**
  * Where each stack value is computed in the body of its block: from `start`, where the stack has the
  * values below it, to `end`, right after the instruction that pushed it or last passed it through.
- * Instructions inserted at `start` compute a value between the value and the ones below.
+ * Instructions inserted at `start` compute a value between the value and the ones below. Both are -1
+ * until the instruction is in the body. They are properties of the values, but not of their type.
  */
-const starts = new WeakMap<StackVar<StackType>, number>();
-const ends = new WeakMap<StackVar<StackType>, number>();
+type Placed = StackVar<StackType> & { start: number; end: number };
+
+function placed(value: StackVar<StackType>): Placed {
+  return value as Placed;
+}
 
 function placeOf(value: StackVar<StackType>): { start: number; end: number } {
-  let start = starts.get(value);
-  let end = ends.get(value);
-  if (start === undefined || end === undefined)
+  let { start, end } = placed(value);
+  if (start < 0 || end < 0)
     throw Error("invariant violation: stack value without a place in the body");
   return { start, end };
 }
 
-/** Place a value that was computed by an instruction inserted at `start`. */
-function place(value: StackVar<StackType>, start: number) {
-  starts.set(value, start);
-  ends.set(value, start + 1);
+/** Place a value, by default one computed by an instruction inserted at `start`. */
+function place(value: StackVar<StackType>, start: number, end = start + 1) {
+  Object.assign(placed(value), { start, end });
 }
 
 /** Values computed from `position` on move by one, after an instruction is inserted there. */
 function shiftPlaces(ctx: LocalContext, position: number) {
   for (let value of ctx.stack) {
     let { start, end } = placeOf(value);
-    if (start >= position) starts.set(value, start + 1);
-    if (end > position) ends.set(value, end + 1);
+    if (start >= position) placed(value).start = start + 1;
+    if (end > position) placed(value).end = end + 1;
   }
 }
 
