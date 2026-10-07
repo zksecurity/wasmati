@@ -127,27 +127,6 @@ const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y })
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
   - Generate stack-style wasmati TypeScript with `decompile(bytes)` or `wasmati decompile input.wasm -o output.ts` (omit `-o` to write to stdout). The generated default export builds a `Module` from a `WebAssembly.Imports` object.
 
-- **GC types as JS values.** Structs, arrays and function types are defined once and referenced as objects; recursive types refer to each other by name, and struct fields are accessed by name. Constant expressions, like global initializers, use the same instruction API:
-
-```ts
-const { node } = rec((types) => ({
-  node: struct({ value: i32, next: refType(types.node, { nullable: true }) }),
-}));
-
-const list = global(
-  constant(() => {
-    i32.const(1);
-    ref.null(refType(node, { nullable: true }));
-    return struct.new(node);
-  }),
-);
-
-const head = func({ in: [], out: [i32] }, () => {
-  global.get(list);
-  struct.get(node, "value");
-});
-```
-
 - Named parameters and debug names. `in: [{ x: i32 }, { y: i64 }]` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback.
 
 ### Features that aren't implemented yet
