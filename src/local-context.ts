@@ -4,6 +4,7 @@ import { ValueType } from "./types.ts";
 
 export {
   type LocalContext,
+  type StackType,
   StackVar,
   type StackVars,
   stackVars,
@@ -25,8 +26,10 @@ export {
   formatStack,
 };
 
+/** The type of a value in unreachable code, which matches any type (the spec's "bottom"). */
 type Unknown = "unknown";
 const Unknown = "unknown";
+type StackType = ValueType | Unknown;
 type RandomLabel = `0.${string}`;
 type Label = "top" | RandomLabel;
 
@@ -42,14 +45,14 @@ type ControlFrame = {
   startTypes: ValueType[];
   endTypes: ValueType[];
   unreachable: boolean;
-  stack: StackVar<ValueType>[];
+  stack: StackVar<StackType>[];
 };
 
 type LocalContext = {
   locals: ValueType[];
   deps: Dependency.t[];
   body: Dependency.Instruction[];
-  stack: StackVar<ValueType>[]; // === frames[0].stack
+  stack: StackVar<StackType>[]; // === frames[0].stack
   frames: ControlFrame[];
   return: ValueType[] | null;
 };
@@ -98,20 +101,24 @@ function pushInstruction(ctx: LocalContext, instr: Dependency.Instruction) {
   }
 }
 
-function popStack({ stack, frames }: LocalContext, values: ValueType[]): ValueType[] {
-  // TODO nicer errors, which display entire stack vs entire instruction signature
-  let n = values.length;
-  for (let i = n - 1; i >= 0; i--) {
+/**
+ * Pop values of the given types and return the types actually popped. In unreachable code, popping
+ * below the frame yields Unknown, and Unknown matches any type.
+ */
+function popStack({ stack, frames }: LocalContext, values: StackType[]): StackType[] {
+  let popped: StackType[] = [];
+  for (let i = values.length - 1; i >= 0; i--) {
     let stackValue = stack.pop();
     let value = values[i];
     if (
       (stackValue === undefined && !frames[0].unreachable) ||
-      (stackValue !== undefined && value !== stackValue.type)
+      (stackValue !== undefined && !isSameType(value, stackValue.type))
     ) {
       throw Error(`expected ${value} on the stack, got ${stackValue?.type ?? "nothing"}`);
     }
+    popped.unshift(stackValue?.type ?? Unknown);
   }
-  return values;
+  return popped;
 }
 
 function popUnknown({ stack, frames }: LocalContext): ValueType | Unknown {
@@ -125,7 +132,7 @@ function popUnknown({ stack, frames }: LocalContext): ValueType | Unknown {
   return stackValue.type;
 }
 
-function pushStack({ stack }: LocalContext, values: ValueType[]): StackVar<ValueType>[] {
+function pushStack({ stack }: LocalContext, values: StackType[]): StackVar<StackType>[] {
   let stackVars = values.map(StackVar);
   stack.push(...stackVars);
   return stackVars;
@@ -183,6 +190,6 @@ function isSameType(t1: ValueType | Unknown, t2: ValueType | Unknown) {
   return t1 === t2 || t1 === Unknown || t2 === Unknown;
 }
 
-function formatStack(stack: StackVar<ValueType>[]): string {
+function formatStack(stack: StackVar<StackType>[]): string {
   return `[${stack.map((v) => v.type).join(",")}]`;
 }

@@ -12,7 +12,7 @@ import {
   ValueType,
   valueTypeLiteral,
 } from "../types.ts";
-import { type LocalContext, StackVar } from "../local-context.ts";
+import { type LocalContext, StackVar, Unknown } from "../local-context.ts";
 import { globalGet, localGet } from "./variable-get.ts";
 import { type Input, processStackArgs } from "./stack-args.ts";
 
@@ -104,7 +104,10 @@ const refOps = {
   }),
   is_null: baseInstruction("ref.is_null", Undefined, {
     create({ stack }: LocalContext) {
-      return { in: [stack[stack.length - 1].type], out: ["i32"] };
+      const type = stack.at(-1)?.type ?? Unknown;
+      if (type !== "funcref" && type !== "externref" && type !== Unknown)
+        throw Error(`ref.is_null: expected a reference on the stack, got ${type}`);
+      return { in: [type as RefType], out: ["i32"] };
     },
     resolve: () => undefined,
   }),
