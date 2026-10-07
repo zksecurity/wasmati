@@ -32,7 +32,7 @@ import {
   valueTypeLiteral,
 } from "../types.ts";
 import { baseInstruction } from "./base.ts";
-import { type Input, processStackArgs } from "./stack-args.ts";
+import { type Input, namedInputs, processStackArgs } from "./stack-args.ts";
 
 export { structOps, arrayOps, i31Ops, gcRefOps, anyOps, externOps, br_on_cast, br_on_cast_fail };
 
@@ -415,12 +415,7 @@ const structOps = {
       if (names === undefined)
         throw Error("struct.new: fields by name need a struct with field names");
       let types = structFields(type).map((f) => unpacked(f.type));
-      processStackArgs(
-        ctx,
-        "struct.new",
-        types,
-        names.map((name) => fields[name]),
-      );
+      processStackArgs(ctx, "struct.new", types, namedInputs("struct.new", names, fields));
     }
     return structInstructions.new(ctx, type);
   },

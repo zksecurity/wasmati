@@ -13,6 +13,8 @@ import {
   throw_ref,
   exnref,
   control,
+  refType,
+  ref,
 } from "../index.ts";
 import { parseWat } from "../text/wat.ts";
 import { printWat } from "../text/print.ts";
@@ -91,3 +93,39 @@ test("tags and try_table roundtrip through text, binary and decompiled builders"
   const { instance } = await (await buildTextModule(parsed)).instantiate();
   assert.equal((instance.exports.run as Function)(), 5);
 });
+
+test("try_table bodies take part in type indexing and data count checks", async () => {
+  const nullable = refType({ in: [i32], out: [i32] }, { nullable: true });
+  const f = func({ in: [], out: [nullable] }, () => {
+    try_table({ out: [nullable] }, () => ref.null(nullable));
+  });
+  const { instance } = await Module({ exports: { f } }).instantiate();
+  assert.equal(instance.exports.f(), null);
+
+  // memory.init in a try_table needs a data count section; without one, the module is malformed.
+  const bytes = BinaryModule.toBytes(
+    parseWat(`(module (memory 1) (data "x")
+      (func (try_table (memory.init 0 (i32.const 0) (i32.const 0) (i32.const 1)))))`),
+  );
+  assert.throws(
+    () => BinaryModule.fromBytes(withoutSection(bytes, 12)),
+    /data count section required/,
+  );
+});
+
+/** Remove a section, by its id, from a module's bytes. */
+function withoutSection(bytes: number[], id: number): number[] {
+  const result = bytes.slice(0, 8);
+  for (let offset = 8; offset < bytes.length;) {
+    const start = offset++;
+    let size = 0;
+    for (let shift = 0; ; shift += 7) {
+      const byte = bytes[offset++];
+      size |= (byte & 0x7f) << shift;
+      if (byte < 0x80) break;
+    }
+    offset += size;
+    if (bytes[start] !== id) result.push(...bytes.slice(start, offset));
+  }
+  return result;
+}
