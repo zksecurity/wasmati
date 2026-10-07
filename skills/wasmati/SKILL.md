@@ -79,7 +79,7 @@ const { instance } = await Module({ exports: { f } }).instantiate();
 instance.exports.f(5); // ((5 * 2) + 5) << 1 = 30
 ```
 
-Both styles produce the same instructions, in the order the calls run. Some instructions take named operands, like `call(f, { x, y })` and `struct.new(type, { a, b })`: there, operands that are instruction results must be written in the declared order, because they are pushed in the order they are evaluated, and wasmati throws otherwise. The stack style matches the text format and the spec; the expression style reads like code. Mix them freely. TypeScript checks operand types too: an `i64` local where `i32.add` expects an `i32` is a type error.
+Both styles produce the same instructions, in the order the calls run. An instruction's result is pushed when its call runs, so operands that are instruction results must be the latest values on the stack, in the order the operands are passed: compute them in that order, and use each once. wasmati throws otherwise. Some instructions take named operands, like `call(f, { x, y })` and `struct.new(type, { a, b })`, where the order is the declared order of the parameters or fields. The stack style matches the text format and the spec; the expression style reads like code. Mix them freely. TypeScript checks operand types too: an `i64` local where `i32.add` expects an `i32` is a type error.
 
 ## Control flow
 
@@ -414,7 +414,7 @@ instance.exports.f(); // 44
 - Read the error: wasmati names the instruction and the types involved, and the stack trace points to your builder call.
 - Print `module.toWat()` to see the instructions you produced.
 - Traps throw `WebAssembly.RuntimeError` from the exported function you called, with a stack trace that includes Wasm function names.
-- Common mistakes: leaving values on the stack at the end of a function or block, passing numbers where `i64` expects bigints, writing instruction results as named operands out of order, not naming the memory when there are several or it is 64-bit, keeping JS views of a memory that has grown, and exporting a function that reaches an async import without `async(...)`.
+- Common mistakes: leaving values on the stack at the end of a function or block, passing numbers where `i64` expects bigints, passing instruction results in another order than they were computed, not naming the memory when there are several or it is 64-bit, keeping JS views of a memory that has grown, and exporting a function that reaches an async import without `async(...)`.
 - JS calling an export with a value that does not fit a reference parameter, like `null` for a non-null reference, gets a `TypeError` from the engine.
 
 ## Further reading

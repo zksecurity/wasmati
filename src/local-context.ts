@@ -89,16 +89,18 @@ function withContext(
   return resultCtx;
 }
 
-function pushInstruction(ctx: LocalContext, instr: Dependency.Instruction) {
+/** Apply an instruction to the stack, and return its results, which are the new stack entries. */
+function pushInstruction(ctx: LocalContext, instr: Dependency.Instruction): StackVar<StackType>[] {
   let { body, deps } = ctx;
   popStack(ctx, instr.type.args, instr.string);
-  pushStack(ctx, instr.type.results);
+  let results = pushStack(ctx, instr.type.results);
   body.push(instr);
   for (let dep of instr.deps) {
     if (!deps.includes(dep)) {
       deps.push(dep);
     }
   }
+  return results;
 }
 
 /**

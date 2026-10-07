@@ -140,14 +140,10 @@ function baseInstruction<
   return Object.assign(
     function instruction(ctx: LocalContext, ...createArgs: CreateArgs) {
       let instr = wrapCreate(ctx, ...createArgs);
-      pushInstruction(ctx, instr);
-      let results = instr.type.results;
+      // The results are the stack entries, so that operands can be checked to be where they are.
+      let results = pushInstruction(ctx, instr);
       return (
-        results.length === 0
-          ? undefined
-          : results.length === 1
-            ? StackVar(results[0])
-            : results.map(StackVar)
+        results.length === 0 ? undefined : results.length === 1 ? results[0] : results
       ) as Instruction_<Args, Results>;
     },
     { create: wrapCreate },

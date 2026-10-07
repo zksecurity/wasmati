@@ -211,11 +211,11 @@ test("named operands keep their values, and instruction results must come in ord
   assert.deepEqual(instance.exports.read(), [1, 2, 3, 4, 12]);
   assert.throws(
     () => constant(() => struct.new(point, { y: i32.const(2), x: i32.const(1) })),
-    /struct\.new: operands that are instruction results must be given in order \(x, y\), got y, x/,
+    /struct\.new: operands that are instruction results must be the latest values on the stack, in order/,
   );
   assert.throws(
     () => func({ in: [], out: [i32] }, () => call(add, { b: i32.const(2), a: i32.const(1) })),
-    /call: operands that are instruction results must be given in order/,
+    /call: operands that are instruction results must be the latest values on the stack, in order/,
   );
 });
 
@@ -247,4 +247,32 @@ test("GC reads and writes have the types of their fields", async () => {
       struct.set(point, "label", p, 1),
     ),
   );
+});
+
+test("operands that were computed earlier must be on top of the stack, in order", () => {
+  const point = struct({ x: i32, y: i32 });
+  assert.throws(
+    () =>
+      constant(() => {
+        const y = i32.const(2);
+        const x = i32.const(1);
+        return struct.new(point, { x, y });
+      }),
+    /struct\.new: operands that are instruction results must be the latest values on the stack/,
+  );
+  assert.throws(
+    () =>
+      func({ in: [], out: [i32] }, () => {
+        const a = i32.const(1);
+        const b = i32.const(2);
+        i32.sub(b, a);
+      }),
+    /i32\.sub: operands that are instruction results must be the latest values on the stack/,
+  );
+  // Each result can be used once, and in the order computed.
+  func({ in: [], out: [i32] }, () => {
+    const a = i32.const(2);
+    const b = i32.const(1);
+    i32.sub(a, b);
+  });
 });

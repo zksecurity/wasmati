@@ -22,7 +22,7 @@ wasmati supports all of WebAssembly 3.0, verified by running the official spec t
 - **Block instructions take optional options first, then their bodies.** `block`, `loop`, `if_` (`control.if`) and `try_table` no longer take `null` as their type: write `block(() => ...)`, or `block({ in, out }, () => ...)`.
 - **`i8x16.relaxed_i8x16_swizzle` is renamed to `i8x16.relaxed_swizzle`.**
 - **`memory.atomic.wait32` takes an `i64` timeout**, as in the spec; it took an `i32`.
-- **Named operands that are instruction results must come in parameter order**, as in `call(f, { a: i32.const(1), b: i32.const(2) })`: they are on the stack in the order they are evaluated. Other orders silently swapped values; they now throw. Numbers, locals and globals may still come in any order.
+- **Operands that are instruction results must be the latest values on the stack, in the order they are passed**, as in `i32.sub(a, b)` with `a` computed before `b`, or `call(f, { a: i32.const(1), b: i32.const(2) })` in parameter order. Results are pushed when they are computed, so other orders, or using a result twice, silently produced wrong code; they now throw. Numbers, locals and globals may still come in any order.
 - **Dependency types changed**: memories and tables record their address type, and imports record whether they are async. This only affects code that creates dependency objects without the builder API.
 - **The decompiler's output changed** to use the new APIs.
 

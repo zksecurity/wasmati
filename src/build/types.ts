@@ -1,7 +1,18 @@
 import type { Module } from "../module-binable.ts";
 import { isFunctionType, type FunctionType, type ValueType } from "../types.ts";
 
-export { exportTypes, entryTypes, isIdentifier, isBindingName };
+export { exportTypes, entryTypes, isIdentifier, isBindingName, exportLocals };
+
+/** Distinct local names for exports: their own names where they can be bindings. */
+function exportLocals(names: string[]): string[] {
+  const used = new Set<string>();
+  return names.map((name, i) => {
+    let local = isBindingName(name) ? name : `export${i}`;
+    while (used.has(local)) local = `${local}_`;
+    used.add(local);
+    return local;
+  });
+}
 
 /** Names that `export { ... }` clauses can use without quotes. */
 function isIdentifier(name: string) {
@@ -13,11 +24,14 @@ const reservedWords = new Set(
     "await break case catch class const continue debugger default delete do else enum export extends " +
     "false finally for function if implements import in instanceof interface let new null package " +
     "private protected public return static super switch this throw true try typeof var void while " +
-    "with yield arguments eval undefined"
+    "with yield arguments eval undefined WebAssembly"
   ).split(" "),
 );
 
-/** Names that can be bindings, like `const name`: identifiers other than reserved words. */
+/**
+ * Names that generated code can bind, like `const name`: identifiers other than reserved words, and
+ * other than globals that generated code uses.
+ */
 function isBindingName(name: string) {
   return isIdentifier(name) && !reservedWords.has(name);
 }
@@ -81,8 +95,9 @@ function exportDeclarations(
   const globals = [...imported("global"), ...module.globals.map(({ type }) => type)] as {
     value: ValueType;
   }[];
+  const locals = exportLocals(module.exports.map(({ name }) => name));
   return module.exports.map(({ name, description }, i) => {
-    const local = isBindingName(name) ? name : `export${i}`;
+    const local = locals[i];
     switch (description.kind) {
       case "function": {
         const type = functionTypes[description.value];
@@ -104,11 +119,15 @@ function exportDeclarations(
   });
 }
 
+/** Parameters keep their names where they can be bindings, and are distinct. */
 function parameters(type: FunctionType, names: Record<number, string>) {
+  const used = new Set<string>();
   return type.args
     .map((arg, i) => {
-      const name = names[i];
-      return `${name !== undefined && isIdentifier(name) ? name : `arg${i}`}: ${jsType(arg)}`;
+      let name = names[i] !== undefined && isBindingName(names[i]) ? names[i] : `arg${i}`;
+      while (used.has(name)) name = `${name}_`;
+      used.add(name);
+      return `${name}: ${jsType(arg)}`;
     })
     .join(", ");
 }

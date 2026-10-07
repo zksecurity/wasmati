@@ -209,6 +209,18 @@ const run = func({ in: [], out: [i32] }, () => call(read));`),
       },
       /uses this of an enclosing function/,
     ],
+    [
+      "callbacks that wasmati runs while building",
+      {
+        "lib.ts": module(`let value = 0;
+function increment() { value++; }
+const inc = importFunc({ in: [], out: [] }, increment);
+func({ in: [], out: [] }, increment);
+const read = importFunc({ in: [], out: [i32] }, () => value);
+const run = func({ in: [], out: [i32] }, () => { call(inc); call(read); });`),
+      },
+      /"increment" is used by import values, and by code that runs while the module is built/,
+    ],
   ];
   for (const [name, files, error] of cases) {
     const directory = await project(files);
@@ -283,6 +295,53 @@ export default Module({ exports: { wasm: async(one), default: one } });
     assert.equal(await entry.wasm(), 1);
     assert.equal(entry.default(), 1);
     assert.match(await readFile(output.types, "utf8"), /export \{ export1 as "default" \};/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("imported functions keep their identity, and grown memories their size", async () => {
+  const directory = await project({
+    "provider.js": "const value = 42;\nexport function get() { return value; }",
+    "lib.ts": `import { Module, func, i32, call, importFunc, importMemory, memory } from WASMATI;
+import { get as provided } from "./provider.js";
+const value = 0;
+// The same code as the imported function, closing over another value.
+function get() { return value; }
+const read = importFunc({ in: [], out: [i32] }, provided);
+const mem = importMemory({ min: 1, max: 3 });
+mem.value.grow(1);
+const run = func({ in: [], out: [i32, i32] }, () => {
+  call(read);
+  memory.size(mem);
+});
+export default Module({ exports: { run } });
+`,
+  });
+  try {
+    const output = await build(join(directory, "lib.ts"));
+    const { run } = await import(pathToFileURL(output.wasm).href);
+    assert.deepEqual(run(), [42, 2]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("generated bindings are distinct, and parameters are valid names", async () => {
+  const directory = await project({
+    "lib.ts": `import { Module, func, i32, local, async } from WASMATI;
+const run = func({ in: [{ return: i32 }], out: [i32] }, ({ return: x }) => local.get(x));
+export default Module({ exports: { default: async(run), export0: async(run), WebAssembly: async(run) } });
+`,
+  });
+  try {
+    const output = await build(join(directory, "lib.ts"));
+    const entry = await import(pathToFileURL(output.entry!).href);
+    assert.deepEqual(
+      [await entry.default(1), await entry.export0(2), await entry.WebAssembly(3)],
+      [1, 2, 3],
+    );
+    assert.match(await readFile(output.types, "utf8"), /declare function export0\(arg0: number\)/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
