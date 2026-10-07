@@ -266,3 +266,12 @@ test("modules convert from and to the text format", async () => {
   const add = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => i32.add(x, y));
   assert.match(Module({ exports: { add } }).toWat(), /\(export "add" \(func \$add\)\)/);
 });
+
+test("custom sections print as @custom annotations", () => {
+  const f = func({ in: [], out: [i32] }, () => i32.const(42));
+  const module = Module({
+    exports: { f },
+    customSections: [{ name: "producers", data: [1, 2], after: 0 }],
+  });
+  assert.match(module.toWat(), /\(@custom "producers" \(before first\) "\\01\\02"\)\)\n$/);
+});
