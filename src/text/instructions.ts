@@ -116,7 +116,18 @@ function parseInstructions(c: Cursor, scope: Scope): ResolvedInstruction[] {
   return body;
 }
 
+const branchHint = "@metadata.code.branch_hint";
+
 function instruction(c: Cursor, scope: Scope, body: ResolvedInstruction[]) {
+  if (c.peekHead() === branchHint) {
+    // A hint belongs to the next instruction, which comes last in its folded form.
+    const likely = parseBranchHint(c.list(branchHint));
+    if (c.done || c.peekAtom() === "end" || c.peekAtom() === "else" || c.peekHead() === branchHint)
+      c.fail(`${branchHint} annotation: expected an instruction`);
+    instruction(c, scope, body);
+    body[body.length - 1].likely = likely;
+    return;
+  }
   if (c.peek()?.kind === "list") {
     const list = c.list();
     folded(list, scope, body);
@@ -141,6 +152,15 @@ function instruction(c: Cursor, scope: Scope, body: ResolvedInstruction[]) {
   c.keyword("end");
   endLabel(c, label);
   body.push(block(name, blockType, instructions, otherwise, catches));
+}
+
+/** `(@metadata.code.branch_hint "\00")` for an unlikely branch, `"\01"` for a likely one. */
+function parseBranchHint(c: Cursor): boolean {
+  const node = c.peek();
+  const bytes = c.peek()?.kind === "string" ? c.bytes() : [];
+  if (bytes.length !== 1 || bytes[0] > 1) c.fail(`${branchHint} annotation: malformed hint`, node);
+  c.end();
+  return bytes[0] === 1;
 }
 
 /** The catch clauses of try_table, whose labels are outside the block. */
@@ -412,13 +432,14 @@ function v128(c: Cursor): number[] {
 
 /** Print stack-style instructions, one per line, indenting block bodies. */
 function printInstructions(body: ResolvedInstruction[], names: Names, indent = ""): string[] {
-  return body.flatMap(({ name, immediate }) => {
+  return body.flatMap(({ name, immediate, likely }) => {
+    const hint = likely === undefined ? "" : `(${branchHint} "\\0${likely ? 1 : 0}") `;
     if (blocks.has(name)) {
       const clauses: string[] = (immediate.catches ?? []).map((clause: Catch) => {
         const tag = "tag" in clause ? [names.id("tag", clause.tag) ?? String(clause.tag)] : [];
         return `(${[clause.kind, ...tag, String(clause.label)].join(" ")})`;
       });
-      const head = [name, ...blockType(immediate.blockType, names), ...clauses].join(" ");
+      const head = hint + [name, ...blockType(immediate.blockType, names), ...clauses].join(" ");
       const bodies = name === "if" ? immediate.instructions : { if: immediate.instructions };
       return [
         indent + head,
@@ -430,7 +451,7 @@ function printInstructions(body: ResolvedInstruction[], names: Names, indent = "
       ];
     }
     const text = name === "select_t" ? "select" : name.replace(/^(ref\.(test|cast))_null$/, "$1");
-    return [indent + [text, ...printImmediate(name, immediate, names)].join(" ")];
+    return [indent + hint + [text, ...printImmediate(name, immediate, names)].join(" ")];
   });
 }
 

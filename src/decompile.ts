@@ -604,6 +604,8 @@ class Source {
 
   private instructions(body: ResolvedInstruction[], locals: string[], indent: number) {
     for (const { name, immediate: imm, likely } of body) {
+      if (likely !== undefined && name !== "if" && name !== "br_if")
+        throw Error(`decompile: branch hint on ${name}: only if and br_if take hints`);
       if (name === "try_table" || name === "block" || name === "loop" || name === "if") {
         const catches = (imm.catches ?? []).map((c: Catch) => {
           const tag = "tag" in c ? `tag: ${this.reference(this.tags, c.tag)}, ` : "";
