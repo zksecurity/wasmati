@@ -11,14 +11,7 @@ import {
   bindGlobalOps,
 } from "./instruction/variable.ts";
 import { f32Ops, f64Ops, i32Ops, i64Ops } from "./instruction/numeric.ts";
-import {
-  memoryOps,
-  bindMemoryOps,
-  dataOps,
-  tableOps,
-  bindTableOps,
-  elemOps,
-} from "./instruction/memory.ts";
+import { memoryOps, dataOps, tableOps, elemOps } from "./instruction/memory.ts";
 import { bindControlOps, control as controlOps, parametric } from "./instruction/control.ts";
 import { emptyContext, type LocalContext, type Label, StackVar, Unknown } from "./local-context.ts";
 import type { Tuple } from "./util.ts";
@@ -45,7 +38,7 @@ import {
   declareFunc as originalDeclareFunc,
   type ToTypeTuple,
 } from "./func.ts";
-import type { Instruction, FunctionTypeInput } from "./instruction/base.ts";
+import type { Instruction, FunctionTypeInput, WithPublicSignature } from "./instruction/base.ts";
 import {
   f32x4Ops,
   f64x2Ops,
@@ -259,16 +252,11 @@ function createInstructions(ctx: LocalContext) {
 
   const { drop, select_poly, select_t } = removeContexts(ctx, parametric);
 
-  const memory = Object.assign(
-    memoryConstructor,
-    removeContexts(ctx, memoryOps),
-    bindMemoryOps(ctx),
-    {
-      atomic: memoryAtomic,
-    },
-  );
+  const memory = Object.assign(memoryConstructor, removeContexts(ctx, memoryOps), {
+    atomic: memoryAtomic,
+  });
   const data = Object.assign(dataConstructor, removeContexts(ctx, dataOps));
-  const table = Object.assign(tableConstructor, removeContexts(ctx, tableOps), bindTableOps(ctx));
+  const table = Object.assign(tableConstructor, removeContexts(ctx, tableOps));
   const elem = Object.assign(elemConstructor, removeContexts(ctx, elemOps));
 
   const v128_ = removeContexts(ctx, v128Ops);
@@ -335,7 +323,15 @@ function removeContexts<
   return result;
 }
 
-type RemoveContext<F extends (ctx: LocalContext, ...args: any) => any> = F extends (
+/** An instruction without its context argument: its public signature, if it declares one. */
+type RemoveContext<F extends (ctx: LocalContext, ...args: any) => any> =
+  F extends WithPublicSignature<infer Signature>
+    ? unknown extends Signature
+      ? WithoutContext<F>
+      : Signature
+    : WithoutContext<F>;
+
+type WithoutContext<F extends (ctx: LocalContext, ...args: any) => any> = F extends (
   ctx: LocalContext,
   ...args: infer CreateArgs
 ) => infer Return
