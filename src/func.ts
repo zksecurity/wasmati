@@ -114,6 +114,7 @@ function func<
     ...argNames.map((name, index) => [index, name]),
     ...flatLocals.map(({ name }, j) => [localIndices[j], name]),
   ]);
+  const name = signature.name ?? (run.name || undefined);
   let stack: StackVar<ValueType>[] = [];
   let { body, deps } = withContext(
     ctx,
@@ -136,13 +137,15 @@ function func<
     },
     () => {
       run(argsInput, localsInput, ctx);
-      popStack(ctx, resultsArray);
-      // TODO nice error
+      // The function's results must be all that is left on the stack.
+      const end = `end of function${name === undefined ? "" : ` ${name}`}`;
+      popStack(ctx, resultsArray, end);
       if (ctx.stack.length !== 0)
-        throw Error(`expected stack to be empty, got ${formatStack(ctx.stack)}`);
+        throw Error(
+          `${end}: expected stack to be empty after the results, got ${formatStack(ctx.stack)}`,
+        );
     },
   );
-  const name = signature.name ?? (run.name || undefined);
   let func = {
     kind: "function",
     params: args,

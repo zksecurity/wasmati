@@ -1,6 +1,6 @@
 {
   "name": "wasmati",
-  "version": "0.3.2",
+  "version": "1.0.0",
   "description": "Write low-level WebAssembly, from JavaScript",
   "type": "module",
   "main": "build/index.js",
@@ -29,7 +29,11 @@
   },
   "files": [
     "src",
-    "build"
+    "build",
+    "!src/test",
+    "!build/test",
+    "skills",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "webassembly",
@@ -46,8 +50,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
     "prettier": "^3.9.9",
-    "typescript": "^7.0.2",
-    "wabt": "^1.0.36"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "meriyah": "^7.4.0"

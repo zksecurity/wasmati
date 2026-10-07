@@ -21,5 +21,6 @@ declare global {
       imports: Imports | undefined,
       options: CompileOptions,
     ): Promise<WebAssemblyInstantiatedSource>;
+    function compile(bytes: BufferSource, options: CompileOptions): Promise<Module>;
   }
 }

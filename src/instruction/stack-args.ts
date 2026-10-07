@@ -1,9 +1,7 @@
 import { Binable, Undefined } from "../binable.ts";
 import type { AnyGlobal } from "../dependency.ts";
 import type * as Dependency from "../dependency.ts";
-import { formatStack, pushStack } from "../local-context.ts";
-import { popStack } from "../local-context.ts";
-import { emptyContext } from "../local-context.ts";
+import { formatStack, place, placeOf, pushStack, shiftPlaces } from "../local-context.ts";
 import { type LocalContext, StackVar, Unknown } from "../local-context.ts";
 import {
   isSubtype,
@@ -240,77 +238,57 @@ function processStackArgs(
 }
 
 /**
- * travel back in time and insert instruction so that its result occupies
- * position i in the stack, where i is counted from the top
- * (so i=0 means apply the instruction as usual, i=1 means your output should be put below the current top variable, etc)
+ * Insert an instruction that pushes one value, so that the value goes below the top `i` values of the
+ * stack: right after the value below it was computed. Reads of locals and globals must not move above
+ * writes to them.
  */
 function insertInstruction(ctx: LocalContext, i: number, instr: Dependency.Instruction) {
-  if (ctx.frames[0].unreachable) throw Error("Can't insert instruction from unreachable code");
-  if (ctx.stack.length < i)
+  let { stack, body } = ctx;
+  if (stack.length < i && !ctx.frames[0].unreachable)
+    throw Error(`${instr.string}: can't insert below ${i} values, the stack has ${stack.length}`);
+  // In unreachable code, values that are missing from the stack are below the inserted one.
+  let below = Math.max(0, stack.length - i);
+  let position = below < stack.length ? placeOf(stack[below]).start : body.length;
+  if (below > 0 && position < placeOf(stack[below - 1]).end)
     throw Error(
-      `insertInstruction: trying to insert instruction at position ${i} > stack length ${ctx.stack.length}`,
+      `${instr.string}: can't insert an operand between values that one instruction pushes or passes through, in stack ${formatStack(stack)}`,
     );
-  let stack = [...ctx.stack];
-  let pseudoCtx: LocalContext = {
-    ...emptyContext(),
-    stack,
-    frames: [{ ...dummyFrame, stack }],
-  };
-  let toReapply: Dependency.Instruction[] = [];
-  if (stack.length === i) {
-    for (let instruction of [...ctx.body].reverse()) {
-      if (stack.length === 0) break;
-      unapply(pseudoCtx, instruction);
-      toReapply.unshift(instruction);
-    }
-    if (stack.length !== 0)
-      throw Error(
-        `Cannot insert constant instruction into stack ${formatStack(stack)} at position ${i}`,
-      );
-  } else {
-    let variable = stack[stack.length - i - 1];
-    for (let instruction of [...ctx.body].reverse()) {
-      if (stack[stack.length - 1].id === variable.id) break;
-      unapply(pseudoCtx, instruction);
-      toReapply.unshift(instruction);
-      if (!stack.find((v) => v.id === variable.id))
-        throw Error(
-          `Cannot insert constant instruction into stack ${formatStack(stack)} at position ${i}`,
-        );
-    }
+  let written = body.slice(position).find((later) => writes(later, instr));
+  if (written !== undefined)
+    throw Error(
+      `${instr.string}: an operand would be read before ${written.string}, which comes after earlier operands that are instruction results and changes it. Compute the operands in the order they are passed.`,
+    );
+  body.splice(position, 0, instr);
+  shiftPlaces(ctx, position);
+  let [result] = pushStack(ctx, instr.type.results);
+  stack.splice(stack.length - 1, 1);
+  stack.splice(below, 0, result);
+  place(result, position);
+  for (let dep of instr.deps) {
+    if (!ctx.deps.includes(dep)) ctx.deps.push(dep);
   }
-  // we successfully unapplied instructions up to a state where `instr` can be inserted
-  let nInstructions = toReapply.length;
-  apply(pseudoCtx, instr);
-  toReapply.forEach((i) => apply(pseudoCtx, i));
-  // now `stack` matches what we want, so swap out the current stack with it and insert instruction into body
-  ctx.stack.splice(0, ctx.stack.length, ...stack);
-  ctx.body.splice(ctx.body.length - nInstructions, 0, instr);
 }
 
-const dummyFrame = {
-  label: "0.1" as const,
-  opcode: "block" as const,
-  unreachable: false,
-  endTypes: [],
-  startTypes: [],
-};
-
-function apply(ctx: LocalContext, instruction: Dependency.Instruction) {
-  // console.log(
-  //   `applying ${printFunctionType(instruction.type)} to stack ${formatStack(
-  //     ctx.stack
-  //   )}`
-  // );
-  popStack(ctx, instruction.type.args);
-  pushStack(ctx, instruction.type.results);
+/** Whether an instruction, or one in its blocks, changes what a local.get or global.get reads. */
+function writes(instruction: Dependency.Instruction, read: Dependency.Instruction): boolean {
+  let { string, resolveArgs } = instruction;
+  if (read.string === "local.get") {
+    let local: Local = read.resolveArgs[0];
+    if ((string === "local.set" || string === "local.tee") && resolveArgs[0].index === local.index)
+      return true;
+  }
+  if (read.string === "global.get") {
+    let global = read.deps[0] as AnyGlobal;
+    if (!global.type.mutable) return false;
+    if (string === "global.set" && instruction.deps[0] === global) return true;
+    if (string.startsWith("call") || string.startsWith("return_call")) return true;
+  }
+  return resolveArgs.some(
+    (arg) =>
+      Array.isArray(arg) && arg.some((nested) => isInstruction(nested) && writes(nested, read)),
+  );
 }
-function unapply(ctx: LocalContext, instruction: Dependency.Instruction) {
-  // console.log(
-  //   `unapplying ${printFunctionType(instruction.type)} to stack ${formatStack(
-  //     ctx.stack
-  //   )}`
-  // );
-  popStack(ctx, instruction.type.results);
-  pushStack(ctx, instruction.type.args);
+
+function isInstruction(x: unknown): x is Dependency.Instruction {
+  return typeof x === "object" && x !== null && "string" in x && "resolveArgs" in x;
 }

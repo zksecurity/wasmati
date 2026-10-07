@@ -36,6 +36,11 @@ jobs:
           repository: WebAssembly/wide-arithmetic
           ref: 024d4ce1b28cee7fd006d9c5175e3b7ece52b429
           path: .spec-wide-arithmetic
+      - uses: actions/checkout@v7
+        with:
+          repository: WebAssembly/js-promise-integration
+          ref: 5b247b1026d2f438eefe51914a79f4218cbda9f9
+          path: .spec-jspi
       - uses: actions/setup-node@v7
         with:
           node-version: 27.0.0-nightly20261006fcfb7ecc0b
@@ -49,6 +54,7 @@ jobs:
           '.spec-threads/test/core/threads/*.wast'
           '.spec-compact-imports/test/core/compact-import-section/*.wast'
           .spec-wide-arithmetic/test/core/wide-arithmetic.wast
+          '.spec-jspi/test/js-api/js-promise-integration/*.any.js'
           > spec-results.txt 2>&1
       - name: Report results
         if: always()

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import wabtFactory from "wabt";
 import {
   localArray,
   constant,
@@ -77,10 +76,8 @@ test("named parameters and grouped locals emit their actual Wasm indices", async
   assert.deepEqual(recovered.toBytes(), module.toBytes());
   const restored = await recovered.instantiate();
   assert.equal(restored.instance.exports.sum(2, 40n), 42n);
-  const wabt = await wabtFactory();
-  const wat = wabt.readWasm(module.toBytes(), { readDebugNames: true });
-  try {
-    const text = wat.toText({});
+  const text = Module.fromBytes(module.toBytes()).toWat();
+  {
     for (const name of [
       "arithmetic",
       "sum",
@@ -94,8 +91,6 @@ test("named parameters and grouped locals emit their actual Wasm indices", async
     ]) {
       assert(text.includes(`$${name}`));
     }
-  } finally {
-    wat.destroy();
   }
 });
 
@@ -264,4 +259,19 @@ test("modules without parameter names retain native calls", async () => {
   const { instance } = await recovered.instantiate();
   instance.exports.identity satisfies (value: number) => number;
   assert.equal(instance.exports.identity(42), 42);
+});
+
+test("errors at the end of a function name the function", () => {
+  assert.throws(
+    () =>
+      func({ name: "compute", in: [], out: [i32] }, () => {
+        i32.const(1);
+        i32.const(2);
+      }),
+    /^Error: end of function compute: expected stack to be empty after the results, got \[i32\]$/,
+  );
+  assert.throws(
+    () => func({ name: "compute", in: [], out: [i32] }, () => {}),
+    /end of function compute: expected i32 on the stack, got nothing/,
+  );
 });

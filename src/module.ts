@@ -14,9 +14,10 @@ import {
   type JSValue,
   Limits,
   MemoryType,
+  funcref,
   TableType,
 } from "./types.ts";
-import { memoryConstructor } from "./memory.ts";
+import { elemConstructor, memoryConstructor } from "./memory.ts";
 import { parseWat } from "./text/wat.ts";
 import { printWat } from "./text/print.ts";
 import { jsStringBuiltins, usesJSStringBuiltins } from "./js-string.ts";
@@ -25,7 +26,7 @@ import { TypeRegistry } from "./type-registry.ts";
 import type { NameMap, NameSection } from "./name-section.ts";
 import type { CustomSection } from "./module-binable.ts";
 
-export { Module, type ModuleExport };
+export { Module, type ModuleExport, type ModuleInstance };
 
 type Module = ReturnType<typeof ModuleConstructor>;
 
@@ -41,6 +42,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   names,
   customSections,
   dependencies: inputDependencies = [],
+  declareReferences = true,
 }: {
   exports: Exports;
   /**
@@ -55,6 +57,11 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   customSections?: CustomSection[];
   /** Include declarations even when exports and the start function do not reference them. */
   dependencies?: Dependency.t[];
+  /**
+   * Declare the functions that code references with `ref.func`, as Wasm requires, unless exports or
+   * segments declare them. The decompiler turns this off to reproduce modules without it faithfully.
+   */
+  declareReferences?: boolean;
 }) {
   // collect all dependencies (by kind)
   let dependencies = new Set<Dependency.t>();
@@ -162,6 +169,19 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   dependencyByKind.table.forEach((table, tableIdx) =>
     depToIndex.set(table, tableIdx + nImportTables),
   );
+  // Functions that code references must be declared outside of code; a declarative segment declares the rest.
+  let declared = new Set<Dependency.t>(allExports.map(([, exp]) => exp));
+  for (let dep of [...dependencyByKind.elem, ...dependencyByKind.global, ...dependencyByKind.table])
+    dep.deps.forEach((d) => declared.add(d));
+  let undeclared = new Set(
+    dependencyByKind.function
+      .flatMap((func) => func.deps)
+      .flatMap((dep) => (dep.kind === "hasRefTo" && !declared.has(dep.value) ? [dep.value] : [])),
+  );
+  if (declareReferences && undeclared.size > 0)
+    dependencyByKind.elem.push(
+      elemConstructor({ type: funcref, mode: "declarative" }, [...undeclared]),
+    );
   // index elems
   dependencyByKind.elem.forEach((elem, elemIdx) => depToIndex.set(elem, elemIdx));
   // index memories
@@ -311,8 +331,10 @@ function checkAsyncCalls(
       : [],
   );
   if (start !== undefined) roots.push(["the start function", start]);
+  // Functions that one root reaches without an async import need no second look from another.
+  let visited = new Set<Dependency.AnyFunc>();
   for (let [root, func] of roots) {
-    let path = asyncPath(func);
+    let path = asyncPath(func, visited);
     if (path === undefined) continue;
     let via = path.slice(1, -1).map(functionName);
     throw Error(
@@ -324,7 +346,7 @@ function checkAsyncCalls(
 /** A chain of direct calls from a function to an async import, if any. */
 function asyncPath(
   func: Dependency.AnyFunc,
-  visited = new Set<Dependency.AnyFunc>(),
+  visited: Set<Dependency.AnyFunc>,
 ): Dependency.AnyFunc[] | undefined {
   if (visited.has(func)) return undefined;
   visited.add(func);
@@ -444,14 +466,19 @@ function createModule<Exports extends Record<string, ExportInput>>(
       let { instance, module } = await WebAssembly.instantiate(
         Uint8Array.from(BinableModule.toBytes(binableModule)),
         importMap,
-        usesJSStringBuiltins(binableModule.imports) ? jsStringBuiltins : {},
+        compileOptions(binableModule),
       );
       return { instance: withAsyncExports(instance, asyncExports), module } as {
-        instance: WebAssembly.Instance & {
-          exports: { [K in keyof Exports]: ModuleExport<Exports[K]> };
-        };
+        instance: TypedInstance<Exports>;
         module: WebAssembly.Module;
       };
+    },
+    /** Compile Wasm without instantiating it, for example to instantiate it in workers. */
+    compile() {
+      return WebAssembly.compile(
+        Uint8Array.from(BinableModule.toBytes(binableModule)),
+        compileOptions(binableModule),
+      );
     },
     toBytes() {
       let bytes = BinableModule.toBytes(module.module);
@@ -463,6 +490,11 @@ function createModule<Exports extends Record<string, ExportInput>>(
     },
   };
   return module;
+}
+
+/** Modules that use JS string builtins compile with them. */
+function compileOptions(module: BinableModule): WebAssembly.CompileOptions {
+  return usesJSStringBuiltins(module.imports) ? jsStringBuiltins : {};
 }
 
 /**
@@ -477,6 +509,17 @@ function withAsyncExports(instance: WebAssembly.Instance, asyncExports: string[]
   let exports = Object.freeze({ ...instance.exports, ...wrapped });
   return Object.create(instance, { exports: { value: exports } }) as WebAssembly.Instance;
 }
+
+/** An instance with the inferred types of a module's exports. */
+type TypedInstance<Exports extends Record<string, ExportInput>> = WebAssembly.Instance & {
+  exports: { [K in keyof Exports]: ModuleExport<Exports[K]> };
+};
+
+/**
+ * The instance of a module, as `instantiate()` returns it, for instances created otherwise: for
+ * example in a worker, from the compiled module and the import object of the module.
+ */
+type ModuleInstance<M extends Module> = Awaited<ReturnType<M["instantiate"]>>["instance"];
 
 type ModuleExport<Export extends ExportInput> =
   Export extends AsyncExport<infer F>

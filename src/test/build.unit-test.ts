@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -7,6 +8,7 @@ import test from "node:test";
 import { build } from "../build/build.ts";
 
 const wasmati = fileURLToPath(new URL("../index.ts", import.meta.url));
+const root = fileURLToPath(new URL("../../", import.meta.url));
 
 /** Write files to a new directory, with `WASMATI` standing for the import path of wasmati. */
 async function project(files: Record<string, string>) {
@@ -92,9 +94,30 @@ export default Module({ exports: { run: async(run), sync } });
       /const later = new WebAssembly\.Suspending\(async \(x\) => x \+ 1\);/,
     );
     assert.match(
-      await readFile(output.entryTypes!, "utf8"),
-      /declare function run\(x: number\): Promise<number>;/,
+      await readFile(output.entry!, "utf8"),
+      /const run = jspi\.promising\(wasm\["run"\]\) as \(x: number\) => Promise<number>;/,
     );
+    // The entry module type-checks, with the types of the Wasm module.
+    const check = spawnSync(
+      join(root, "node_modules/.bin/tsc"),
+      [
+        "--ignoreConfig",
+        "--noEmit",
+        "--strict",
+        "--target",
+        "esnext",
+        "--module",
+        "nodenext",
+        "--allowArbitraryExtensions",
+        "--types",
+        "node",
+        "--typeRoots",
+        join(root, "node_modules/@types"),
+        output.entry!,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(check.status, 0, `${check.stdout}\n${check.stderr}`);
     const { run, sync } = await import(pathToFileURL(output.entry!).href);
     assert.equal(await run(1), 3);
     assert.equal(sync(1), 2);

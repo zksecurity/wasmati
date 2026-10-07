@@ -34,12 +34,9 @@ import {
   decompile,
 } from "../src/index.ts";
 import assert from "node:assert";
-import Wabt from "wabt";
 import { writeFile } from "../src/util-node.ts";
 import { format, resolveConfig } from "prettier";
 import { fileURLToPath } from "node:url";
-
-const wabt = await Wabt();
 
 let log = (...args: any) => console.log("logging from wasm:", ...args);
 
@@ -204,10 +201,7 @@ let recoveredModule = Module.fromBytes(wasmByteCode);
 assert.deepStrictEqual(recoveredModule.module, module.module);
 
 // write wat file for comparison
-let wabtModule = wabt.readWasm(wasmByteCode, { ...wabtFeatures(), readDebugNames: true });
-wabtModule.applyNames();
-let wat = wabtModule.toText({});
-await writeFile(import.meta.url.slice(7).replace(".ts", ".wat"), wat);
+await writeFile(import.meta.url.slice(7).replace(".ts", ".wat"), module.toWat());
 
 // Keep the decompiled source alongside the WAT output for comparison.
 const decompiledPath = fileURLToPath(new URL("./example.decompiled.ts", import.meta.url));
@@ -247,32 +241,3 @@ assert.equal(rebuilt.instance.exports.exportedFunc(10, 0), result);
 assert.equal(rebuilt.instance.exports.fma(2, 3, 4), exports.fma(2, 3, 4));
 assert.equal(rebuilt.instance.exports.memory, exports.memory);
 assert.equal(rebuilt.instance.exports.importedGlobal, exports.importedGlobal);
-
-// wabt features
-
-function wabtFeatures() {
-  return {
-    /** Experimental exception handling. */
-    exceptions: true,
-    /** Import/export mutable globals. */
-    mutable_globals: true,
-    /** Saturating float-to-int operators. */
-    sat_float_to_int: true,
-    /** Sign-extension operators. */
-    sign_extension: true,
-    /** SIMD support. */
-    simd: true,
-    /** Threading support. */
-    threads: true,
-    /** Multi-value. */
-    multi_value: true,
-    /** Tail-call support. */
-    tail_call: true,
-    /** Bulk-memory operations. */
-    bulk_memory: true,
-    /** Reference types (externref). */
-    reference_types: true,
-    /** Relaxed SIMD */
-    relaxed_simd: true,
-  };
-}

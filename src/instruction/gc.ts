@@ -7,6 +7,7 @@ import {
   labelTypes,
   type LocalContext,
   popStack,
+  checkStack,
   type StackVar,
   pushStack,
   Unknown,
@@ -361,7 +362,7 @@ function branchOnCast(name: "br_on_cast" | "br_on_cast_fail") {
       if (target === undefined || !isSubtype(branch, target))
         throw Error(`${name}: the label's last type must fit ${printValueType(branch)}`);
       popStack(ctx, [from]);
-      pushStack(ctx, popStack(ctx, types.slice(0, -1)));
+      checkStack(ctx, types.slice(0, -1));
       pushStack(ctx, [rest]);
       return {
         in: [],
