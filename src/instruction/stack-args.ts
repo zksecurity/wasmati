@@ -179,7 +179,7 @@ function checkStackOperands(
   for (let operand of operands) {
     if (!isStackVar(operand)) continue;
     let value = stack[i++];
-    if (operand.type === Unknown || operand.id === value?.id) continue;
+    if (operand.type === Unknown || operand === value) continue;
     throw Error(
       `${string}: operands that are instruction results must be the latest values on the stack, in order. Compute them in the order they are passed, and use each once.`,
     );
@@ -218,7 +218,7 @@ function processStackArgs(
 function processStackArg(ctx: LocalContext, string: string, type: ValueType, x: Input<any>) {
   if (isStackVar(x) && x.type !== Unknown && !ctx.frames[0]?.unreachable) {
     let top = ctx.stack[ctx.stack.length - 1];
-    if (x.id !== top?.id)
+    if (x !== top)
       throw Error(
         `${string}: operands that are instruction results must be the latest values on the stack, in order. Compute them in the order they are passed, and use each once.`,
       );

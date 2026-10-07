@@ -42,7 +42,6 @@ type RandomLabel = `0.${string}`;
 type Label = "top" | RandomLabel;
 
 type StackVar<T> = {
-  id: number;
   kind: "stack-var";
   type: T;
 };
@@ -244,8 +243,9 @@ function getFrameFromLabel(ctx: LocalContext, label: Label | number): [number, C
 
 /** Stack values are instances of a class, which tells them apart from other operands quickly. */
 class StackValue<T> {
-  kind = "stack-var" as const;
-  id = id();
+  get kind() {
+    return "stack-var" as const;
+  }
   type: T;
   start: number;
   end: number;
@@ -322,11 +322,6 @@ function shiftPlaces(ctx: LocalContext, position: number, n: number) {
     if (start >= position) placed(value).start = start + n;
     if (end > position) placed(value).end = end + n;
   }
-}
-
-let i = 0;
-function id() {
-  return i++;
 }
 
 // helpers

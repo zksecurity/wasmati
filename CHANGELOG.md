@@ -5,6 +5,7 @@
 ### Breaking changes
 
 - **Functions and constants hold their code as bytes.** Instructions are encoded when they are created, and `Module()` fills in the indices they refer to. `Func` and `Constant` dependencies have `code` in place of `body`, functions list the functions they call in `calls`, and the `DependencyInstruction` type is gone. The bodies of built modules, `module.module.funcs[i].body`, are decoded where they are read.
+- **`StackVar` has no `id`**: instruction results are told apart by identity.
 
 ### Changes
 
