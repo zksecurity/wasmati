@@ -1,6 +1,12 @@
 import { Undefined } from "../binable.ts";
 import * as Dependency from "../dependency.ts";
-import { baseInstruction, emitSimple, type FunctionTypeInput, functionTypeOf } from "./base.ts";
+import {
+  baseInstruction,
+  emitSimple,
+  type FunctionTypeInput,
+  functionTypeOf,
+  one,
+} from "./base.ts";
 import {
   type AbstractHeapType,
   type DefinedType,
@@ -21,7 +27,7 @@ import {
 } from "../types.ts";
 import { type LocalContext, StackVar, type StackType, Unknown } from "../local-context.ts";
 import { globalGet, localGet } from "./variable-get.ts";
-import { type Input, processStackArgs } from "./stack-args.ts";
+import { type Input, processStackArg, processStackArgs } from "./stack-args.ts";
 
 export {
   localOps,
@@ -65,14 +71,14 @@ function bindLocalOps(ctx: LocalContext) {
       return localOps.get(ctx, x) as StackVar<T>;
     },
     set: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      if (value !== undefined) processStackArgs(ctx, "local.set", [x.type], [value]);
+      if (value !== undefined) processStackArg(ctx, "local.set", x.type, value);
       let type = localType(ctx, x);
-      emitSimple(ctx, localOps.set.instruction, [type], undefined, x.index);
+      emitSimple(ctx, localOps.set.instruction, one(type), undefined, x.index);
     },
     tee: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      if (value !== undefined) processStackArgs(ctx, "local.tee", [x.type], [value]);
+      if (value !== undefined) processStackArg(ctx, "local.tee", x.type, value);
       let type = localType(ctx, x);
-      return emitSimple(ctx, localOps.tee.instruction, [type], type, x.index) as StackVar<
+      return emitSimple(ctx, localOps.tee.instruction, one(type), type, x.index) as StackVar<
         L["type"]
       >;
     },

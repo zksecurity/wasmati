@@ -38,6 +38,7 @@ export {
   type Description,
   emit,
   emitSimple,
+  one,
   emitResults,
   writeInstruction,
   runBlock,
@@ -237,6 +238,16 @@ function emitSimple(
   if (result !== undefined) return pushResult(ctx, result, start);
   placeResults(ctx, start);
   return undefined;
+}
+
+const singletons = new Map<ValueType, ValueType[]>();
+
+/** The list of one type, shared for types that are strings. */
+function one(type: ValueType): ValueType[] {
+  if (typeof type !== "string") return [type];
+  let list = singletons.get(type);
+  if (list === undefined) singletons.set(type, (list = [type]));
+  return list;
 }
 
 /** Like `emitSimple()`, for an instruction of several results, which it returns. */

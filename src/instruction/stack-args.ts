@@ -31,6 +31,7 @@ export {
   type Input,
   type Inputs,
   processStackArgs,
+  processStackArg,
   namedInputs,
   insertInstruction,
 };
@@ -166,11 +167,14 @@ function namedInputs(names: string[], values: Record<string, Input<any>>): Input
  * be the latest values on the stack, in the order of the operands, or the instruction would take
  * other values. `$` stands for whatever value is there. Unreachable code accepts any stack.
  */
-function checkStackOperands(ctx: LocalContext, string: string, operands: Input<any>[]) {
+function checkStackOperands(
+  ctx: LocalContext,
+  string: string,
+  operands: Input<any>[],
+  count: number,
+) {
   if (ctx.frames[0]?.unreachable) return;
   let { stack } = ctx;
-  let count = 0;
-  for (let operand of operands) if (isStackVar(operand)) count++;
   let i = stack.length - count;
   for (let operand of operands) {
     if (!isStackVar(operand)) continue;
@@ -193,55 +197,80 @@ function processStackArgs(
   if (actualArgs.length !== n) {
     throw Error(`${string}: Expected 0 or ${n} arguments, got ${actualArgs.length}.`);
   }
-  checkStackOperands(ctx, string, actualArgs);
-
+  // Operands that are new values, before instruction results, are inserted below those.
+  let results = 0;
   let mustReorder = false;
-  let hadNewInstr = false;
-  for (let x of actualArgs) {
-    if (!isStackVar(x)) hadNewInstr = true;
-    else if (hadNewInstr) mustReorder = true;
+  for (let i = 0; i < n; i++) {
+    if (!isStackVar(actualArgs[i])) continue;
+    if (results < i) mustReorder = true;
+    results++;
   }
+  if (results > 0) checkStackOperands(ctx, string, actualArgs, results);
 
   for (let i = 0; i < n; i++) {
     // if reordering, process inputs from last to first
-    let x = mustReorder ? actualArgs[n - 1 - i] : actualArgs[i];
-    let type = mustReorder ? expectedArgs[n - 1 - i] : expectedArgs[i];
-    if (isLocal(x)) {
-      if (x.type !== type && !isSubtype(x.type, type))
-        throw Error(
-          `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
-        );
-      if (mustReorder) insertInstruction(ctx, i, localGet.create(ctx, x));
-      else localGet(ctx, x);
-    } else if (isGlobal(x)) {
-      if (!isSubtype(x.type.value, type))
-        throw Error(
-          `${string}: Expected type ${printValueType(type)}, got global of type ${printValueType(x.type.value)}.`,
-        );
-      if (mustReorder) insertInstruction(ctx, i, globalGet.create(ctx, x));
-      else globalGet(ctx, x);
-    } else if (isStackVar(x)) {
-      if (x.type !== Unknown && x.type !== type && !isSubtype(x.type, type))
-        throw Error(
-          `${string}: Expected argument of type ${printValueType(type)}, got ${printValueType(x.type)}.`,
-        );
-    } else {
-      // could be const
-      let constant =
-        type === "i32" && typeof x === "number"
-          ? i32Const
-          : type === "i64" && typeof x === "bigint"
-            ? i64Const
-            : type === "f32" && typeof x === "number"
-              ? f32Const
-              : type === "f64" && typeof x === "number"
-                ? f64Const
-                : undefined;
-      if (constant === undefined)
-        throw Error(`${string}: Unsupported input for type ${type}, got ${x}.`);
-      if (mustReorder) insertInstruction(ctx, i, constant.create(ctx, x as never));
-      else constant(ctx, x as never);
-    }
+    if (mustReorder) operand(ctx, string, expectedArgs[n - 1 - i], actualArgs[n - 1 - i], i);
+    else operand(ctx, string, expectedArgs[i], actualArgs[i]);
+  }
+}
+
+/** The single operand of an instruction, like that of `local.set`, without arrays of operands. */
+function processStackArg(ctx: LocalContext, string: string, type: ValueType, x: Input<any>) {
+  if (isStackVar(x) && x.type !== Unknown && !ctx.frames[0]?.unreachable) {
+    let top = ctx.stack[ctx.stack.length - 1];
+    if (x.id !== top?.id)
+      throw Error(
+        `${string}: operands that are instruction results must be the latest values on the stack, in order. Compute them in the order they are passed, and use each once.`,
+      );
+  }
+  operand(ctx, string, type, x);
+}
+
+/**
+ * An operand of the given type: a local, global or number is pushed, or inserted below the top `below`
+ * values; an instruction result is on the stack already.
+ */
+function operand(
+  ctx: LocalContext,
+  string: string,
+  type: ValueType,
+  x: Input<ValueType | Unknown>,
+  below?: number,
+) {
+  if (isStackVar(x)) {
+    if (x.type !== Unknown && x.type !== type && !isSubtype(x.type, type))
+      throw Error(
+        `${string}: Expected argument of type ${printValueType(type)}, got ${printValueType(x.type)}.`,
+      );
+  } else if (isLocal(x)) {
+    if (x.type !== type && !isSubtype(x.type, type))
+      throw Error(
+        `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
+      );
+    if (below !== undefined) insertInstruction(ctx, below, localGet.create(ctx, x));
+    else localGet(ctx, x);
+  } else if (isGlobal(x)) {
+    if (!isSubtype(x.type.value, type))
+      throw Error(
+        `${string}: Expected type ${printValueType(type)}, got global of type ${printValueType(x.type.value)}.`,
+      );
+    if (below !== undefined) insertInstruction(ctx, below, globalGet.create(ctx, x));
+    else globalGet(ctx, x);
+  } else {
+    let constant =
+      type === "i32" && typeof x === "number"
+        ? i32Const
+        : type === "i64" && typeof x === "bigint"
+          ? i64Const
+          : type === "f32" && typeof x === "number"
+            ? f32Const
+            : type === "f64" && typeof x === "number"
+              ? f64Const
+              : undefined;
+    if (constant === undefined)
+      throw Error(`${string}: Unsupported input for type ${type}, got ${x}.`);
+    if (below !== undefined) insertInstruction(ctx, below, constant.create(ctx, x as never));
+    else constant(ctx, x as never);
   }
 }
 
