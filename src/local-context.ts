@@ -91,7 +91,7 @@ function withContext(
 
 function pushInstruction(ctx: LocalContext, instr: Dependency.Instruction) {
   let { body, deps } = ctx;
-  popStack(ctx, instr.type.args);
+  popStack(ctx, instr.type.args, instr.string);
   pushStack(ctx, instr.type.results);
   body.push(instr);
   for (let dep of instr.deps) {
@@ -105,7 +105,12 @@ function pushInstruction(ctx: LocalContext, instr: Dependency.Instruction) {
  * Pop values of the given types and return the types actually popped. In unreachable code, popping
  * below the frame yields Unknown, and Unknown matches any type.
  */
-function popStack({ stack, frames }: LocalContext, values: StackType[]): StackType[] {
+/** Pop values of the given types; errors name the instruction, if given. */
+function popStack(
+  { stack, frames }: LocalContext,
+  values: StackType[],
+  instruction?: string,
+): StackType[] {
   let popped: StackType[] = [];
   for (let i = values.length - 1; i >= 0; i--) {
     let stackValue = stack.pop();
@@ -115,7 +120,7 @@ function popStack({ stack, frames }: LocalContext, values: StackType[]): StackTy
       (stackValue !== undefined && !isAssignable(stackValue.type, value))
     ) {
       throw Error(
-        `expected ${format(value)} on the stack, got ${stackValue === undefined ? "nothing" : format(stackValue.type)}`,
+        `${instruction === undefined ? "" : `${instruction}: `}expected ${format(value)} on the stack, got ${stackValue === undefined ? "nothing" : format(stackValue.type)}`,
       );
     }
     popped.unshift(stackValue?.type ?? Unknown);

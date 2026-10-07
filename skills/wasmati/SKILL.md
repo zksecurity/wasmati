@@ -309,7 +309,7 @@ Catch clauses branch to enclosing labels with the exception's values; `catch_all
 
 - The build writes export types to `file.d.wasm.ts` (TypeScript reads them with `allowArbitraryExtensions`).
 - Imports written inline are extracted into `file.host.js` with the top-level declarations and imports they use. The built file may only export its `Module`; share state with the app through another module.
-- The build rejects imports it cannot move: functions that use variables of an enclosing function, wasmati values, or state that build-time code assigns.
+- The build rejects what it cannot copy faithfully: functions that use variables or `this` of an enclosing function, wasmati values, declarations that code running during the build also uses, and memories written during the build.
 - Async exports get an entry module, `file.js`, which JS imports instead.
 - Built modules run in Node 22.19 or 24.5 and later, and Deno 2.1 and later. Browsers need a bundler: Vite with `vite-plugin-wasm`, or Next.js with Turbopack. Modules that use JS string builtins also need the bundler to map `wasm:js-string` to the generated `js-string.js`.
 

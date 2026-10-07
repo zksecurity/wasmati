@@ -6,6 +6,7 @@ _Write low-level WebAssembly, from JavaScript_
 
 - 🥷 You want to create low-level, hand-optimized Wasm libraries? wasmati is the tool to do so effectively.
 - 🚀 You want to sprinkle some Wasm in your JS app, to speed up critical parts? wasmati gives you a JS-native way to achieve that.
+- 🌱 You want the latest Wasm features? wasmati supports all of WebAssembly 3.0 and every proposal at phase 4 or 5, and keeps up with new ones. Proposals at earlier phases follow once they see major adoption in engines.
 - ⚠️ You want to compile Wasm modules from a high-level language, like Rust or C? wasmati is not for you.
 
 ```sh
@@ -90,7 +91,7 @@ const myFunction = func(
 - **Great debugging DX.** Stack traces point to the exact line in your code where an invalid opcode is called:
 
 ```
-Error: i32.add: Expected i32 on the stack, got i64.
+Error: i32.add: expected i32 on the stack, got i64
     ...
     at file:///home/gregor/code/wasmati/examples/example.ts:16:9
 ```
@@ -133,18 +134,6 @@ const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y })
   - Convert files on the command line with `wasmati wat input.wasm` and `wasmati wasm input.wat -o output.wasm`. All commands take either format as input.
 
 - Named parameters and debug names. `in: [{ x: i32 }, { y: i64 }]` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback.
-
-### Features that aren't implemented yet
-
-_PRs welcome!_
-
-- **Experimental Wasm opcodes.** We want to support opcodes from in-progress feature proposals ([like this one](https://github.com/WebAssembly/shared-everything-threads/blob/main/proposals/shared-everything-threads/Overview.md)) which haven't yet made it to the spec. The eventual goal is to support proposals as soon as they are implemented in at least one JS engine.
-
-### Some ideas that are a bit further out:
-
-- **Source maps**, so you can look at the culprit JS code when Wasm throws an error
-- Optional JS interpreter which can take DSL code and execute it _in JS_
-  - could enable even more flexible debugging -- inspect the stack, global/local scope etc
 
 ## Build: Wasm without the wasmati runtime
 
@@ -194,3 +183,16 @@ export default {
   turbopack: { resolveAlias: { "wasm:js-string": "./path/to/built/js-string.js" } },
 };
 ```
+
+## Documentation
+
+- [The wasmati skill](skills/wasmati/SKILL.md): detailed docs of the API, written for coding agents and readable by humans. It ships with the package, at `node_modules/wasmati/skills/wasmati/SKILL.md`.
+- [The changelog](CHANGELOG.md), with migration notes for breaking changes.
+
+## Ideas
+
+_PRs welcome!_
+
+- **Source maps**, so you can look at the culprit JS code when Wasm throws an error
+- Optional JS interpreter which can take DSL code and execute it _in JS_
+  - could enable even more flexible debugging -- inspect the stack, global/local scope etc
