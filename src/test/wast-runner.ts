@@ -51,10 +51,9 @@ import { loadTextFactory, readModule } from "./text-helpers.ts";
 export { runWast };
 export type { Result };
 
-type Result = {
-  passed: number;
-  failures: { command: number; line: number; kind: string; message: string }[];
-};
+type Failure = { command: number; line: number; kind: string; message: string };
+/** Valid modules beyond the engine's implementation limits, which the spec permits, are skipped. */
+type Result = { passed: number; failures: Failure[]; skipped: Failure[] };
 
 type Instance = { instance: WebAssembly.Instance; module: ModuleValue };
 type Factory = Awaited<ReturnType<typeof loadTextFactory>>;
@@ -65,7 +64,7 @@ type Factory = Awaited<ReturnType<typeof loadTextFactory>>;
  * vectors as integer bits so that NaN payloads never pass through JS numbers.
  */
 async function runWast(source: string): Promise<Result> {
-  const result: Result = { passed: 0, failures: [] };
+  const result: Result = { passed: 0, failures: [], skipped: [] };
   const lists = readScript(source);
   const registered: WebAssembly.Imports = linked({ spectest: spectest() });
   const instances = new Map<string, Instance>();
@@ -203,11 +202,13 @@ async function runWast(source: string): Promise<Result> {
       }
       result.passed++;
     } catch (error) {
-      result.failures.push({
+      const message = error instanceof Error ? error.message : String(error);
+      const limited = kind === "module" && /larger than implementation limit/.test(message);
+      (limited ? result.skipped : result.failures).push({
         command: index + 1,
         line: source.slice(0, list.offset).split(/\r\n|[\r\n]/).length,
         kind,
-        message: error instanceof Error ? error.message : String(error),
+        message,
       });
     }
   }

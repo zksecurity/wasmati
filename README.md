@@ -36,11 +36,12 @@ $ node example.ts
 
 - Works in all modern browsers, `node` and `deno`
 
-- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of the [WebAssembly 2.0 spec](https://webassembly.github.io/spec/versions/core/WebAssembly-2.0.pdf) are supported. In addition, wasmati supports the following extensions which are not part of that spec:
+- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of [WebAssembly 3.0](https://webassembly.github.io/spec/core/) are supported, including garbage collection, typed function references, tail calls, exception handling, memory64, multiple memories, extended constant expressions and relaxed SIMD. In addition, wasmati supports the following extensions which are not part of that spec:
 
   - [threads and atomics](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)
-  - [relaxed simd](https://github.com/WebAssembly/relaxed-simd/blob/main/proposals/relaxed-simd/Overview.md)
   - [wide arithmetic](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md)
+
+  Every module and assertion of the official WebAssembly 3.0 spec test suite runs through wasmati in CI: modules are decompiled to wasmati code, rebuilt, and checked against the expected results.
 
 - **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
@@ -126,6 +127,27 @@ const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y })
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
   - Generate stack-style wasmati TypeScript with `decompile(bytes)` or `wasmati decompile input.wasm -o output.ts` (omit `-o` to write to stdout). The generated default export builds a `Module` from a `WebAssembly.Imports` object.
 
+- **GC types as JS values.** Structs, arrays and function types are defined once and referenced as objects; recursive types refer to each other by name, and struct fields are accessed by name. Constant expressions, like global initializers, use the same instruction API:
+
+```ts
+const { node } = rec((types) => ({
+  node: struct({ value: i32, next: refType(types.node, { nullable: true }) }),
+}));
+
+const list = global(
+  constant(() => {
+    i32.const(1);
+    ref.null(refType(node, { nullable: true }));
+    return struct.new(node);
+  }),
+);
+
+const head = func({ in: [], out: [i32] }, () => {
+  global.get(list);
+  struct.get(node, "value");
+});
+```
+
 - Named parameters and debug names. `in: [{ x: i32 }, { y: i64 }]` declares parameter order; builder callbacks and `call(f, { x, y })` use names, while native exports retain typed positional arguments. Parameter, local and export keys populate the Wasm name section. Functions can use an explicit `name` or a named callback.
 
 ### Features that aren't implemented yet
@@ -145,7 +167,7 @@ export { module as default };
 import { myFunction } from "./example.wasm.js"; // example.wasm.js does not depend on wasmati at runtime
 ```
 
-- **Experimental Wasm opcodes.** We want to support opcodes from recently standardized or in-progress feature proposals ([like this one](https://github.com/WebAssembly/gc/blob/main/proposals/gc/Overview.md)) which haven't yet made it to the spec. The eventual goal is to support proposals as soon as they are implemented in at least one JS engine.
+- **Experimental Wasm opcodes.** We want to support opcodes from in-progress feature proposals ([like this one](https://github.com/WebAssembly/shared-everything-threads/blob/main/proposals/shared-everything-threads/Overview.md)) which haven't yet made it to the spec. The eventual goal is to support proposals as soon as they are implemented in at least one JS engine.
 
 ### Some ideas that are a bit further out:
 
