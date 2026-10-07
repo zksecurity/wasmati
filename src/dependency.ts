@@ -249,6 +249,8 @@ type Instruction = {
   type: FunctionType;
   deps: t[];
   resolveArgs: any[];
+  /** A branch hint, on `if` and `br_if`. */
+  likely?: boolean;
 };
 
 /** A constant expression: instructions that produce one value, such as a global's initializer. */

@@ -52,7 +52,8 @@ type BaseInstruction = {
   immediate: Binable<any> | undefined;
   resolve: (deps: number[], ...args: any) => any;
 };
-type ResolvedInstruction = { name: string; immediate: any };
+/** An instruction with its immediate; `if` and `br_if` may carry a branch hint. */
+type ResolvedInstruction = { name: string; immediate: any; likely?: boolean };
 
 /**
  * Most general function to create instructions
@@ -78,6 +79,7 @@ function baseInstruction<
       out: Results;
       deps?: Dependency.t[];
       resolveArgs?: ResolveArgs;
+      likely?: boolean;
     };
     resolve?(deps: number[], ...args: ResolveArgs): Immediate;
   },
@@ -101,8 +103,15 @@ function baseInstruction<
       out: results,
       deps = [],
       resolveArgs = createArgs,
+      likely,
     } = create(ctx, ...createArgs);
-    return { string, deps, type: { args, results }, resolveArgs };
+    return {
+      string,
+      deps,
+      type: { args, results },
+      resolveArgs,
+      ...(likely === undefined ? {} : { likely }),
+    };
   }
 
   /**
@@ -184,7 +193,7 @@ function baseInstructionWithImmediate<
 }
 
 function resolveInstruction(
-  { string: name, deps, resolveArgs }: Dependency.Instruction,
+  { string: name, deps, resolveArgs, likely }: Dependency.Instruction,
   depToIndex: Map<Dependency.t, number>,
 ): ResolvedInstruction {
   let instr = lookupInstruction(name);
@@ -199,7 +208,7 @@ function resolveInstruction(
     depIndices.push(index);
   }
   let immediate = instr.resolve(depIndices, ...resolveArgs);
-  return { name, immediate };
+  return { name, immediate, ...(likely === undefined ? {} : { likely }) };
 }
 
 const noResolve = (_: number[], ...args: any) => args[0];

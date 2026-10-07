@@ -12,14 +12,14 @@ const isGreater = func(
 
       // return true if (xi > yi)
       i32.gt_u(xi, yi);
-      if_(null, () => {
+      if_(() => {
         i32.const(1);
         return_();
       });
 
       // return false if (xi != yi)
       i32.ne(xi, yi);
-      if_(null, () => {
+      if_(() => {
         i32.const(0);
         return_();
       });

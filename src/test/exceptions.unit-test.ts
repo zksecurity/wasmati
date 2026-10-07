@@ -24,10 +24,10 @@ test("tags throw values that try_table catches into enclosing blocks", async () 
   const error = tag({ in: [i32] });
   const safeDivide = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => {
     block({ out: [i32] }, (caught) => {
-      try_table({ out: [i32] }, [{ tag: error, label: caught }], () => {
+      try_table({ out: [i32], catches: [{ tag: error, label: caught }] }, () => {
         local.get(y);
         i32.eqz();
-        control.if({}, () => {
+        control.if(() => {
           i32.const(-1);
           throw_(error);
         });
@@ -46,7 +46,7 @@ test("caught exceptions can be rethrown by reference, and escape to JS", async (
   const error = importTag({ in: [i32] });
   const rethrow = func({ in: [], out: [] }, () => {
     block({ out: [exnref] }, (caught) => {
-      try_table({}, [{ ref: true, label: caught }], () => {
+      try_table({ catches: [{ ref: true, label: caught }] }, () => {
         i32.const(42);
         throw_(error);
       });
@@ -65,7 +65,7 @@ test("caught exceptions can be rethrown by reference, and escape to JS", async (
   assert.throws(
     () =>
       func({ in: [], out: [] }, () =>
-        block({ out: [i32] }, (label) => try_table({}, [{ label }], () => {})),
+        block({ out: [i32] }, (label) => try_table({ catches: [{ label }] }, () => {})),
       ),
     /catch clause provides \[\], label expects \[i32\]/,
   );
@@ -86,7 +86,7 @@ test("tags and try_table roundtrip through text, binary and decompiled builders"
   assert.deepEqual(BinaryModule.toBytes(BinaryModule.fromBytes(bytes)), bytes);
   assert.match(
     decompileModule(parsed),
-    /try_table\(\{ in: \[\], out: \[\] \}, \[\{ tag: e, label: 0 \}\]/,
+    /try_table\(\{ catches: \[\{ tag: e, label: 0 \}\] \}, \(\) => \{/,
   );
   const { instance } = await (await buildTextModule(parsed)).instantiate();
   assert.equal((instance.exports.run as Function)(), 5);

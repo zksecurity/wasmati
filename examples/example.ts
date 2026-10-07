@@ -64,11 +64,11 @@ let myFunc = func(
     block({ in: [i32], out: [i32] }, ($block) => {
       local.tee(tmp, $);
       call(consoleLog);
-      loop({}, ($loop) => {
+      loop(($loop) => {
         call(consoleLog, { value: i });
         local.tee(i, i32.add(i, 1));
         i32.eq($, 5);
-        control.if({}, () => {
+        control.if(() => {
           local.get(tmp);
           control.return();
           // fine that this is missing input, because code path is unreachable
@@ -130,7 +130,7 @@ let exportedFunc = func(
     call(consoleLogF64);
     local.get(x);
     local.get(doLog);
-    control.if(null, () => {
+    control.if(() => {
       call(consoleLog, { value: x });
     });
     i32.const(2 ** 31 - 1);

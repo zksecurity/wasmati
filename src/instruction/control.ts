@@ -63,70 +63,69 @@ const unreachable = baseInstruction("unreachable", Undefined, {
   resolve: () => undefined,
 });
 
-const block = baseInstruction("block", Block, {
-  create(ctx, t: FunctionTypeInput, run: (label: RandomLabel) => void) {
-    let { type, body, deps } = createExpressionWithType("block", ctx, t, run);
-    return {
-      in: type.args,
-      out: type.results,
-      deps: [Dependency.type(type), ...deps],
-      resolveArgs: [body],
-    };
-  },
-  resolve([blockType, ...deps], body: Dependency.Instruction[]) {
-    let instructions = resolveExpression(deps, body);
-    return { blockType, instructions };
-  },
-});
+/** The body of a block, which may branch to the block's label. */
+type Body = (label: RandomLabel) => void;
+/** Block types, by their parameters and results; a block without them takes and leaves nothing. */
+type BlockOptions = Exclude<FunctionTypeInput, null>;
+type BlockArgs = [body: Body] | [options: BlockOptions, body: Body];
 
-const loop = baseInstruction("loop", Block, {
-  create(ctx, t: FunctionTypeInput, run: (label: RandomLabel) => void) {
-    let { type, body, deps } = createExpressionWithType("loop", ctx, t, run);
-    return {
-      in: type.args,
-      out: type.results,
-      deps: [Dependency.type(type), ...deps],
-      resolveArgs: [body],
-    };
-  },
-  resolve([blockType, ...deps], body: Dependency.Instruction[]) {
-    let instructions = resolveExpression(deps, body);
-    return { blockType, instructions };
-  },
-});
+/** Optional options come first, then the bodies. */
+function withOptions<Options, Bodies extends unknown[]>(
+  args: [Options, ...Bodies] | Bodies,
+  bodies: number,
+): [Options | Record<string, never>, ...Bodies] {
+  return (args.length > bodies ? args : [{}, ...args]) as [Options, ...Bodies];
+}
 
-const if_ = baseInstruction("if", IfBlock, {
-  create(
-    ctx,
-    t: FunctionTypeInput,
-    runIf: (label: RandomLabel) => void,
-    runElse?: (label: RandomLabel) => void,
-  ) {
-    popStack(ctx, ["i32"]);
-    let { type, body, deps } = createExpressionWithType("if", ctx, t, runIf);
-    let ifArgs = [...type.args, "i32"] as [...ValueType[], "i32"];
-    if (runElse === undefined) {
-      pushStack(ctx, ["i32"]);
+function blockInstruction(name: "block" | "loop") {
+  return baseInstruction(name, Block, {
+    create(ctx, ...args: BlockArgs) {
+      let [options, run] = withOptions<BlockOptions, [Body]>(args, 1);
+      let { type, body, deps } = createExpressionWithType(name, ctx, options, run);
       return {
-        in: ifArgs,
+        in: type.args,
         out: type.results,
         deps: [Dependency.type(type), ...deps],
-        resolveArgs: [body, undefined],
+        resolveArgs: [body],
       };
-    }
-    let elseExpr = createExpressionWithType("else", ctx, t, runElse);
+    },
+    resolve([blockType, ...deps], body: Dependency.Instruction[]) {
+      let instructions = resolveExpression(deps, body);
+      return { blockType, instructions };
+    },
+  });
+}
+
+const block = blockInstruction("block");
+const loop = blockInstruction("loop");
+
+/** A branch hint: whether the branch is likely taken. */
+type BranchHint = { likely?: boolean };
+type IfOptions = BlockOptions & BranchHint;
+type IfArgs = [then: Body, otherwise?: Body] | [options: IfOptions, then: Body, otherwise?: Body];
+
+const if_ = baseInstruction("if", IfBlock, {
+  create(ctx, ...args: IfArgs) {
+    let bodies = typeof args[0] === "function" ? args.length : args.length - 1;
+    let [options, runIf, runElse] = withOptions<IfOptions, [Body, Body?]>(args, bodies);
+    popStack(ctx, ["i32"]);
+    let { type, body, deps } = createExpressionWithType("if", ctx, options, runIf);
+    let ifArgs = [...type.args, "i32"] as [...ValueType[], "i32"];
+    let elseExpr =
+      runElse === undefined ? undefined : createExpressionWithType("else", ctx, options, runElse);
     pushStack(ctx, ["i32"]);
     return {
       in: ifArgs,
       out: type.results,
-      deps: [Dependency.type(type), ...deps, ...elseExpr.deps],
-      resolveArgs: [body, elseExpr.body],
+      deps: [Dependency.type(type), ...deps, ...(elseExpr?.deps ?? [])],
+      resolveArgs: [body, elseExpr?.body],
+      likely: options.likely,
     };
   },
   resolve(
     [blockType, ...deps],
     ifBody: Dependency.Instruction[],
-    elseBody?: Dependency.Instruction[],
+    elseBody: Dependency.Instruction[] | undefined,
   ) {
     let ifDepsLength = ifBody.reduce((acc, i) => acc + i.deps.length, 0);
     let if_ = resolveExpression(deps.slice(0, ifDepsLength), ifBody);
@@ -146,10 +145,10 @@ const br = baseInstruction("br", LabelIndex, {
 });
 
 const br_if = baseInstruction("br_if", LabelIndex, {
-  create(ctx, label: Label | number) {
+  create(ctx, label: Label | number, { likely }: BranchHint = {}) {
     let [i, frame] = getFrameFromLabel(ctx, label);
     let types = labelTypes(frame);
-    return { in: [...types, "i32"], out: types, resolveArgs: [i] };
+    return { in: [...types, "i32"], out: types, resolveArgs: [i], likely };
   },
 });
 
@@ -327,12 +326,14 @@ const throw_ref = baseInstruction("throw_ref", Undefined, {
  * tag's values and, if `ref` is set, a reference to the exception.
  */
 type CatchInput = { tag?: Dependency.AnyTag; ref?: boolean; label: Label | number };
+type TryTableOptions = BlockOptions & { catches?: CatchInput[] };
 
 /** A block whose exceptions are caught by its catch clauses, which branch to enclosing labels. */
 const try_table = baseInstruction("try_table", TryTable, {
-  create(ctx, t: FunctionTypeInput, catches: CatchInput[], run: (label: RandomLabel) => void) {
+  create(ctx, ...args: [body: Body] | [options: TryTableOptions, body: Body]) {
+    let [options, run] = withOptions<TryTableOptions, [Body]>(args, 1);
     // Catch clauses branch from outside the block.
-    let clauses = catches.map(({ tag, ref = false, label }) => {
+    let clauses = (options.catches ?? []).map(({ tag, ref = false, label }) => {
       let [depth, frame] = getFrameFromLabel(ctx, label);
       let values = [...(tag?.type.args ?? []), ...(ref ? [refType("exn", false)] : [])];
       let types = labelTypes(frame);
@@ -344,7 +345,7 @@ const try_table = baseInstruction("try_table", TryTable, {
         `${tag === undefined ? "catch_all" : "catch"}${ref ? "_ref" : ""}` as Catch["kind"];
       return { kind, tag, label: depth };
     });
-    let { type, body, deps } = createExpressionWithType("try_table", ctx, t, run);
+    let { type, body, deps } = createExpressionWithType("try_table", ctx, options, run);
     let tags = clauses.flatMap(({ tag }) => (tag === undefined ? [] : [tag]));
     return {
       in: type.args,

@@ -84,29 +84,27 @@ class TypeRegistry {
 
   /** Instructions with type immediates refer to types by index. */
   instructions(body: ResolvedInstruction[]): ResolvedInstruction[] {
-    return body.map(({ name, immediate }) => {
-      if (name === "ref.null" || name.startsWith("ref.test") || name.startsWith("ref.cast"))
-        return { name, immediate: this.heap(immediate) };
-      if (name === "br_on_cast" || name === "br_on_cast_fail") {
-        let { from, to } = immediate;
-        return { name, immediate: { ...immediate, from: this.value(from), to: this.value(to) } };
-      }
-      if (name === "select_t")
-        return { name, immediate: immediate.map((t: StorageType) => this.value(t)) };
-      if (name === "block" || name === "loop" || name === "try_table")
-        return {
-          name,
-          immediate: { ...immediate, instructions: this.instructions(immediate.instructions) },
-        };
-      if (name === "if") {
-        let { if: then, else: otherwise } = immediate.instructions;
-        let branches = {
-          if: this.instructions(then),
-          else: otherwise && this.instructions(otherwise),
-        };
-        return { name, immediate: { ...immediate, instructions: branches } };
-      }
-      return { name, immediate };
-    });
+    return body.map((instruction) => ({ ...instruction, immediate: this.immediate(instruction) }));
+  }
+
+  private immediate({ name, immediate }: ResolvedInstruction): unknown {
+    if (name === "ref.null" || name.startsWith("ref.test") || name.startsWith("ref.cast"))
+      return this.heap(immediate);
+    if (name === "br_on_cast" || name === "br_on_cast_fail") {
+      let { from, to } = immediate;
+      return { ...immediate, from: this.value(from), to: this.value(to) };
+    }
+    if (name === "select_t") return immediate.map((t: StorageType) => this.value(t));
+    if (name === "block" || name === "loop" || name === "try_table")
+      return { ...immediate, instructions: this.instructions(immediate.instructions) };
+    if (name === "if") {
+      let { if: then, else: otherwise } = immediate.instructions;
+      let branches = {
+        if: this.instructions(then),
+        else: otherwise && this.instructions(otherwise),
+      };
+      return { ...immediate, instructions: branches };
+    }
+    return immediate;
   }
 }
