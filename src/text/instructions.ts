@@ -55,6 +55,8 @@ type Scope = {
 type Names = {
   id(space: IndexSpace, index: number): string | undefined;
   field(type: number, field: number): string | undefined;
+  /** A type use: inline parameters and results, preceded by the type unless they imply it. */
+  typeUse(type: number, block?: boolean): string;
 };
 
 const blocks = new Set(["block", "loop", "if", "try_table"]);
@@ -435,7 +437,7 @@ function printInstructions(body: ResolvedInstruction[], names: Names, indent = "
 function blockType(type: BlockType, names: Names): string[] {
   if (type === "empty") return [];
   return typeof type === "number"
-    ? [`(type ${type})`]
+    ? [names.typeUse(type, true)]
     : [`(result ${printValueType(type, names)})`];
 }
 
@@ -473,7 +475,9 @@ function printImmediate(name: string, value: any, names: Names): string[] {
       return [...value.indices, value.defaultIndex].map(String);
     case "call_indirect":
     case "return_call_indirect":
-      return [...(value[1] === 0 ? [] : [id("table", value[1])]), `(type ${value[0]})`];
+      return [...(value[1] === 0 ? [] : [id("table", value[1])]), names.typeUse(value[0])].filter(
+        (part) => part !== "",
+      );
     case "select_t":
       return [`(result ${value.map((type: ValueType) => printValueType(type, names)).join(" ")})`];
     case "memory.init":

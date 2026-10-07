@@ -18,7 +18,7 @@ import {
   type MemoryType,
   type RefType,
   type TableType,
-  typeEquals,
+  functionTypeEquals,
   type ValueType,
 } from "../types.ts";
 import { Cursor } from "./cursor.ts";
@@ -27,7 +27,7 @@ import { parseInstructions, parseValueType, type BlockType, type Scope } from ".
 import { parseU64 } from "./numbers.ts";
 import { limits } from "../memory.ts";
 
-export { parseWat, parseModule, sectionIds };
+export { parseWat, parseModule, impliedType, sectionIds };
 
 /** Parse a WAT module; the enclosing (module ...) may be omitted. */
 function parseWat(source: string): Module {
@@ -99,8 +99,11 @@ class ModuleParser {
   private groups: number[] = [];
   /** Field identifiers of struct types, by type index. */
   private fieldIds = new Map<number, Map<string, number>>();
+  /** Names given by `@name` annotations, which take precedence over identifiers. */
+  private annotatedNames = { function: new Map<number, string>(), tag: new Map<number, string>() };
 
-  parse(c: Cursor, name: string | undefined): Module {
+  parse(c: Cursor, id: string | undefined): Module {
+    const name = c.peekHead() === "@name" ? nameAnnotation(c.list("@name")) : id;
     const definitions = c.until((c) => this.field(c.list()));
     for (const define of this.typeDefinitions) define();
     for (const define of definitions) define();
@@ -152,6 +155,10 @@ class ModuleParser {
         this.groups.push(types.length);
         return () => {};
       }
+      case "@custom":
+        return () => this.customSection(c);
+      case "@name":
+        return c.fail("misplaced @name annotation");
       default:
         return c.fail(`unknown module field ${kind}`);
     }
@@ -240,6 +247,8 @@ class ModuleParser {
   private entity(kind: EntityKind, c: Cursor, path?: Path) {
     const space = spaceOf[kind];
     const index = this.allocate(c, space);
+    if ((space === "function" || space === "tag") && c.peekHead() === "@name")
+      this.annotatedNames[space].set(index, nameAnnotation(c.list("@name")));
     const exports = path === undefined ? c.lists("export", (e) => e.name()) : [];
     const inline = path === undefined ? c.maybeList("import") : undefined;
     if (inline !== undefined) {
@@ -427,6 +436,35 @@ class ModuleParser {
     return expression;
   }
 
+  /** `(@custom name placement? datastring)`: a custom section, after the last section by default. */
+  private customSection(c: Cursor) {
+    if (c.peek()?.kind !== "string") c.fail("@custom annotation: missing section name");
+    const name = c.name();
+    let after: number | undefined;
+    const placement = c.peek()?.kind === "list" ? c.list() : undefined;
+    if (placement !== undefined) {
+      const direction = placement.atom();
+      if (direction !== "before" && direction !== "after")
+        placement.fail("@custom annotation: malformed placement");
+      const node = placement.peek();
+      const section = placement.done ? "" : placement.atom();
+      const position = sectionOrder.indexOf(
+        section === "first" ? "type" : section === "last" ? "data" : section,
+      );
+      if (position === -1) placement.fail("@custom annotation: malformed section kind", node);
+      placement.end();
+      // Custom sections are placed after a section; before the first one, after none.
+      const previous = direction === "after" ? sectionOrder[position] : sectionOrder[position - 1];
+      after = previous === undefined ? 0 : sectionIds[previous];
+    }
+    const data = c.until((c) => c.bytes()).flat();
+    (this.module.customSections ??= []).push({
+      name,
+      data,
+      ...(after === undefined ? {} : { after }),
+    });
+  }
+
   // Types
 
   private valueType(c: Cursor): ValueType {
@@ -513,23 +551,14 @@ class ModuleParser {
       return { index: explicit, type, names };
     if (referenced === undefined || !isFunctionType(referenced))
       c.fail(`type ${explicit} is not a function type`);
-    if (inline && !equal(referenced, type))
+    if (inline && !functionTypeEquals(referenced, type))
       c.fail("inline function type does not match the referenced type");
     return { index: explicit, type: referenced, names };
   }
 
-  /** The first final function type of its own group with this signature, or a new one at the end. */
+  /** The type an inline signature refers to, or a new one at the end. */
   private findType(type: FunctionType): number {
-    const singletons = new Set<number>();
-    this.groups.reduce((start, size) => (size === 1 && singletons.add(start), start + size), 0);
-    const index = this.module.types.findIndex(
-      (other, i) =>
-        singletons.has(i) &&
-        isFunctionType(other) &&
-        other.final !== false &&
-        other.supertype === undefined &&
-        equal(other, type),
-    );
+    const index = impliedType(this.module.types, this.groups, type);
     if (index !== -1) return index;
     this.counts.type++;
     this.groups.push(1);
@@ -584,9 +613,13 @@ class ModuleParser {
       this.ids[space].size === 0
         ? undefined
         : Object.fromEntries([...this.ids[space]].map(([name, index]) => [index, name]));
+    const annotated = (space: "function" | "tag") => {
+      const names = { ...map(space), ...Object.fromEntries(this.annotatedNames[space]) };
+      return Object.keys(names).length === 0 ? undefined : names;
+    };
     const names: NameSection = {
       module,
-      functions: map("function"),
+      functions: annotated("function"),
       locals: Object.keys(this.locals).length > 0 ? this.locals : undefined,
       types: map("type"),
       fields:
@@ -600,7 +633,7 @@ class ModuleParser {
             ),
       tables: map("table"),
       memories: map("memory"),
-      tags: map("tag"),
+      tags: annotated("tag"),
       globals: map("global"),
       elements: map("elem"),
       data: map("data"),
@@ -612,6 +645,22 @@ class ModuleParser {
   }
 }
 
+/** Sections in binary order, as custom section placements name them. */
+const sectionOrder = [
+  "type",
+  "import",
+  "func",
+  "table",
+  "memory",
+  "tag",
+  "global",
+  "export",
+  "start",
+  "elem",
+  "datacount",
+  "code",
+  "data",
+];
 const sectionIds: Record<string, number> = {
   type: 1,
   import: 2,
@@ -628,18 +677,31 @@ const sectionIds: Record<string, number> = {
   tag: 13,
 };
 
+/** An inline signature refers to the first final function type of its own group with that signature. */
+function impliedType(types: TypeDefinition[], groups: number[], type: FunctionType): number {
+  const singletons = new Set<number>();
+  groups.reduce((start, size) => (size === 1 && singletons.add(start), start + size), 0);
+  return types.findIndex(
+    (other, i) =>
+      singletons.has(i) &&
+      isFunctionType(other) &&
+      other.final !== false &&
+      other.supertype === undefined &&
+      functionTypeEquals(other, type),
+  );
+}
+
+/** `(@name "name")`, which names the enclosing module, function or tag in the name section. */
+function nameAnnotation(c: Cursor): string {
+  if (c.peek()?.kind !== "string") c.fail("@name annotation: missing name");
+  const name = c.name();
+  c.end();
+  return name;
+}
+
 /** The offset of an inline segment, at the start of its memory or table. */
 function zero(address: AddressType): ResolvedInstruction[] {
   return [
     address === "i64" ? { name: "i64.const", immediate: 0n } : { name: "i32.const", immediate: 0 },
   ];
-}
-
-function equal(a: FunctionType, b: FunctionType) {
-  return (
-    a.args.length === b.args.length &&
-    a.results.length === b.results.length &&
-    a.args.every((type, i) => typeEquals(type, b.args[i])) &&
-    a.results.every((type, i) => typeEquals(type, b.results[i]))
-  );
 }

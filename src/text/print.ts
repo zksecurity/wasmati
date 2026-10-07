@@ -11,7 +11,7 @@ import {
   MemoryType,
   ValueType,
 } from "../types.ts";
-import { sectionIds } from "./wat.ts";
+import { impliedType, sectionIds } from "./wat.ts";
 import { printInstructions, printString, printValueType, type Names } from "./instructions.ts";
 
 export { printWat };
@@ -40,10 +40,19 @@ function printWat(module: Module): string {
   const moduleNames: Names = {
     id: (space, index) => spaces[space as keyof typeof spaces]?.[index],
     field: (type, field) => fieldIds[type]?.[field],
+    typeUse: () => "",
   };
   const id = (space: keyof typeof spaces, index: number) =>
     moduleNames.id(space, index) ?? String(index);
   const label = (space: keyof typeof spaces, index: number) => moduleNames.id(space, index) ?? "";
+  // Function and tag names that are not unique identifiers print as @name annotations.
+  const annotated = { function: names.functions ?? {}, tag: names.tags ?? {} };
+  const labelAndName = (space: "function" | "tag", index: number) => {
+    const name = annotated[space][index];
+    const id = label(space, index);
+    if (name === undefined || id !== "") return id;
+    return `(@name ${printName(name)})`;
+  };
   const expression = (body: ResolvedInstruction[]) =>
     printInstructions(body, moduleNames).join(" ");
   const type = (value: ValueType) => printValueType(value, moduleNames);
@@ -51,18 +60,35 @@ function printWat(module: Module): string {
   const field = (...parts: string[]) =>
     fields.push(`(${parts.filter((part) => part !== "").join(" ")})`);
 
-  // A function's type, with inline parameters that carry its local names.
-  const signature = (typeIdx: number, locals: NameMap = {}, type = module.types[typeIdx]) => {
+  // A type use: a named type by its identifier, otherwise inline parameters and results, preceded by
+  // the type's index unless the inline signature refers to it. Definitions also inline their
+  // parameters to carry local names. Block types without parameters and with at most one result
+  // abbreviate to a value type instead, so they keep the index.
+  const groups = module.recGroups ?? module.types.map(() => 1);
+  const typeUse = (
+    typeIdx: number,
+    { locals, block = false }: { locals?: NameMap; block?: boolean } = {},
+  ) => {
+    const type = module.types[typeIdx];
     if (type === undefined || !isFunctionType(type)) return `(type ${typeIdx})`;
+    const named = spaces.type[typeIdx] !== undefined;
+    const abbreviated = block && type.args.length === 0 && type.results.length <= 1;
+    const implied = !named && !abbreviated && impliedType(module.types, groups, type) === typeIdx;
+    const inline = !named || locals !== undefined;
     return [
-      `(type ${id("type", typeIdx)})`,
-      ...type.args.map(
-        (arg, i) =>
-          `(param ${optional(identifiers(locals)[i])}${printValueType(arg, moduleNames)})`,
-      ),
-      ...results(type, moduleNames),
+      ...(implied ? [] : [`(type ${id("type", typeIdx)})`]),
+      ...(inline
+        ? [
+            ...type.args.map(
+              (arg, i) =>
+                `(param ${optional(identifiers(locals)[i])}${printValueType(arg, moduleNames)})`,
+            ),
+            ...results(type, moduleNames),
+          ]
+        : []),
     ].join(" ");
   };
+  moduleNames.typeUse = (typeIdx, block) => typeUse(typeIdx, { block });
 
   // Types, in their recursion groups; a type outside of rec forms a group of its own.
   const definition = (typeIdx: number) => {
@@ -95,16 +121,17 @@ function printWat(module: Module): string {
     const path = `${printName(from)} ${printName(name)}`;
     const space = description.kind;
     let desc: string;
-    if (description.kind === "function") desc = signature(description.value, names.locals?.[index]);
+    if (description.kind === "function")
+      desc = typeUse(description.value, { locals: names.locals?.[index] ?? {} });
     else if (description.kind === "table") desc = tableType(description.value, moduleNames);
     else if (description.kind === "memory") desc = memoryType(description.value);
-    else if (description.kind === "tag") desc = signature(description.value);
+    else if (description.kind === "tag") desc = typeUse(description.value);
     else desc = globalType(description.value, moduleNames);
     const kind = space === "function" ? "func" : space;
     field(
       "import",
       path,
-      `(${[kind, label(space, index), desc].filter((x) => x !== "").join(" ")})`,
+      `(${[kind, space === "function" || space === "tag" ? labelAndName(space, index) : label(space, index), desc].filter((x) => x !== "").join(" ")})`,
     );
   }
   for (const func of module.funcs) {
@@ -112,8 +139,8 @@ function printWat(module: Module): string {
     const localIds = identifiers(locals);
     const header = [
       "func",
-      label("function", func.funcIdx),
-      signature(func.typeIdx, locals, func.type),
+      labelAndName("function", func.funcIdx),
+      typeUse(func.typeIdx, { locals }),
     ];
     const declarations = func.locals.map(
       (local, i) => `(local ${optional(localIds[func.type.args.length + i])}${type(local)})`,
@@ -138,7 +165,9 @@ function printWat(module: Module): string {
   module.memories.forEach((memory, i) =>
     field("memory", label("memory", next.memory + i), memoryType(memory)),
   );
-  module.tags.forEach((typeIdx, i) => field("tag", label("tag", next.tag + i), signature(typeIdx)));
+  module.tags.forEach((typeIdx, i) =>
+    field("tag", labelAndName("tag", next.tag + i), typeUse(typeIdx)),
+  );
   module.globals.forEach((global, i) =>
     field(
       "global",
@@ -199,8 +228,17 @@ function identifier(name: string): string {
   return "$" + (idChars.test(name) ? name : printName(name));
 }
 
+/** A name as a string literal: Unicode characters stay readable, control characters are escaped. */
 function printName(name: string): string {
-  return printString(new TextEncoder().encode(name));
+  let text = '"';
+  for (const char of name) {
+    const code = char.codePointAt(0)!;
+    text +=
+      code < 0x20 || code === 0x7f || char === '"' || char === "\\"
+        ? printString(new TextEncoder().encode(char)).slice(1, -1)
+        : char;
+  }
+  return text + '"';
 }
 
 function optional(id: string | undefined) {

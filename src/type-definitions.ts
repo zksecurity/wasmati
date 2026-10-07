@@ -8,7 +8,20 @@ import {
   type Type,
 } from "./types.ts";
 
-export { struct, array, funcType, rec, mut, i8, i16, type FieldInput, type TypeOptions };
+export {
+  struct,
+  array,
+  funcType,
+  rec,
+  mut,
+  i8,
+  i16,
+  type FieldInput,
+  type TypeOptions,
+  type StructType,
+  type ArrayType,
+  type FieldValue,
+};
 
 /** Packed integer types, for struct fields and array elements. */
 const i8: Type<"i8"> = { kind: "i8" };
@@ -20,6 +33,23 @@ type FieldInput = Type<StorageType> | { kind: StorageType; mutable: true };
 function mut<T extends StorageType>(type: Type<T>): { kind: T; mutable: true } {
   return { kind: type.kind, mutable: true };
 }
+
+/**
+ * Struct and array types record the types of their fields for TypeScript, which types the values that
+ * GC instructions read and write. This is a type only: the properties do not exist at runtime.
+ */
+declare const fieldTypes: unique symbol;
+declare const elementType: unique symbol;
+type StructType<Fields extends Record<string, FieldInput> = Record<string, FieldInput>> =
+  DefinedType & { readonly [fieldTypes]?: Fields };
+type ArrayType<Element extends FieldInput = FieldInput> = DefinedType & {
+  readonly [elementType]?: Element;
+};
+
+/** The type of a field's values: packed integers are read and written as i32. */
+type FieldValue<F extends FieldInput> = F["kind"] extends "i8" | "i16"
+  ? "i32"
+  : Exclude<F["kind"], "i8" | "i16">;
 
 function field(input: FieldInput): FieldType {
   return { type: input.kind, mutable: "mutable" in input };
@@ -48,7 +78,10 @@ function defined(
 }
 
 /** A struct type with named fields, in order. */
-function struct(fields: Record<string, FieldInput>, options: TypeOptions = {}): DefinedType {
+function struct<const Fields extends Record<string, FieldInput>>(
+  fields: Fields,
+  options: TypeOptions = {},
+): StructType<Fields> {
   const entries = Object.entries(fields);
   return defined(
     { struct: entries.map(([, input]) => field(input)) },
@@ -58,7 +91,10 @@ function struct(fields: Record<string, FieldInput>, options: TypeOptions = {}): 
 }
 
 /** An array type of the given element type. */
-function array(element: FieldInput, options: TypeOptions = {}): DefinedType {
+function array<const Element extends FieldInput>(
+  element: Element,
+  options: TypeOptions = {},
+): ArrayType<Element> {
   return defined({ array: field(element) }, options);
 }
 

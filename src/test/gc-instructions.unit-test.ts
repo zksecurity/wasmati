@@ -9,6 +9,8 @@ import {
   struct,
   array,
   mut,
+  i64,
+  f64,
   i8,
   ref,
   i31,
@@ -24,6 +26,8 @@ import {
   data,
   memory,
   constant,
+  importFunc,
+  call,
   global,
   return_,
 } from "../index.ts";
@@ -59,6 +63,7 @@ test("structs are created and accessed with fields by name", async () => {
   assert.ok(module.funcs[0].body.some((i) => i.name === "struct.get" && i.immediate[1] === 1));
   const { instance } = await instantiate();
   assert.equal(instance.exports.sum(5), 8);
+  // @ts-expect-error not a field of the struct type
   assert.throws(() => struct.get(point, "z"), /no field z/);
   assert.throws(() => struct.get_s(point, "x"), /not packed/);
 });
@@ -169,4 +174,105 @@ test("GC instructions roundtrip through text, binary and decompiled builders", a
   const rebuilt = await buildTextModule(parsed);
   const { instance } = await rebuilt.instantiate();
   assert.equal((instance.exports as any).f(null), 1);
+});
+
+test("GC instructions take operands as arguments, and struct fields by name", async () => {
+  const point = struct({ x: i32, y: mut(i32) });
+  const bytes = array(mut(i8));
+  const origin = global(constant(() => struct.new(point, { y: 2, x: 1 })));
+  const f = func(
+    { in: [{ v: i32 }], out: [i32], locals: { a: refType(bytes) } },
+    ({ v }, { a }) => {
+      local.set(a, array.new_fixed(bytes, [v, 2, 3]));
+      array.set(bytes, a, 1, i32.add(v, 1));
+      struct.set(point, "y", global.get(origin), array.get_s(bytes, a, 1));
+      i32.add(struct.get(point, "y", global.get(origin)), ref.test(refType(point), ref.i31(0)));
+    },
+  );
+  const { instance } = await Module({ exports: { f } }).instantiate();
+  assert.equal(instance.exports.f(-2), -1);
+  // @ts-expect-error a field is missing
+  assert.throws(() => struct.new(point, { x: 1 }), /Unsupported input|Expected/);
+});
+
+test("named operands keep their values, and instruction results must come in order", async () => {
+  const point = struct({ x: i32, y: i32 });
+  const p = global(constant(() => struct.new(point, { y: i32.const(2), x: 1 })));
+  const q = global(constant(() => struct.new(point, { x: i32.const(3), y: i32.const(4) })));
+  const add = importFunc({ in: [{ a: i32 }, { b: i32 }], out: [i32] }, (a, b) => a * 10 + b);
+  const read = func({ in: [], out: [i32, i32, i32, i32, i32] }, () => {
+    struct.get(point, "x", global.get(p));
+    struct.get(point, "y", global.get(p));
+    struct.get(point, "x", global.get(q));
+    struct.get(point, "y", global.get(q));
+    call(add, { b: i32.const(2), a: 1 });
+  });
+  const { instance } = await Module({ exports: { read } }).instantiate();
+  assert.deepEqual(instance.exports.read(), [1, 2, 3, 4, 12]);
+  assert.throws(
+    () => constant(() => struct.new(point, { y: i32.const(2), x: i32.const(1) })),
+    /struct\.new: operands that are instruction results must be the latest values on the stack, in order/,
+  );
+  assert.throws(
+    () => func({ in: [], out: [i32] }, () => call(add, { b: i32.const(2), a: i32.const(1) })),
+    /call: operands that are instruction results must be the latest values on the stack, in order/,
+  );
+});
+
+test("GC reads and writes have the types of their fields", async () => {
+  const point = struct({ x: i32, label: mut(i64), small: mut(i8) });
+  const numbers = array(mut(f64));
+  const f = func(
+    { in: [{ p: refType(point) }, { a: refType(numbers) }], out: [i32, i64, f64, i32] },
+    ({ p, a }) => {
+      i32.add(struct.get(point, "x", p), 1);
+      struct.set(point, "label", p, 2n);
+      i64.add(struct.get(point, "label", p), 1n);
+      array.set(numbers, a, 0, 1.5);
+      f64.mul(array.get(numbers, a, 0), 2);
+      i32.add(struct.get_u(point, "small", p), 1);
+    },
+  );
+  const make = func({ in: [], out: [i32, i64, f64, i32] }, () => {
+    call(f, {
+      p: struct.new(point, { x: 7, label: 0n, small: 3 }),
+      a: array.new_fixed(numbers, [0]),
+    });
+  });
+  const { instance } = await Module({ exports: { make } }).instantiate();
+  assert.deepEqual(instance.exports.make(), [8, 3n, 3, 4]);
+  assert.throws(() =>
+    func({ in: [{ p: refType(point) }], out: [] }, ({ p }) =>
+      // @ts-expect-error an i64 field takes bigints
+      struct.set(point, "label", p, 1),
+    ),
+  );
+});
+
+test("operands that were computed earlier must be on top of the stack, in order", () => {
+  const point = struct({ x: i32, y: i32 });
+  assert.throws(
+    () =>
+      constant(() => {
+        const y = i32.const(2);
+        const x = i32.const(1);
+        return struct.new(point, { x, y });
+      }),
+    /struct\.new: operands that are instruction results must be the latest values on the stack/,
+  );
+  assert.throws(
+    () =>
+      func({ in: [], out: [i32] }, () => {
+        const a = i32.const(1);
+        const b = i32.const(2);
+        i32.sub(b, a);
+      }),
+    /i32\.sub: operands that are instruction results must be the latest values on the stack/,
+  );
+  // Each result can be used once, and in the order computed.
+  func({ in: [], out: [i32] }, () => {
+    const a = i32.const(2);
+    const b = i32.const(1);
+    i32.sub(a, b);
+  });
 });

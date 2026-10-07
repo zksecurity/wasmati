@@ -47,7 +47,7 @@ import {
   type Instruction_,
 } from "./base.ts";
 import { Block, type Catch, IfBlock, TryTable } from "./binable.ts";
-import { type Input, processStackArgs } from "./stack-args.ts";
+import { type Input, namedInputs, processStackArgs } from "./stack-args.ts";
 
 export { control, bindControlOps, parametric };
 
@@ -381,7 +381,7 @@ function bindControlOps(ctx: LocalContext) {
           ctx,
           "call",
           func.type.args,
-          func.params.names.map((name: string) => args[name]) as Input<ValueType>[],
+          namedInputs(func.params.names, args) as Input<ValueType>[],
         );
       }
       return call(ctx, func) as any;

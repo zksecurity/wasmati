@@ -136,12 +136,15 @@ function parseCommand(list: List): Command {
     }
     case "assert_invalid":
     case "assert_malformed":
-    case "assert_unlinkable": {
+    case "assert_unlinkable":
+    // Assertions about the custom annotations that wasmati reads: @custom and @name.
+    case "assert_invalid_custom":
+    case "assert_malformed_custom": {
       c.keyword(head);
       const module = moduleCommand(c.next());
       const message = c.name();
       c.end();
-      return { kind: head, module, message };
+      return { kind: head.replace("_custom", "") as "assert_invalid", module, message };
     }
     case "thread": {
       c.keyword(head);

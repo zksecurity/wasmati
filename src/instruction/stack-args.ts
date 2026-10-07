@@ -1,6 +1,6 @@
 import { Binable, Undefined } from "../binable.ts";
 import type { AnyGlobal } from "../dependency.ts";
-import { Dependency } from "../index.ts";
+import type * as Dependency from "../dependency.ts";
 import { formatStack, pushStack } from "../local-context.ts";
 import { popStack } from "../local-context.ts";
 import { emptyContext } from "../local-context.ts";
@@ -25,6 +25,7 @@ export {
   type Input,
   type Inputs,
   processStackArgs,
+  namedInputs,
   insertInstruction,
 };
 
@@ -139,6 +140,28 @@ function instructionWithArg<
   };
 }
 
+/** Named operands, in parameter order. */
+function namedInputs(names: string[], values: Record<string, Input<any>>): Input<any>[] {
+  return names.map((name) => values[name]);
+}
+
+/**
+ * Operands that are instruction results are on the stack already, where they were pushed. They must
+ * be the latest values on the stack, in the order of the operands, or the instruction would take
+ * other values. `$` stands for whatever value is there. Unreachable code accepts any stack.
+ */
+function checkStackOperands(ctx: LocalContext, string: string, operands: Input<any>[]) {
+  if (ctx.frames[0]?.unreachable) return;
+  let results = operands.filter(isStackVar);
+  let top = ctx.stack.slice(ctx.stack.length - results.length);
+  results.forEach((result, i) => {
+    if (result.type === Unknown || result.id === top[i]?.id) return;
+    throw Error(
+      `${string}: operands that are instruction results must be the latest values on the stack, in order. Compute them in the order they are passed, and use each once.`,
+    );
+  });
+}
+
 function processStackArgs(
   ctx: LocalContext,
   string: string,
@@ -150,6 +173,7 @@ function processStackArgs(
   if (actualArgs.length !== n) {
     throw Error(`${string}: Expected 0 or ${n} arguments, got ${actualArgs.length}.`);
   }
+  checkStackOperands(ctx, string, actualArgs);
 
   let mustReorder = false;
   let hadNewInstr = false;

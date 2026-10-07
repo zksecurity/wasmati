@@ -7,6 +7,7 @@ import {
   labelTypes,
   type LocalContext,
   popStack,
+  type StackVar,
   pushStack,
   Unknown,
 } from "../local-context.ts";
@@ -30,7 +31,9 @@ import {
   type ValueType,
   valueTypeLiteral,
 } from "../types.ts";
-import { baseInstruction } from "./base.ts";
+import { baseInstruction, withPublicSignature } from "./base.ts";
+import type { ArrayType, FieldInput, FieldValue, StructType } from "../type-definitions.ts";
+import { type Input, namedInputs, processStackArgs } from "./stack-args.ts";
 
 export { structOps, arrayOps, i31Ops, gcRefOps, anyOps, externOps, br_on_cast, br_on_cast_fail };
 
@@ -84,7 +87,7 @@ function structGet(name: "struct.get" | "struct.get_s" | "struct.get_u") {
   });
 }
 
-const structOps = {
+const structInstructions = {
   /** A struct with the field values on the stack. */
   new: baseInstruction("struct.new", TypeIndex, {
     create(_, type: DefinedType) {
@@ -154,7 +157,7 @@ function arraySegment(
   });
 }
 
-const arrayOps = {
+const arrayInstructions = {
   /** An array of a length, filled with a value. */
   new: baseInstruction("array.new", TypeIndex, {
     create(_, type: DefinedType) {
@@ -233,7 +236,7 @@ const arrayOps = {
   init_elem: arraySegment("array.init_elem"),
 };
 
-const i31Ops = {
+const i31Instructions = {
   get_s: baseInstruction("i31.get_s", Undefined, {
     create: () => ({ in: ["i31ref"], out: ["i32"] }),
     resolve: () => undefined,
@@ -264,9 +267,12 @@ function testOrCast(kind: "test" | "cast") {
       },
     }),
   );
-  return (ctx: LocalContext, type: Type<RefType>) => {
+  return (ctx: LocalContext, type: Type<RefType>, operand?: Operand) => {
     let literal = valueTypeLiteral(type);
-    return instructions[referenced(literal).nullable ? 1 : 0](ctx, literal);
+    let instruction = instructions[referenced(literal).nullable ? 1 : 0];
+    if (operand !== undefined)
+      processStackArgs(ctx, `ref.${kind}`, [refType(top(literal), true)], [operand]);
+    return instruction(ctx, literal);
   };
 }
 
@@ -275,7 +281,7 @@ function heapDeps(type: RefType): Dependency.t[] {
   return typeof heap === "object" ? [heap] : [];
 }
 
-const gcRefOps = {
+const refInstructions = {
   /** A 31-bit integer as an i31 reference. */
   i31: baseInstruction("ref.i31", Undefined, {
     create: () => ({ in: ["i32"], out: [refType("i31", false)] }),
@@ -303,8 +309,8 @@ function convert(name: "any.convert_extern" | "extern.convert_any", from: "exter
   });
 }
 
-const anyOps = { convert_extern: convert("any.convert_extern", "extern") };
-const externOps = { convert_any: convert("extern.convert_any", "any") };
+const anyConvert = convert("any.convert_extern", "extern");
+const externConvert = convert("extern.convert_any", "any");
 
 /** The type of `from` without `to`: non-null if `to` catches null. */
 function difference(from: RefType, to: RefType): RefType {
@@ -369,3 +375,137 @@ function branchOnCast(name: "br_on_cast" | "br_on_cast_fail") {
 
 const br_on_cast = branchOnCast("br_on_cast");
 const br_on_cast_fail = branchOnCast("br_on_cast_fail");
+
+type Operand = Input<ValueType>;
+
+type Fields = Record<string, FieldInput>;
+type Ref = Input<RefType>;
+/** Values of a field: its type where the struct type records its fields, any value otherwise. */
+type FieldOf<F extends Fields, K extends keyof F> = string extends keyof F ? any : FieldValue<F[K]>;
+type ElementOf<E extends FieldInput> = FieldInput extends E ? any : FieldValue<E>;
+
+type StructNew = <F extends Fields>(
+  type: StructType<F>,
+  fields?: { [K in keyof F]: Input<FieldOf<F, K>> },
+) => StackVar<RefType>;
+type StructGet<Result = never> = <F extends Fields, K extends keyof F & string>(
+  type: StructType<F>,
+  field: K,
+  ...ref: [] | [ref: Ref]
+) => StackVar<[Result] extends [never] ? FieldOf<F, K> : Result>;
+type StructSet = <F extends Fields, K extends keyof F & string>(
+  type: StructType<F>,
+  field: K,
+  ...operands: [] | [ref: Ref, value: Input<FieldOf<F, K>>]
+) => void;
+type ArrayNew = <E extends FieldInput>(
+  type: ArrayType<E>,
+  ...operands: [] | [value: Input<ElementOf<E>>, length: Input<"i32">]
+) => StackVar<RefType>;
+type ArrayNewFixed = <E extends FieldInput>(
+  type: ArrayType<E>,
+  elements: number | Input<ElementOf<E>>[],
+) => StackVar<RefType>;
+type ArrayGet<Result = never> = <E extends FieldInput>(
+  type: ArrayType<E>,
+  ...operands: [] | [ref: Ref, index: Input<"i32">]
+) => StackVar<[Result] extends [never] ? ElementOf<E> : Result>;
+type ArraySet = <E extends FieldInput>(
+  type: ArrayType<E>,
+  ...operands: [] | [ref: Ref, index: Input<"i32">, value: Input<ElementOf<E>>]
+) => void;
+type ArrayFill = <E extends FieldInput>(
+  type: ArrayType<E>,
+  ...operands:
+    [] | [ref: Ref, offset: Input<"i32">, value: Input<ElementOf<E>>, length: Input<"i32">]
+) => void;
+
+/**
+ * The instruction API: operands may follow the immediates as arguments, like `i32.add(x, y)`, and are
+ * otherwise taken from the stack.
+ */
+function withOperands<Immediates extends unknown[], Result>(
+  instruction: ((ctx: LocalContext, ...immediates: Immediates) => Result) & {
+    create(ctx: LocalContext, ...immediates: Immediates): Dependency.Instruction;
+  },
+  count: Immediates["length"],
+) {
+  return (ctx: LocalContext, ...args: [...Immediates, ...Operand[]]): Result => {
+    let immediates = args.slice(0, count) as Immediates;
+    let operands = args.slice(count) as Operand[];
+    if (operands.length > 0) {
+      let { string, type } = instruction.create(ctx, ...immediates);
+      processStackArgs(ctx, string, type.args, operands);
+    }
+    return instruction(ctx, ...immediates);
+  };
+}
+
+const structOps = {
+  /** A struct with the field values on the stack, or given by field name. */
+  new: withPublicSignature<StructNew>()(function (
+    ctx: LocalContext,
+    type: DefinedType,
+    fields?: Record<string, Operand>,
+  ) {
+    if (fields !== undefined) {
+      let names = type.fieldNames;
+      if (names === undefined)
+        throw Error("struct.new: fields by name need a struct with field names");
+      let types = structFields(type).map((f) => unpacked(f.type));
+      processStackArgs(ctx, "struct.new", types, namedInputs(names, fields));
+    }
+    return structInstructions.new(ctx, type);
+  }),
+  new_default: structInstructions.new_default,
+  get: withPublicSignature<StructGet>()(withOperands(structInstructions.get, 2)),
+  get_s: withPublicSignature<StructGet<"i32">>()(withOperands(structInstructions.get_s, 2)),
+  get_u: withPublicSignature<StructGet<"i32">>()(withOperands(structInstructions.get_u, 2)),
+  set: withPublicSignature<StructSet>()(withOperands(structInstructions.set, 2)),
+};
+
+const arrayOps = {
+  new: withPublicSignature<ArrayNew>()(withOperands(arrayInstructions.new, 1)),
+  new_default: withOperands(arrayInstructions.new_default, 1),
+  /** An array of the given number of elements on the stack, or of the given elements. */
+  new_fixed: withPublicSignature<ArrayNewFixed>()(function (
+    ctx: LocalContext,
+    type: DefinedType,
+    elements: number | Operand[],
+  ) {
+    if (typeof elements === "number") return arrayInstructions.new_fixed(ctx, type, elements);
+    let element = unpacked(arrayElement(type).type);
+    processStackArgs(ctx, "array.new_fixed", Array(elements.length).fill(element), elements);
+    return arrayInstructions.new_fixed(ctx, type, elements.length);
+  }),
+  new_data: withOperands(arrayInstructions.new_data, 2),
+  new_elem: withOperands(arrayInstructions.new_elem, 2),
+  get: withPublicSignature<ArrayGet>()(withOperands(arrayInstructions.get, 1)),
+  get_s: withPublicSignature<ArrayGet<"i32">>()(withOperands(arrayInstructions.get_s, 1)),
+  get_u: withPublicSignature<ArrayGet<"i32">>()(withOperands(arrayInstructions.get_u, 1)),
+  set: withPublicSignature<ArraySet>()(withOperands(arrayInstructions.set, 1)),
+  len: withOperands(arrayInstructions.len, 0),
+  fill: withPublicSignature<ArrayFill>()(withOperands(arrayInstructions.fill, 1)),
+  copy: withOperands(arrayInstructions.copy, 2),
+  init_data: withOperands(arrayInstructions.init_data, 2),
+  init_elem: withOperands(arrayInstructions.init_elem, 2),
+};
+
+const i31Ops = {
+  get_s: withOperands(i31Instructions.get_s, 0),
+  get_u: withOperands(i31Instructions.get_u, 0),
+};
+
+const gcRefOps = {
+  i31: withOperands(refInstructions.i31, 0),
+  eq: withOperands(refInstructions.eq, 0),
+  test: withPublicSignature<(type: Type<RefType>, ...operand: [] | [Operand]) => StackVar<"i32">>()(
+    refInstructions.test,
+  ),
+  cast: withPublicSignature<
+    <T extends RefType>(type: Type<T>, ...operand: [] | [Operand]) => StackVar<T>
+  >()(refInstructions.cast),
+};
+
+const anyOps = { convert_extern: withOperands(anyConvert, 0) };
+const externOps = { convert_any: withOperands(externConvert, 0) };
