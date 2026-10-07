@@ -157,7 +157,7 @@ The build writes:
 - `counter.wasm`, the module.
 - `counter.d.wasm.ts`, the types of its exports. TypeScript reads them with the `allowArbitraryExtensions` option.
 - `counter.host.js`, if the module has imports written inline as above. The build extracts them from `counter.ts`, together with the top-level declarations and imports that they use; the Wasm module imports them from there.
-- `counter.js` and `counter.d.ts`, if the module has async exports. JS imports this entry module instead, which wraps the async exports with `WebAssembly.promising`.
+- `counter.entry.ts`, if the module has async exports. JS imports this entry module instead, which wraps the async exports with `WebAssembly.promising`.
 - `js-string.js`, if the module uses JS string builtins (`jsString`): a polyfill for bundlers, see below. String constants (`stringConstant`) become exports of `counter.host.js`.
 
 A built file may only export its `Module`. Code that the app shares with imports, like state, belongs in another module, which both import. The build rejects imports that it can't move faithfully, such as functions that use variables of an enclosing function, and imports with an explicit `module` path must lead to the same value from the built file.
