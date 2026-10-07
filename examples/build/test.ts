@@ -1,6 +1,6 @@
 // Builds the example with `wasmati build`, runs it in Node, bundles it with Vite and webpack, and loads
 // each bundle in headless Chrome. Set CHROME to the browser binary (default: google-chrome).
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -47,19 +47,10 @@ for (const bundler of ["vite", "webpack"]) {
   const { port } = server.address() as AddressInfo;
   try {
     const chrome = process.env.CHROME ?? "google-chrome";
+    const args = ["--headless", "--no-sandbox", "--virtual-time-budget=5000", "--dump-dom"];
     const dom = await new Promise<string>((resolve, reject) =>
-      import("node:child_process").then(({ execFile }) =>
-        execFile(
-          chrome,
-          [
-            "--headless",
-            "--no-sandbox",
-            "--virtual-time-budget=5000",
-            "--dump-dom",
-            `http://127.0.0.1:${port}/`,
-          ],
-          (error, stdout) => (error ? reject(error) : resolve(stdout)),
-        ),
+      execFile(chrome, [...args, `http://127.0.0.1:${port}/`], (error, stdout) =>
+        error ? reject(error) : resolve(stdout),
       ),
     );
     check(`Chrome with ${bundler}`, Number(dom.match(/<title>count (\d+)<\/title>/)?.[1]));
