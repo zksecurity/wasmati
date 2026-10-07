@@ -1,10 +1,25 @@
 import type { Module } from "../module-binable.ts";
 import { isFunctionType, type FunctionType, type ValueType } from "../types.ts";
 
-export { exportTypes, entryTypes, isIdentifier };
+export { exportTypes, entryTypes, isIdentifier, isBindingName };
 
+/** Names that `export { ... }` clauses can use without quotes. */
 function isIdentifier(name: string) {
   return /^[A-Za-z_$][\w$]*$/.test(name);
+}
+
+const reservedWords = new Set(
+  (
+    "await break case catch class const continue debugger default delete do else enum export extends " +
+    "false finally for function if implements import in instanceof interface let new null package " +
+    "private protected public return static super switch this throw true try typeof var void while " +
+    "with yield arguments eval undefined"
+  ).split(" "),
+);
+
+/** Names that can be bindings, like `const name`: identifiers other than reserved words. */
+function isBindingName(name: string) {
+  return isIdentifier(name) && !reservedWords.has(name);
 }
 
 /** Declarations of the entry module: async exports return promises, others are the Wasm exports. */
@@ -67,7 +82,7 @@ function exportDeclarations(
     value: ValueType;
   }[];
   return module.exports.map(({ name, description }, i) => {
-    const local = isIdentifier(name) ? name : `export${i}`;
+    const local = isBindingName(name) ? name : `export${i}`;
     switch (description.kind) {
       case "function": {
         const type = functionTypes[description.value];

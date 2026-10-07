@@ -16,7 +16,7 @@ type Scope = {
 /** A use of a name, which writes to it if it is assigned. `declaration` is undefined for globals. */
 type Reference = {
   name: string;
-  node: ESTree.Identifier;
+  node: ESTree.Identifier | ESTree.ThisExpression;
   write: boolean;
   declaration: Scope | undefined;
 };
@@ -48,7 +48,7 @@ function analyzeScopes(program: ESTree.Program): Scopes {
     declarations: new Map(),
     isFunction: true,
   };
-  const pending: { name: string; node: ESTree.Identifier; write: boolean; scope: Scope }[] = [];
+  const pending: (Omit<Reference, "declaration"> & { scope: Scope })[] = [];
   // The top-level statement being visited, which declares module-level bindings.
   let statement: Node = program;
 
@@ -204,8 +204,11 @@ function analyzeScopes(program: ESTree.Program): Scopes {
       case "Literal":
       case "PrivateIdentifier":
       case "Super":
-      case "ThisExpression":
       case "TemplateElement":
+        return;
+      case "ThisExpression":
+        // Arrow functions use the `this` of their enclosing function, like a variable.
+        pending.push({ name: "this", node, write: false, scope });
         return;
       case "MemberExpression":
         visit(node.object, scope);
@@ -246,10 +249,26 @@ function analyzeScopes(program: ESTree.Program): Scopes {
     statement = node;
     visit(node, module);
   }
+  // Functions other than arrow functions, and classes, bind `this` and `arguments`.
+  const bindsThis = (scope: Scope) =>
+    scope === module ||
+    (scope.isFunction && scope.node.type !== "ArrowFunctionExpression") ||
+    scope.node.type === "ClassDeclaration" ||
+    scope.node.type === "ClassExpression";
   const references = pending.map(({ name, node, write, scope }) => {
     let declaration: Scope | undefined = scope;
-    while (declaration !== undefined && !declaration.declarations.has(name))
-      declaration = declaration.parent;
+    if (name === "this" || name === "arguments")
+      while (
+        declaration !== undefined &&
+        !declaration.declarations.has(name) &&
+        !bindsThis(declaration)
+      )
+        declaration = declaration.parent;
+    else
+      while (declaration !== undefined && !declaration.declarations.has(name))
+        declaration = declaration.parent;
+    // At module level, `this` is undefined and `arguments` a global.
+    if (declaration === module && !module.declarations.has(name)) declaration = undefined;
     return { name, node, write, declaration };
   });
   return { module, references };
