@@ -258,7 +258,7 @@ instance.exports.f(1); // logs 1, returns 101
 - Imports declare their type together with their JS value: `importFunc`, `importGlobal`, `importMemory`, `importTable` and `importTag`. wasmati assembles the import object, which is also available as `module.importMap`. The `module` and `field` options set explicit import names.
 - Exports are the keys of `exports`, and their types in `instance.exports` are inferred.
 - Only what the exports and the `start` function need ends up in the module; the `dependencies` option adds more. The start function runs when the module is instantiated.
-- Workers can instantiate a module that another thread compiled, without rebuilding it. Post the compiled module from `compile()` with the import object; this works while the imports can be posted, like a shared memory, but not JS functions. `Instance<typeof wasm>` types the result:
+- Workers can instantiate a module that another thread compiled, without rebuilding it. Post the compiled module from `compile()` with the import object; this works while the imports can be posted, like a shared memory, but not JS functions. `ModuleInstance<typeof wasm>` types the result:
 
 ```ts
 // main thread
@@ -267,7 +267,7 @@ worker.postMessage({ module, imports: wasm.importMap });
 
 // worker
 const { instance } = await WebAssembly.instantiate(module, imports);
-const { exports } = instance as Instance<typeof wasm>;
+const { exports } = instance as ModuleInstance<typeof wasm>;
 ```
 
 ## Tables and indirect calls

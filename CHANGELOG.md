@@ -48,7 +48,7 @@ wasmati supports all of WebAssembly 3.0, verified by running the official spec t
 - **WAT**: `Module.fromWat(text)` and `module.toWat()`, and the `wasmati wat` and `wasmati wasm` commands. The printer writes custom sections and names as annotations.
 - **The decompiler** accepts WAT as well as Wasm.
 - **`wasmati build`** turns a file that default-exports a `Module` into a `.wasm` file that JS imports through the ESM integration of Wasm, with export types, and with inline imports extracted into a JS module. Built modules run in Node and Deno, and in browsers through Vite and Next.js.
-- **`module.compile()`** compiles a module without instantiating it, with JS string builtins where the module uses them, and **`Instance<typeof module>`** types instances created without `module.instantiate()`, like those of workers, which instantiate the compiled module with the module's `importMap`.
+- **`module.compile()`** compiles a module without instantiating it, with JS string builtins where the module uses them, and **`ModuleInstance<typeof module>`** types instances created without `module.instantiate()`, like those of workers, which instantiate the compiled module with the module's `importMap`.
 
 ### Fixes
 

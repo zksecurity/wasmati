@@ -11,7 +11,7 @@ import {
   global,
   array,
   refType,
-  type Instance,
+  type ModuleInstance,
 } from "../index.ts";
 import { helperBytes } from "../js-string-polyfill.ts";
 
@@ -76,7 +76,7 @@ test("compiled modules use the engine's builtins, and instantiate with the impor
     WebAssembly.Module.imports(compiled).map(({ module }) => module),
     [],
   );
-  const instance = (await WebAssembly.instantiate(compiled, wasm.importMap)) as Instance<
+  const instance = (await WebAssembly.instantiate(compiled, wasm.importMap)) as ModuleInstance<
     typeof wasm
   >;
   assert.equal(instance.exports.greet("world"), "hello world");
