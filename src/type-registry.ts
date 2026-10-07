@@ -8,6 +8,7 @@ import {
   refType,
   type StorageType,
   type TypeDefinition,
+  type ValueType,
   typeKey,
 } from "./types.ts";
 
@@ -87,6 +88,11 @@ class TypeRegistry {
     return body.map((instruction) => ({ ...instruction, immediate: this.immediate(instruction) }));
   }
 
+  /** Block types that are a single reference result refer to defined types by index. */
+  private blockType(type: "empty" | ValueType | number) {
+    return typeof type === "object" ? this.value(type) : type;
+  }
+
   private immediate({ name, immediate }: ResolvedInstruction): unknown {
     if (name === "ref.null" || name.startsWith("ref.test") || name.startsWith("ref.cast"))
       return this.heap(immediate);
@@ -96,14 +102,22 @@ class TypeRegistry {
     }
     if (name === "select_t") return immediate.map((t: StorageType) => this.value(t));
     if (name === "block" || name === "loop" || name === "try_table")
-      return { ...immediate, instructions: this.instructions(immediate.instructions) };
+      return {
+        ...immediate,
+        blockType: this.blockType(immediate.blockType),
+        instructions: this.instructions(immediate.instructions),
+      };
     if (name === "if") {
       let { if: then, else: otherwise } = immediate.instructions;
       let branches = {
         if: this.instructions(then),
         else: otherwise && this.instructions(otherwise),
       };
-      return { ...immediate, instructions: branches };
+      return {
+        ...immediate,
+        blockType: this.blockType(immediate.blockType),
+        instructions: branches,
+      };
     }
     return immediate;
   }

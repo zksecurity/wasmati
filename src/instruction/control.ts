@@ -46,7 +46,7 @@ import {
   typeFromInput,
   type Instruction_,
 } from "./base.ts";
-import { Block, type Catch, IfBlock, TryTable } from "./binable.ts";
+import { Block, type BlockType, type Catch, IfBlock, TryTable } from "./binable.ts";
 import { type Input, processStackArgs } from "./stack-args.ts";
 
 export { control, bindControlOps, parametric };
@@ -77,21 +77,40 @@ function withOptions<Options, Bodies extends unknown[]>(
   return (args.length > bodies ? args : [{}, ...args]) as [Options, ...Bodies];
 }
 
+/**
+ * A block type: empty or a single result where possible, otherwise the index of its function type,
+ * which is then the block's first dependency.
+ */
+function blockType(type: FunctionType): { deps: Dependency.t[]; abbreviated?: BlockType } {
+  if (type.args.length === 0 && type.results.length <= 1)
+    return { deps: [], abbreviated: type.results[0] ?? "empty" };
+  return { deps: [Dependency.type(type)] };
+}
+
+/** The resolved block type and the dependencies of the block's contents. */
+function resolveBlockType(
+  deps: number[],
+  abbreviated: BlockType | undefined,
+): [BlockType, number[]] {
+  return abbreviated === undefined ? [deps[0], deps.slice(1)] : [abbreviated, deps];
+}
+
 function blockInstruction(name: "block" | "loop") {
   return baseInstruction(name, Block, {
     create(ctx, ...args: BlockArgs) {
       let [options, run] = withOptions<BlockOptions, [Body]>(args, 1);
       let { type, body, deps } = createExpressionWithType(name, ctx, options, run);
+      let { deps: typeDeps, abbreviated } = blockType(type);
       return {
         in: type.args,
         out: type.results,
-        deps: [Dependency.type(type), ...deps],
-        resolveArgs: [body],
+        deps: [...typeDeps, ...deps],
+        resolveArgs: [body, abbreviated],
       };
     },
-    resolve([blockType, ...deps], body: Dependency.Instruction[]) {
-      let instructions = resolveExpression(deps, body);
-      return { blockType, instructions };
+    resolve(deps, body: Dependency.Instruction[], abbreviated: BlockType | undefined) {
+      let [blockType, rest] = resolveBlockType(deps, abbreviated);
+      return { blockType, instructions: resolveExpression(rest, body) };
     },
   });
 }
@@ -114,19 +133,22 @@ const if_ = baseInstruction("if", IfBlock, {
     let elseExpr =
       runElse === undefined ? undefined : createExpressionWithType("else", ctx, options, runElse);
     pushStack(ctx, ["i32"]);
+    let { deps: typeDeps, abbreviated } = blockType(type);
     return {
       in: ifArgs,
       out: type.results,
-      deps: [Dependency.type(type), ...deps, ...(elseExpr?.deps ?? [])],
-      resolveArgs: [body, elseExpr?.body],
+      deps: [...typeDeps, ...deps, ...(elseExpr?.deps ?? [])],
+      resolveArgs: [body, elseExpr?.body, abbreviated],
       likely: options.likely,
     };
   },
   resolve(
-    [blockType, ...deps],
+    allDeps,
     ifBody: Dependency.Instruction[],
     elseBody: Dependency.Instruction[] | undefined,
+    abbreviated: BlockType | undefined,
   ) {
+    let [blockType, deps] = resolveBlockType(allDeps, abbreviated);
     let ifDepsLength = ifBody.reduce((acc, i) => acc + i.deps.length, 0);
     let if_ = resolveExpression(deps.slice(0, ifDepsLength), ifBody);
     let else_ = elseBody && resolveExpression(deps.slice(ifDepsLength), elseBody);
@@ -347,18 +369,21 @@ const try_table = baseInstruction("try_table", TryTable, {
     });
     let { type, body, deps } = createExpressionWithType("try_table", ctx, options, run);
     let tags = clauses.flatMap(({ tag }) => (tag === undefined ? [] : [tag]));
+    let { deps: typeDeps, abbreviated } = blockType(type);
     return {
       in: type.args,
       out: type.results,
-      deps: [Dependency.type(type), ...tags, ...deps],
-      resolveArgs: [clauses.map(({ kind, label }) => ({ kind, label })), body],
+      deps: [...typeDeps, ...tags, ...deps],
+      resolveArgs: [clauses.map(({ kind, label }) => ({ kind, label })), body, abbreviated],
     };
   },
   resolve(
-    [blockType, ...deps],
+    allDeps,
     clauses: { kind: Catch["kind"]; label: number }[],
     body: Dependency.Instruction[],
+    abbreviated: BlockType | undefined,
   ) {
+    let [blockType, deps] = resolveBlockType(allDeps, abbreviated);
     let tagged = clauses.filter(({ kind }) => kind === "catch" || kind === "catch_ref").length;
     let tags = deps.slice(0, tagged);
     let next = 0;

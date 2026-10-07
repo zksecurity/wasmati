@@ -110,7 +110,7 @@ function baseInstruction<
       deps,
       type: { args, results },
       resolveArgs,
-      ...(likely === undefined ? {} : { likely }),
+      ...hint(likely),
     };
   }
 
@@ -208,7 +208,7 @@ function resolveInstruction(
     depIndices.push(index);
   }
   let immediate = instr.resolve(depIndices, ...resolveArgs);
-  return { name, immediate, ...(likely === undefined ? {} : { likely }) };
+  return { name, immediate, ...hint(likely) };
 }
 
 const noResolve = (_: number[], ...args: any) => args[0];
@@ -281,15 +281,19 @@ function createExpressionWithType(
   return { body, type: { args, results }, deps: body.flatMap((i) => i.deps) };
 }
 
+/** Branch hints are recorded only where given. */
+function hint(likely: boolean | undefined): { likely?: boolean } {
+  return likely === undefined ? {} : { likely };
+}
+
 function resolveExpression(deps: number[], body: Dependency.Instruction[]) {
   let instructions: ResolvedInstruction[] = [];
   let offset = 0;
   for (let instr of body) {
     let n = instr.deps.length;
     let myDeps = deps.slice(offset, offset + n);
-    let instrObject = lookupInstruction(instr.string);
-    let immediate = instrObject.resolve(myDeps, ...instr.resolveArgs);
-    instructions.push({ name: instr.string, immediate });
+    let immediate = lookupInstruction(instr.string).resolve(myDeps, ...instr.resolveArgs);
+    instructions.push({ name: instr.string, immediate, ...hint(instr.likely) });
     offset += n;
   }
   return instructions;

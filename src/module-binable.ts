@@ -1,3 +1,4 @@
+import { branchHintSection, decodeBranchHints, encodeBranchHints } from "./branch-hints.ts";
 import {
   Binable,
   Byte,
@@ -260,6 +261,11 @@ const Module = iso(ParsedModule, {
     }
     let funcSection = funcs.map((f) => f.typeIdx);
     let codeSection = funcs.map(({ locals, body }) => ({ locals, body }));
+    let importedFunctions = imports.filter((i) => i.description.kind === "function").length;
+    let hints = encodeBranchHints(codeSection, importedFunctions);
+    // Engines read branch hints before the code they refer to.
+    if (hints !== undefined)
+      extras.push({ after: "dataCountSection", value: { name: branchHintSection, data: hints } });
     let exportSection: Export[] = exports;
     return {
       version: 1,
@@ -320,6 +326,16 @@ const Module = iso(ParsedModule, {
     let importedFunctionsLength = importSection.filter(
       (i) => i.description.kind === "function",
     ).length;
+    const hintSections = customSections.filter(({ name }) => name === branchHintSection);
+    if (hintSections.length === 1) {
+      const section = hintSections[0];
+      try {
+        decodeBranchHints(section.data, codeSection, importedFunctionsLength);
+        customSections.splice(customSections.indexOf(section), 1);
+      } catch {
+        // Invalid optional metadata remains an opaque custom section.
+      }
+    }
     let types = typeSection.flat();
     let funcs = funcSection.map((typeIdx, funcIdx) => {
       let type = types[typeIdx];
