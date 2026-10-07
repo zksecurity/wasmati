@@ -1,7 +1,7 @@
 import type {} from "./js-api.ts";
 import type { JSValues, ReturnValues } from "./func.ts";
 import { Binable, byteEnum, record } from "./binable.ts";
-import { Name, U32, type U64 } from "./immediate.ts";
+import { Name, U32, type U64, vec } from "./immediate.ts";
 import {
   type AddressType,
   type DefinedType,
@@ -35,6 +35,7 @@ import { dataConstructor, jsLimits, limits } from "./memory.ts";
 export {
   Export,
   Import,
+  Imports,
   type ExternType,
   importFunc,
   importGlobal,
@@ -100,6 +101,43 @@ const Import = record<Import>({
   name: Name,
   description: ImportDescription,
 });
+
+/**
+ * The import section's imports. Besides single imports, the compact encodings share one module name
+ * among several items (0x7F), or also one description (0x7E); they decode into single imports.
+ */
+const Imports = Binable<Import[]>({
+  toBytes(imports) {
+    return vec(Import).toBytes(imports);
+  },
+  readBytes(bytes, offset) {
+    let imports: Import[] = [];
+    let count: number;
+    [count, offset] = U32.readBytes(bytes, offset);
+    for (let i = 0; i < count; i++) {
+      let module: string, name: string;
+      [module, offset] = Name.readBytes(bytes, offset);
+      [name, offset] = Name.readBytes(bytes, offset);
+      let encoding = name === "" ? bytes[offset] : undefined;
+      if (encoding === 0x7f) {
+        let items: { name: string; description: ImportDescription }[];
+        [items, offset] = vec(CompactItem).readBytes(bytes, offset + 1);
+        imports.push(...items.map((item) => ({ module, ...item })));
+      } else if (encoding === 0x7e) {
+        let description: ImportDescription, names: string[];
+        [description, offset] = ImportDescription.readBytes(bytes, offset + 1);
+        [names, offset] = vec(Name).readBytes(bytes, offset);
+        imports.push(...names.map((name) => ({ module, name, description })));
+      } else {
+        let description: ImportDescription;
+        [description, offset] = ImportDescription.readBytes(bytes, offset);
+        imports.push({ module, name, description });
+      }
+    }
+    return [imports, offset];
+  },
+});
+const CompactItem = record({ name: Name, description: ImportDescription });
 
 /** Declare a typed native JS import. module/field optionally override its automatically assigned import path. */
 function importFunc<

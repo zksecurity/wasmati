@@ -25,7 +25,7 @@ import {
   TableType,
   type ValueTypeObject,
 } from "./types.ts";
-import { Export, Import } from "./export.ts";
+import { Export, type Import, Imports } from "./export.ts";
 import { Data, Elem, Global, Table } from "./memory-binable.ts";
 import { Code, type FinalizedFunc } from "./func.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
@@ -82,7 +82,7 @@ let TypeSection = section<TypeSection>(1, vec(RecType));
 
 // 2: ImportSection
 type ImportSection = Import[];
-let ImportSection = section<ImportSection>(2, vec(Import));
+let ImportSection = section<ImportSection>(2, Imports);
 
 // 3: FuncSection
 type FuncSection = U32[];

@@ -28,6 +28,11 @@ jobs:
           path: .spec-threads
       - uses: actions/checkout@v7
         with:
+          repository: WebAssembly/compact-import-section
+          ref: 0624de829e2663da799e708444dec80337a3fe54
+          path: .spec-compact-imports
+      - uses: actions/checkout@v7
+        with:
           repository: WebAssembly/wide-arithmetic
           ref: 024d4ce1b28cee7fd006d9c5175e3b7ece52b429
           path: .spec-wide-arithmetic
@@ -41,6 +46,7 @@ jobs:
           npm run test:spec -- .spec-tests
           '.spec-tests/test/custom/**/*.wast'
           '.spec-threads/test/core/threads/*.wast'
+          '.spec-compact-imports/test/core/compact-import-section/*.wast'
           .spec-wide-arithmetic/test/core/wide-arithmetic.wast
           > spec-results.txt 2>&1
       - name: Report results
