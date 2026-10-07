@@ -105,8 +105,11 @@ function dataConstructor(
         offset: ConstantInput;
       }
     | "passive",
-  [...init]: number[] | Uint8Array,
+  bytes: number[] | Uint8Array,
 ): Dependency.Data {
+  // A copy, made with a loop, which stays fast for arrays and typed arrays alike.
+  let init = new Array<number>(bytes.length);
+  for (let i = 0; i < bytes.length; i++) init[i] = bytes[i];
   if (mode === "passive") {
     return { kind: "data", init, mode, deps: [] };
   }
