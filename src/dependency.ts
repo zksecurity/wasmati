@@ -170,7 +170,7 @@ type ImportFunc = ImportPath & {
   type: FunctionType;
   /** An explicit type, such as a subtype or a type of a recursion group. */
   definedType?: DefinedType;
-  value: Function | WebAssembly.Suspending;
+  value: Function;
   /** An async import, which suspends Wasm until its promise resolves (JSPI). */
   async?: true;
   deps: DefinedType[];

@@ -24,7 +24,7 @@ type ImportFunc<Args extends readonly ParameterEntry[], Results extends readonly
   name?: string;
   params: Parameters<Args>;
   type: { args: Parameters<Args>["types"]; results: Results };
-  value: Function | WebAssembly.Suspending;
+  value: Function;
   /** An async import, which suspends Wasm until its promise resolves (JSPI). */
   async?: true;
   deps: [];

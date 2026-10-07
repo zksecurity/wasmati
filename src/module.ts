@@ -128,6 +128,15 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     imports.push(imp);
   });
 
+  // In the order of the imports.
+  let importDependencies: Dependency.AnyImport[] = [
+    ...dependencyByKind.importFunction,
+    ...dependencyByKind.importGlobal,
+    ...dependencyByKind.importTag,
+    ...dependencyByKind.importTable,
+    ...dependencyByKind.importMemory,
+  ];
+
   // index funcs + their types
   let funcs0: (Dependency.Func & { typeIdx: number; funcIdx: number })[] = [];
   let nImportFuncs = dependencyByKind.importFunction.length;
@@ -280,7 +289,10 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(indexTypes(binableModule, registry), importMap, asyncExports);
+  return createModule<Exports>(indexTypes(binableModule, registry), importMap, {
+    asyncExports,
+    importDependencies,
+  });
 }
 
 /**
@@ -409,15 +421,24 @@ function indexTypes(module: BinableModule, registry: TypeRegistry): BinableModul
   return indexed;
 }
 
-/** `asyncExports` names the exports that are wrapped by `WebAssembly.promising` on instantiation. */
+/**
+ * `asyncExports` names the exports that are wrapped by `WebAssembly.promising` on instantiation.
+ * Modules of the builder know the dependencies behind their imports, in order, which `wasmati build`
+ * turns into a JS module.
+ */
 function createModule<Exports extends Record<string, ExportInput>>(
   binableModule: BinableModule,
   importMap: WebAssembly.Imports,
-  asyncExports: string[] = [],
+  {
+    asyncExports = [],
+    importDependencies,
+  }: { asyncExports?: string[]; importDependencies?: Dependency.AnyImport[] } = {},
 ) {
   let module = {
     module: binableModule,
     importMap,
+    asyncExports,
+    importDependencies,
     /** Instantiate Wasm with inferred native export signatures; exports are the actual Wasm functions. */
     async instantiate() {
       let { instance, module } = await WebAssembly.instantiate(
@@ -514,11 +535,16 @@ function resolveConst(
 }
 
 function addImport(
-  { kind, module = "", field, value }: Dependency.AnyImport,
+  dependency: Dependency.AnyImport,
   description: Import["description"],
   i: number,
   importMap: WebAssembly.Imports,
 ): Import {
+  let { kind, module = "", field } = dependency;
+  let value =
+    dependency.kind === "importFunction" && dependency.async
+      ? suspending(dependency.value)
+      : dependency.value;
   let prefix = {
     importFunction: "f",
     importGlobal: "g",
@@ -536,6 +562,15 @@ function addImport(
   }
   importModule[field] = value as WebAssembly.ImportValue;
   return import_;
+}
+
+/** Async imports are wrapped once per function, so that a function imported twice is one value. */
+const suspendingWrappers = new WeakMap<Function, WebAssembly.Suspending>();
+function suspending(run: Function) {
+  let wrapper = suspendingWrappers.get(run);
+  if (wrapper === undefined)
+    suspendingWrappers.set(run, (wrapper = new WebAssembly.Suspending(run)));
+  return wrapper;
 }
 
 /**
