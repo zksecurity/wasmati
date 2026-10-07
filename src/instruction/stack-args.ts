@@ -12,7 +12,8 @@ import {
   type ValueTypeObjects,
 } from "../types.ts";
 import type { Tuple } from "../util.ts";
-import { type Instruction_, baseInstruction } from "./base.ts";
+import { type Description, type Instruction_, baseInstruction, writeInstruction } from "./base.ts";
+import { Code, type Write } from "../code.ts";
 import { f32Const, f64Const, i32Const, i64Const } from "./const.ts";
 import type { InstructionName } from "./opcodes.ts";
 import { globalGet, localGet } from "./variable-get.ts";
@@ -242,53 +243,42 @@ function processStackArgs(
  * stack: right after the value below it was computed. Reads of locals and globals must not move above
  * writes to them.
  */
-function insertInstruction(ctx: LocalContext, i: number, instr: Dependency.Instruction) {
-  let { stack, body } = ctx;
+function insertInstruction(ctx: LocalContext, i: number, description: Description) {
+  let { stack, code } = ctx;
+  let { string, instruction, deps, resolveArgs, type } = description;
   if (stack.length < i && !ctx.frames[0].unreachable)
-    throw Error(`${instr.string}: can't insert below ${i} values, the stack has ${stack.length}`);
+    throw Error(`${string}: can't insert below ${i} values, the stack has ${stack.length}`);
   // In unreachable code, values that are missing from the stack are below the inserted one.
   let below = Math.max(0, stack.length - i);
-  let position = below < stack.length ? placeOf(stack[below]).start : body.length;
+  let position = below < stack.length ? placeOf(stack[below]).start : code.length;
   if (below > 0 && position < placeOf(stack[below - 1]).end)
     throw Error(
-      `${instr.string}: can't insert an operand between values that one instruction pushes or passes through, in stack ${formatStack(stack)}`,
+      `${string}: can't insert an operand between values that one instruction pushes or passes through, in stack ${formatStack(stack)}`,
     );
-  let written = body.slice(position).find((later) => writes(later, instr));
+  let written = code.writes.find(
+    (write) => write.position >= position && writes(write, description),
+  );
   if (written !== undefined)
     throw Error(
-      `${instr.string}: an operand would be read before ${written.string}, which comes after earlier operands that are instruction results and changes it. Compute the operands in the order they are passed.`,
+      `${string}: an operand would be read before ${written.name}, which comes after earlier operands that are instruction results and changes it. Compute the operands in the order they are passed.`,
     );
-  body.splice(position, 0, instr);
-  shiftPlaces(ctx, position);
-  let [result] = pushStack(ctx, instr.type.results);
+  let inserted = new Code(16);
+  writeInstruction(inserted, instruction, deps, resolveArgs);
+  code.insert(position, inserted);
+  shiftPlaces(ctx, position, inserted.length);
+  let [result] = pushStack(ctx, type.results);
   stack.splice(stack.length - 1, 1);
   stack.splice(below, 0, result);
-  place(result, position);
-  for (let dep of instr.deps) {
-    if (!ctx.deps.includes(dep)) ctx.deps.push(dep);
-  }
+  place(result, position, position + inserted.length);
+  for (let dep of deps) ctx.deps.add(dep);
 }
 
-/** Whether an instruction, or one in its blocks, changes what a local.get or global.get reads. */
-function writes(instruction: Dependency.Instruction, read: Dependency.Instruction): boolean {
-  let { string, resolveArgs } = instruction;
-  if (read.string === "local.get") {
-    let local: Local = read.resolveArgs[0];
-    if ((string === "local.set" || string === "local.tee") && resolveArgs[0].index === local.index)
-      return true;
+/** Whether a write changes what a local.get or global.get reads. */
+function writes(write: Write, { string, resolveArgs, deps }: Description): boolean {
+  if (string === "local.get") return write.local === (resolveArgs[0] as Local).index;
+  if (string === "global.get") {
+    let global = deps[0] as AnyGlobal;
+    return global.type.mutable && (write.global === global || write.call === true);
   }
-  if (read.string === "global.get") {
-    let global = read.deps[0] as AnyGlobal;
-    if (!global.type.mutable) return false;
-    if (string === "global.set" && instruction.deps[0] === global) return true;
-    if (string.startsWith("call") || string.startsWith("return_call")) return true;
-  }
-  return resolveArgs.some(
-    (arg) =>
-      Array.isArray(arg) && arg.some((nested) => isInstruction(nested) && writes(nested, read)),
-  );
-}
-
-function isInstruction(x: unknown): x is Dependency.Instruction {
-  return typeof x === "object" && x !== null && "string" in x && "resolveArgs" in x;
+  return false;
 }

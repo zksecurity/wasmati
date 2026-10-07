@@ -1,4 +1,3 @@
-import type { ResolvedInstruction } from "./instruction/base.ts";
 import {
   type DefinedType,
   type FieldType,
@@ -83,17 +82,11 @@ class TypeRegistry {
     };
   }
 
-  /** Instructions with type immediates refer to types by index. */
-  instructions(body: ResolvedInstruction[]): ResolvedInstruction[] {
-    return body.map((instruction) => ({ ...instruction, immediate: this.immediate(instruction) }));
-  }
-
-  /** Block types that are a single reference result refer to defined types by index. */
-  private blockType(type: "empty" | ValueType | number) {
-    return typeof type === "object" ? this.value(type) : type;
-  }
-
-  private immediate({ name, immediate }: ResolvedInstruction): unknown {
+  /**
+   * An immediate with defined types replaced by their indices: heap types of null references, tests
+   * and casts, value types of typed selects, and block types.
+   */
+  immediate(name: string, immediate: any): unknown {
     if (name === "ref.null" || name.startsWith("ref.test") || name.startsWith("ref.cast"))
       return this.heap(immediate);
     if (name === "br_on_cast" || name === "br_on_cast_fail") {
@@ -101,24 +94,8 @@ class TypeRegistry {
       return { ...immediate, from: this.value(from), to: this.value(to) };
     }
     if (name === "select_t") return immediate.map((t: StorageType) => this.value(t));
-    if (name === "block" || name === "loop" || name === "try_table")
-      return {
-        ...immediate,
-        blockType: this.blockType(immediate.blockType),
-        instructions: this.instructions(immediate.instructions),
-      };
-    if (name === "if") {
-      let { if: then, else: otherwise } = immediate.instructions;
-      let branches = {
-        if: this.instructions(then),
-        else: otherwise && this.instructions(otherwise),
-      };
-      return {
-        ...immediate,
-        blockType: this.blockType(immediate.blockType),
-        instructions: branches,
-      };
-    }
+    if (name === "blocktype")
+      return typeof immediate === "object" ? this.value(immediate) : immediate;
     return immediate;
   }
 }

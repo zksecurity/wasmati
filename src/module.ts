@@ -2,7 +2,12 @@ import type {} from "./js-api.ts";
 import * as Dependency from "./dependency.ts";
 import { Export, Import } from "./export.ts";
 import type { FinalizedFunc, JSFunction } from "./func.ts";
-import { resolveInstruction, type ResolvedInstruction } from "./instruction/base.ts";
+import type { ResolvedInstruction } from "./instruction/base.ts";
+import { END, Expression } from "./instruction/binable.ts";
+import { Writer } from "./binable.ts";
+import { link, type Linker } from "./code.ts";
+import { withEncodedBody } from "./code-section.ts";
+import { Locals } from "./func.ts";
 import { Module as BinableModule } from "./module-binable.ts";
 import { Data, Elem, Global, Table } from "./memory-binable.ts";
 import {
@@ -192,51 +197,75 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   // index datas
   dependencyByKind.data.forEach((data, dataIdx) => depToIndex.set(data, dataIdx));
 
-  // finalize functions
-  let funcs: FinalizedFunc[] = funcs0.map(({ typeIdx, funcIdx, ...func }) => {
-    let body = func.body.map((instr) => resolveInstruction(instr, depToIndex));
-    return {
-      funcIdx: funcIdx,
-      typeIdx: typeIdx,
-      type: func.type,
-      locals: func.locals,
-      body,
-    };
+  // Link code: fill in indices of dependencies, and of types in immediates, which may add types.
+  // Types are indexed in the order of functions, globals, tables, elements and data segments.
+  let linker: Linker = {
+    index(dep) {
+      let index = depToIndex.get(dep);
+      if (index !== undefined) return index;
+      if (dep.kind === "hasRefTo" || dep.kind === "hasMemory") return 0;
+      throw Error("bug: no index for dependency");
+    },
+    types: (name, immediate) => registry.immediate(name, immediate),
+  };
+  let writer = new Writer();
+  let value = <T extends ValueType>(type: T): T => registry.value(type);
+  let constant = (constant: Dependency.Constant): ResolvedInstruction[] => {
+    writer.length = 0;
+    link(constant.code, writer, linker);
+    writer.byte(END);
+    return Expression.readBytes(writer.buffer as unknown as number[], 0)[0];
+  };
+  let funcs: FinalizedFunc[] = funcs0.map(({ typeIdx, funcIdx, type, locals, code }) => {
+    let func = { funcIdx, typeIdx, type: registry.signature(type), locals: locals.map(value) };
+    writer.length = 0;
+    Locals.write(writer, func.locals);
+    let hints = link(code, writer, linker, 0);
+    writer.byte(END);
+    return withEncodedBody(func, writer.result(), hints);
   });
-  // finalize globals
-  let globals: Global[] = dependencyByKind.global.map(({ type, init }) => {
-    let init_ = resolveConst(init, depToIndex);
-    return { type, init: init_ };
-  });
-  // finalize tables
-  let tables: Table[] = dependencyByKind.table.map(({ type, init }) =>
-    init === undefined ? type : { ...type, init: resolveConst(init, depToIndex) },
-  );
-  // finalize elems
-  let elems: Elem[] = dependencyByKind.elem.map(({ type, init, mode }) => {
-    let init_ = init.map((i) => resolveConst(i, depToIndex));
-    let mode_: Elem["mode"] =
+  let globals: Global[] = dependencyByKind.global.map(({ type, init }) => ({
+    type: { ...type, value: value(type.value) },
+    init: constant(init),
+  }));
+  let tables: Table[] = dependencyByKind.table.map(({ type, init }) => ({
+    ...type,
+    type: value(type.type),
+    ...(init === undefined ? {} : { init: constant(init) }),
+  }));
+  let elems: Elem[] = dependencyByKind.elem.map(({ type, init, mode }) => ({
+    type: value(type),
+    init: init.map(constant),
+    mode:
       typeof mode === "object"
-        ? {
-            table: depToIndex.get(mode.table)!,
-            offset: resolveConst(mode.offset, depToIndex),
-          }
-        : mode;
-    return { type, init: init_, mode: mode_ };
-  });
+        ? { table: depToIndex.get(mode.table)!, offset: constant(mode.offset) }
+        : mode,
+  }));
   // finalize memories
   checkDefaultMemory(dependencyByKind);
   let memories = dependencyByKind.memory.map(({ type }) => type);
   // finalize datas: without a memory, active segments use the default memory
-  let datas: Data[] = dependencyByKind.data.map(({ init, mode }) => {
-    let mode_: Data["mode"] =
-      mode !== "passive"
-        ? {
+  let datas: Data[] = dependencyByKind.data.map(({ init, mode }) => ({
+    init,
+    mode:
+      mode === "passive"
+        ? mode
+        : {
             memory: mode.memory === undefined ? 0 : depToIndex.get(mode.memory)!,
-            offset: resolveConst(mode.offset, depToIndex),
-          }
-        : mode;
-    return { init, mode: mode_ };
+            offset: constant(mode.offset),
+          },
+  }));
+  imports = imports.map((imp) => {
+    const { description } = imp;
+    if (description.kind === "global") {
+      const type = { ...description.value, value: value(description.value.value) };
+      return { ...imp, description: { ...description, value: type } };
+    }
+    if (description.kind === "table") {
+      const type = { ...description.value, type: value(description.value.type) };
+      return { ...imp, description: { ...description, value: type } };
+    }
+    return imp;
   });
 
   // start
@@ -294,8 +323,14 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
       mergedNames.locals[index] = { ...generated.locals?.[index], ...names?.locals?.[index] };
     }
   }
+  // Names given in the builder, unless the module's names override them.
+  const { names: typeNames, fieldNames } = registry;
+  if (Object.keys(typeNames).length > 0) mergedNames.types = { ...typeNames, ...mergedNames.types };
+  if (Object.keys(fieldNames).length > 0)
+    mergedNames.fields = { ...fieldNames, ...mergedNames.fields };
   let binableModule: BinableModule = {
     types: registry.types,
+    ...(registry.groups.some((size) => size !== 1) ? { recGroups: registry.groups } : {}),
     funcs,
     imports,
     exports,
@@ -309,7 +344,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(indexTypes(binableModule, registry), importMap, {
+  return createModule<Exports>(binableModule, importMap, {
     asyncExports,
     importDependencies,
   });
@@ -351,21 +386,11 @@ function asyncPath(
   if (visited.has(func)) return undefined;
   visited.add(func);
   if (func.kind === "importFunction") return func.async ? [func] : undefined;
-  for (let callee of directCalls(func.body)) {
+  for (let callee of func.calls) {
     let path = asyncPath(callee, visited);
     if (path !== undefined) return [func, ...path];
   }
   return undefined;
-}
-
-/** Functions called by `call` and `return_call`, including in nested blocks. */
-function* directCalls(body: Dependency.Instruction[]): Generator<Dependency.AnyFunc> {
-  for (let instruction of body) {
-    if (instruction.string === "call" || instruction.string === "return_call")
-      yield instruction.deps[0] as Dependency.AnyFunc;
-    for (let arg of instruction.resolveArgs)
-      if (Array.isArray(arg) && typeof arg[0]?.string === "string") yield* directCalls(arg);
-  }
 }
 
 function functionName(func: Dependency.AnyFunc) {
@@ -383,64 +408,6 @@ function orderGlobals(globals: Dependency.Global[]): Dependency.Global[] {
   };
   globals.forEach(visit);
   return ordered;
-}
-
-/**
- * Builders refer to defined types as objects. Give each its type index, adding types as needed, so
- * that the module refers to types by index only, and record type and field names.
- */
-function indexTypes(module: BinableModule, registry: TypeRegistry): BinableModule {
-  const value = <T extends ValueType>(type: T): T => registry.value(type);
-  const instructions = (body: ResolvedInstruction[]) => registry.instructions(body);
-  const indexed: BinableModule = {
-    ...module,
-    funcs: module.funcs.map((func) => ({
-      ...func,
-      type: registry.signature(func.type),
-      locals: func.locals.map(value),
-      body: instructions(func.body),
-    })),
-    globals: module.globals.map(({ type, init }) => ({
-      type: { ...type, value: value(type.value) },
-      init: instructions(init),
-    })),
-    tables: module.tables.map(({ type, init, ...table }) => ({
-      ...table,
-      type: value(type),
-      ...(init === undefined ? {} : { init: instructions(init) }),
-    })),
-    elems: module.elems.map(({ type, init, mode }) => ({
-      type: value(type),
-      init: init.map(instructions),
-      mode: typeof mode === "string" ? mode : { ...mode, offset: instructions(mode.offset) },
-    })),
-    datas: module.datas.map(({ init, mode }) => ({
-      init,
-      mode: mode === "passive" ? mode : { ...mode, offset: instructions(mode.offset) },
-    })),
-    imports: module.imports.map((imp) => {
-      const { description } = imp;
-      if (description.kind === "global") {
-        const type = { ...description.value, value: value(description.value.value) };
-        return { ...imp, description: { ...description, value: type } };
-      }
-      if (description.kind === "table") {
-        const type = { ...description.value, type: value(description.value.type) };
-        return { ...imp, description: { ...description, value: type } };
-      }
-      return imp;
-    }),
-  };
-  if (registry.groups.some((size) => size !== 1)) indexed.recGroups = registry.groups;
-  // Names given in the builder, unless the module's names override them.
-  const { names: typeNames, fieldNames } = registry;
-  if (Object.keys(typeNames).length > 0 || Object.keys(fieldNames).length > 0) {
-    const names = { ...indexed.names };
-    if (Object.keys(typeNames).length > 0) names.types = { ...typeNames, ...names.types };
-    if (Object.keys(fieldNames).length > 0) names.fields = { ...fieldNames, ...names.fields };
-    indexed.names = names;
-  }
-  return indexed;
 }
 
 /**
@@ -566,14 +533,6 @@ function pushDependency(existing: Set<Dependency.anyDependency>, dep: Dependency
   for (let dep_ of dep.deps) {
     pushDependency(existing, dep_);
   }
-}
-
-/** A constant expression's instructions, which refer to other definitions by index. */
-function resolveConst(
-  constant: Dependency.Constant,
-  depToIndex: Map<Dependency.t, number>,
-): ResolvedInstruction[] {
-  return constant.body.map((instruction) => resolveInstruction(instruction, depToIndex));
 }
 
 function addImport(

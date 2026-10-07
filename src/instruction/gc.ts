@@ -32,7 +32,7 @@ import {
   type ValueType,
   valueTypeLiteral,
 } from "../types.ts";
-import { baseInstruction, withPublicSignature } from "./base.ts";
+import { baseInstruction, type Description, withPublicSignature } from "./base.ts";
 import type { ArrayType, FieldInput, FieldValue, StructType } from "../type-definitions.ts";
 import { type Input, namedInputs, processStackArgs } from "./stack-args.ts";
 
@@ -427,7 +427,7 @@ type ArrayFill = <E extends FieldInput>(
  */
 function withOperands<Immediates extends unknown[], Result>(
   instruction: ((ctx: LocalContext, ...immediates: Immediates) => Result) & {
-    create(ctx: LocalContext, ...immediates: Immediates): Dependency.Instruction;
+    create(ctx: LocalContext, ...immediates: Immediates): Description;
   },
   count: Immediates["length"],
 ) {

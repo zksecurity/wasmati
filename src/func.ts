@@ -1,8 +1,8 @@
-import { Binable, iso, record, tuple } from "./binable.ts";
+import { iso, tuple } from "./binable.ts";
+import { Code } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
-import { U32, vec, withByteLength } from "./immediate.ts";
+import { U32, vec } from "./immediate.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
-import { Expression } from "./instruction/binable.ts";
 import {
   type LocalContext,
   StackVar,
@@ -40,7 +40,6 @@ export { func, declareFunc, type Local };
 // internal
 export {
   type FinalizedFunc,
-  Code,
   Locals,
   type JSFunction,
   type ReturnValues,
@@ -116,12 +115,17 @@ function func<
   ]);
   const name = signature.name ?? (run.name || undefined);
   let stack: StackVar<ValueType>[] = [];
-  let { body, deps } = withContext(
+  let code = new Code();
+  let deps = new Set<Dependency.t>();
+  let calls = new Set<Dependency.AnyFunc>();
+  withContext(
     ctx,
     {
       locals: [...argsArray, ...sortedLocals],
-      body: [],
-      deps: [],
+      code,
+      deps,
+      calls,
+      allowed: undefined,
       stack,
       return: resultsArray,
       frames: [
@@ -153,8 +157,9 @@ function func<
     localNames,
     type,
     ...explicitType(signature.type, type),
-    body,
-    deps,
+    code,
+    deps: [...deps],
+    calls: [...calls] as Func<any, any>["calls"],
     locals: sortedLocals,
     defined: true,
   } satisfies Dependency.Func;
@@ -190,8 +195,9 @@ function declareFunc<
     ...explicitType(signature.type, type),
     name: signature.name,
     locals: [],
-    body: [],
+    code: new Code(0),
     deps: [],
+    calls: [],
     defined: false,
   };
   return Object.assign(declaration, {
@@ -292,6 +298,3 @@ const Locals = iso<[number, ValueType][], ValueType[]>(CompressedLocals, {
     return locals;
   },
 });
-
-type Code = { locals: ValueType[]; body: Expression };
-const Code = withByteLength(record({ locals: Locals, body: Expression })) satisfies Binable<Code>;

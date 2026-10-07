@@ -27,7 +27,8 @@ import {
 } from "./types.ts";
 import { Export, type Import, Imports } from "./export.ts";
 import { Data, Elem, Global, Table } from "./memory-binable.ts";
-import { Code, type FinalizedFunc } from "./func.ts";
+import type { FinalizedFunc } from "./func.ts";
+import { CodeEntry, type Code, encodedHints } from "./code-section.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 
 export { Module, type CustomSection };
@@ -118,7 +119,7 @@ let ElemSection = section<ElemSection>(9, vec(Elem));
 
 // 10: CodeSection
 type CodeSection = Code[];
-let CodeSection = section<CodeSection>(10, vec(Code));
+let CodeSection = section<CodeSection>(10, vec(CodeEntry));
 
 // 11: DataSection
 type DataSection = Data[];
@@ -263,9 +264,10 @@ const Module = iso(ParsedModule, {
       extras.push({ after: null, value: { name: "name", data: NameSection.toBytes(names) } });
     }
     let funcSection = funcs.map((f) => f.typeIdx);
-    let codeSection = funcs.map(({ locals, body }) => ({ locals, body }));
+    // The functions themselves, whose bodies may be encoded already, and decoded only when read.
+    let codeSection: Code[] = funcs;
     let importedFunctions = imports.filter((i) => i.description.kind === "function").length;
-    let hints = encodeBranchHints(codeSection, importedFunctions);
+    let hints = encodeBranchHints(codeSection, importedFunctions, encodedHints);
     // Engines read branch hints before the code they refer to.
     if (hints !== undefined)
       extras.push({ after: "dataCountSection", value: { name: branchHintSection, data: hints } });

@@ -20,8 +20,8 @@ export {
   Block,
   IfBlock,
   TryTable,
-  type Catch,
-  type BlockType,
+  Catch,
+  BlockType,
 };
 
 const Instruction = Binable<ResolvedInstruction>({

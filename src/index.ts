@@ -204,12 +204,12 @@ export type {
   Data,
   Elem,
   AnyImport,
-  Instruction as DependencyInstruction,
   t as AnyDependency,
 } from "./dependency.ts";
 export type { I32, I64, F32, F64, V128 };
 export type { AddressType, DefinedType } from "./types.ts";
 export type { U64 } from "./immediate.ts";
+export type { Code } from "./code.ts";
 export type { NamedLocals } from "./locals.ts";
 export type { LocalContext } from "./local-context.ts";
 export type { StructType, ArrayType, FieldInput, FieldValue } from "./type-definitions.ts";

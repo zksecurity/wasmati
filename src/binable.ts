@@ -81,8 +81,12 @@ function toArray(bytes: Uint8Array): number[] {
 
 /** A growable buffer that encodings append to. */
 class Writer {
-  buffer = new Uint8Array(1 << 12);
+  buffer: Uint8Array<ArrayBuffer>;
   length = 0;
+
+  constructor(capacity = 1 << 12) {
+    this.buffer = new Uint8Array(capacity);
+  }
 
   /** Make room for `n` more bytes. */
   reserve(n: number) {
@@ -103,6 +107,14 @@ class Writer {
     let { buffer, length } = this;
     for (let i = 0; i < n; i++) buffer[length + i] = bytes[i];
     this.length = length + n;
+  }
+
+  /** Bytes from `from` to `to` of a buffer. */
+  copy(source: Uint8Array, from: number, to: number) {
+    let n = to - from;
+    this.reserve(n);
+    this.buffer.set(source.subarray(from, to), this.length);
+    this.length += n;
   }
 
   /** An unsigned LEB128 integer below 2^53. */

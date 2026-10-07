@@ -4,6 +4,7 @@ import type { AnyFunc } from "../func-types.ts";
 import { vec } from "../immediate.ts";
 import {
   getFrameFromLabel,
+  placeResults,
   type Label,
   labelTypes,
   popStack,
@@ -38,16 +39,19 @@ import {
 } from "../types.ts";
 import {
   baseInstruction,
-  createExpressionWithType,
+  type BaseInstruction,
+  checkAllowed,
   type FunctionTypeInput,
   type FunctionTypeReference,
   functionTypeOf,
-  resolveExpression,
+  hasDefinedType,
   baseInstructionWithImmediate,
+  runBlock,
   typeFromInput,
   type Instruction_,
 } from "./base.ts";
-import { Block, type BlockType, type Catch, IfBlock, TryTable } from "./binable.ts";
+import { Block, BlockType, Catch, ELSE, END, IfBlock, TryTable } from "./binable.ts";
+import type { Immediate } from "../code.ts";
 import { type Input, namedInputs, processStackArgs } from "./stack-args.ts";
 
 export { control, bindControlOps, parametric };
@@ -80,7 +84,7 @@ function withOptions<Options, Bodies extends unknown[]>(
 
 /**
  * A block type: empty or a single result where possible, otherwise the index of its function type,
- * which is then the block's first dependency.
+ * which is then the block's dependency.
  */
 function blockType(type: FunctionType): { deps: Dependency.t[]; abbreviated?: BlockType } {
   if (type.args.length === 0 && type.results.length <= 1)
@@ -88,32 +92,57 @@ function blockType(type: FunctionType): { deps: Dependency.t[]; abbreviated?: Bl
   return { deps: [Dependency.type(type)] };
 }
 
-/** The resolved block type and the dependencies of the block's contents. */
-function resolveBlockType(
-  deps: number[],
-  abbreviated: BlockType | undefined,
-): [BlockType, number[]] {
-  return abbreviated === undefined ? [deps[0], deps.slice(1)] : [abbreviated, deps];
+/** A block type that refers to a type by index, or to a defined type in a reference type. */
+const blockTypeImmediate: Immediate = {
+  string: "blocktype",
+  immediate: BlockType,
+  resolve: (deps: number[], abbreviated: BlockType | undefined) => abbreviated ?? deps[0],
+};
+
+/** A block's header: its opcode and block type, and catch clauses for try_table. */
+function writeHeader(ctx: LocalContext, instruction: BaseInstruction, type: FunctionType) {
+  let { code } = ctx;
+  checkAllowed(ctx, instruction.string);
+  code.bytes(instruction.opcodeBytes);
+  let { deps, abbreviated } = blockType(type);
+  if (abbreviated === undefined) {
+    ctx.deps.add(deps[0]);
+    code.hole(blockTypeImmediate, deps, [undefined]);
+  } else if (hasDefinedType(abbreviated)) code.hole(blockTypeImmediate, [], [abbreviated]);
+  else BlockType.write(code, abbreviated);
+}
+
+/** After a block's code: take its parameters from the stack, and push its results. */
+function endBlock<Args, Results>(
+  ctx: LocalContext,
+  name: string,
+  { args, results }: FunctionType,
+  start: number,
+) {
+  ctx.code.byte(END);
+  popStack(ctx, args, name);
+  let pushed = pushStack(ctx, results);
+  placeResults(ctx, start);
+  return (
+    pushed.length === 0 ? undefined : pushed.length === 1 ? pushed[0] : pushed
+  ) as Instruction_<Args, Results>;
 }
 
 function blockInstruction(name: "block" | "loop") {
-  return baseInstruction(name, Block, {
-    create(ctx, ...args: BlockArgs) {
-      let [options, run] = withOptions<BlockOptions, [Body]>(args, 1);
-      let { type, body, deps } = createExpressionWithType(name, ctx, options, run);
-      let { deps: typeDeps, abbreviated } = blockType(type);
-      return {
-        in: type.args,
-        out: type.results,
-        deps: [...typeDeps, ...deps],
-        resolveArgs: [body, abbreviated],
-      };
-    },
-    resolve(deps, body: Dependency.Instruction[], abbreviated: BlockType | undefined) {
-      let [blockType, rest] = resolveBlockType(deps, abbreviated);
-      return { blockType, instructions: resolveExpression(rest, body) };
-    },
-  });
+  // The instruction's codec decodes and encodes blocks of modules that are not built here.
+  let { instruction } = baseInstruction(name, Block, { create: notBuilt });
+  return function (ctx: LocalContext, ...args: BlockArgs) {
+    let [options, run] = withOptions<BlockOptions, [Body]>(args, 1);
+    let type = typeFromInput(options);
+    let start = ctx.code.length;
+    writeHeader(ctx, instruction, type);
+    runBlock(ctx, name, type, run);
+    return endBlock(ctx, name, type, start);
+  };
+}
+
+function notBuilt(): never {
+  throw Error("bug: blocks are written by their own instruction");
 }
 
 const block = blockInstruction("block");
@@ -124,38 +153,25 @@ type BranchHint = { likely?: boolean };
 type IfOptions = BlockOptions & BranchHint;
 type IfArgs = [then: Body, otherwise?: Body] | [options: IfOptions, then: Body, otherwise?: Body];
 
-const if_ = baseInstruction("if", IfBlock, {
-  create(ctx, ...args: IfArgs) {
-    let bodies = typeof args[0] === "function" ? args.length : args.length - 1;
-    let [options, runIf, runElse] = withOptions<IfOptions, [Body, Body?]>(args, bodies);
-    popStack(ctx, ["i32"]);
-    let { type, body, deps } = createExpressionWithType("if", ctx, options, runIf);
-    let ifArgs = [...type.args, "i32"] as [...ValueType[], "i32"];
-    let elseExpr =
-      runElse === undefined ? undefined : createExpressionWithType("else", ctx, options, runElse);
-    pushStack(ctx, ["i32"]);
-    let { deps: typeDeps, abbreviated } = blockType(type);
-    return {
-      in: ifArgs,
-      out: type.results,
-      deps: [...typeDeps, ...deps, ...(elseExpr?.deps ?? [])],
-      resolveArgs: [body, elseExpr?.body, abbreviated],
-      likely: options.likely,
-    };
-  },
-  resolve(
-    allDeps,
-    ifBody: Dependency.Instruction[],
-    elseBody: Dependency.Instruction[] | undefined,
-    abbreviated: BlockType | undefined,
-  ) {
-    let [blockType, deps] = resolveBlockType(allDeps, abbreviated);
-    let ifDepsLength = ifBody.reduce((acc, i) => acc + i.deps.length, 0);
-    let if_ = resolveExpression(deps.slice(0, ifDepsLength), ifBody);
-    let else_ = elseBody && resolveExpression(deps.slice(ifDepsLength), elseBody);
-    return { blockType, instructions: { if: if_, else: else_ } };
-  },
-});
+const ifInstruction = baseInstruction("if", IfBlock, { create: notBuilt }).instruction;
+function if_(ctx: LocalContext, ...args: IfArgs) {
+  let bodies = typeof args[0] === "function" ? args.length : args.length - 1;
+  let [options, runIf, runElse] = withOptions<IfOptions, [Body, Body?]>(args, bodies);
+  let { code } = ctx;
+  popStack(ctx, ["i32"]);
+  let type = typeFromInput(options);
+  let start = code.length;
+  if (options.likely !== undefined) code.hints.push({ position: start, likely: options.likely });
+  writeHeader(ctx, ifInstruction, type);
+  runBlock(ctx, "if", type, runIf);
+  if (runElse !== undefined) {
+    code.byte(ELSE);
+    runBlock(ctx, "else", type, runElse);
+  }
+  // The condition was taken before the branches; the parameters are below it.
+  pushStack(ctx, ["i32"]);
+  return endBlock(ctx, "if", { args: [...type.args, "i32"], results: type.results }, start);
+}
 
 const br = baseInstruction("br", LabelIndex, {
   create(ctx, label: Label | number) {
@@ -351,51 +367,55 @@ const throw_ref = baseInstruction("throw_ref", Undefined, {
 type CatchInput = { tag?: Dependency.AnyTag; ref?: boolean; label: Label | number };
 type TryTableOptions = BlockOptions & { catches?: CatchInput[] };
 
-/** A block whose exceptions are caught by its catch clauses, which branch to enclosing labels. */
-const try_table = baseInstruction("try_table", TryTable, {
-  create(ctx, ...args: [body: Body] | [options: TryTableOptions, body: Body]) {
-    let [options, run] = withOptions<TryTableOptions, [Body]>(args, 1);
-    // Catch clauses branch from outside the block.
-    let clauses = (options.catches ?? []).map(({ tag, ref = false, label }) => {
-      let [depth, frame] = getFrameFromLabel(ctx, label);
-      let values = [...(tag?.type.args ?? []), ...(ref ? [refType("exn", false)] : [])];
-      let types = labelTypes(frame);
-      if (values.length !== types.length || values.some((v, i) => !isSubtype(v, types[i])))
-        throw Error(
-          `try_table: catch clause provides [${values.map(printValueType)}], label expects [${types.map(printValueType)}]`,
-        );
-      let kind =
-        `${tag === undefined ? "catch_all" : "catch"}${ref ? "_ref" : ""}` as Catch["kind"];
-      return { kind, tag, label: depth };
-    });
-    let { type, body, deps } = createExpressionWithType("try_table", ctx, options, run);
-    let tags = clauses.flatMap(({ tag }) => (tag === undefined ? [] : [tag]));
-    let { deps: typeDeps, abbreviated } = blockType(type);
-    return {
-      in: type.args,
-      out: type.results,
-      deps: [...typeDeps, ...tags, ...deps],
-      resolveArgs: [clauses.map(({ kind, label }) => ({ kind, label })), body, abbreviated],
-    };
-  },
-  resolve(
-    allDeps,
-    clauses: { kind: Catch["kind"]; label: number }[],
-    body: Dependency.Instruction[],
-    abbreviated: BlockType | undefined,
-  ) {
-    let [blockType, deps] = resolveBlockType(allDeps, abbreviated);
-    let tagged = clauses.filter(({ kind }) => kind === "catch" || kind === "catch_ref").length;
-    let tags = deps.slice(0, tagged);
+/** Catch clauses whose tags are referred to by index. */
+const catchesImmediate: Immediate = {
+  string: "catches",
+  immediate: vec(Catch),
+  resolve(tags: number[], clauses: { kind: Catch["kind"]; label: number; tagged: boolean }[]) {
     let next = 0;
-    let catches = clauses.map((clause) =>
-      clause.kind === "catch" || clause.kind === "catch_ref"
-        ? { ...clause, tag: tags[next++] }
-        : clause,
-    ) as Catch[];
-    return { blockType, catches, instructions: resolveExpression(deps.slice(tagged), body) };
+    return clauses.map(({ kind, label, tagged }) =>
+      tagged ? { kind, tag: tags[next++], label } : { kind, label },
+    );
   },
-});
+};
+
+const tryTableInstruction = baseInstruction("try_table", TryTable, {
+  create: notBuilt,
+}).instruction;
+
+/** A block whose exceptions are caught by its catch clauses, which branch to enclosing labels. */
+function try_table(
+  ctx: LocalContext,
+  ...args: [body: Body] | [options: TryTableOptions, body: Body]
+) {
+  let [options, run] = withOptions<TryTableOptions, [Body]>(args, 1);
+  // Catch clauses branch from outside the block.
+  let clauses = (options.catches ?? []).map(({ tag, ref = false, label }) => {
+    let [depth, frame] = getFrameFromLabel(ctx, label);
+    let values = [...(tag?.type.args ?? []), ...(ref ? [refType("exn", false)] : [])];
+    let types = labelTypes(frame);
+    if (values.length !== types.length || values.some((v, i) => !isSubtype(v, types[i])))
+      throw Error(
+        `try_table: catch clause provides [${values.map(printValueType)}], label expects [${types.map(printValueType)}]`,
+      );
+    let kind = `${tag === undefined ? "catch_all" : "catch"}${ref ? "_ref" : ""}` as Catch["kind"];
+    return { kind, tag, label: depth };
+  });
+  let type = typeFromInput(options);
+  let { code } = ctx;
+  let start = code.length;
+  writeHeader(ctx, tryTableInstruction, type);
+  let tags = clauses.flatMap(({ tag }) => (tag === undefined ? [] : [tag]));
+  let resolved = clauses.map(({ kind, label, tag }) => ({
+    kind,
+    label,
+    tagged: tag !== undefined,
+  }));
+  for (let tag of tags) ctx.deps.add(tag);
+  code.hole(catchesImmediate, tags, [resolved]);
+  runBlock(ctx, "try_table", type, run);
+  return endBlock(ctx, "try_table", type, start);
+}
 
 function bindControlOps(ctx: LocalContext) {
   return {

@@ -1,3 +1,4 @@
+import { Code } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
 import {
   emptyContext,
@@ -50,12 +51,16 @@ function constant<T extends ValueType = ValueType>(
 ): Dependency.Constant<T> {
   let stack: StackVar<StackType>[] = [];
   let type: StackType | undefined;
-  let { body, deps } = withContext(
+  let code = new Code(16);
+  let deps = new Set<Dependency.t>();
+  withContext(
     ctx,
     {
       locals: [],
-      body: [],
-      deps: [],
+      code,
+      deps,
+      calls: new Set(),
+      allowed: constantInstructions,
       stack,
       return: null,
       frames: [
@@ -76,10 +81,7 @@ function constant<T extends ValueType = ValueType>(
       type = ctx.stack[0].type;
     },
   );
-  for (let instruction of body)
-    if (!constantInstructions.has(instruction.string))
-      throw Error(`constant: ${instruction.string} is not a constant instruction`);
-  return { kind: "constant", type: type as T, body, deps };
+  return { kind: "constant", type: type as T, code, deps: [...deps] };
 }
 
 /** Where constants are expected, numbers and functions stand for simple constants. */

@@ -5,7 +5,7 @@ import { ELSE, END, Instruction, rememberEncoding } from "./instruction/binable.
 import { Locals } from "./func.ts";
 import type { ValueType } from "./types.ts";
 
-export { encodeBranchHints, decodeBranchHints, branchHintSection };
+export { encodeBranchHints, decodeBranchHints, branchHintSection, encodeWithOffsets };
 
 /**
  * Branch hints are code metadata: a custom section that refers to `if` and `br_if` instructions by
@@ -51,9 +51,19 @@ const Hint = Binable<{ offset: number; likely: boolean }>({
 
 const Hints = vec(Hint);
 
-/** The custom section of the functions' branch hints, if any; `firstFunc` is the first function's index. */
-function encodeBranchHints(codes: Code[], firstFunc: number): number[] | undefined {
+/**
+ * The custom section of the functions' branch hints, if any; `firstFunc` is the first function's index.
+ * Functions that are encoded already know their hints' offsets.
+ */
+function encodeBranchHints(
+  codes: Code[],
+  firstFunc: number,
+  encoded: (code: Code) => { offset: number; likely: boolean }[] | undefined,
+): number[] | undefined {
   let functions = codes.flatMap((code, i): FunctionHints[] => {
+    let known = encoded(code);
+    if (known !== undefined)
+      return known.length === 0 ? [] : [{ func: firstFunc + i, hints: known }];
     if (!hasHints(code.body)) return [];
     // Offsets are measured by encoding the function, and the code section reuses the encoding.
     let { offsets, bytes } = encodeWithOffsets(

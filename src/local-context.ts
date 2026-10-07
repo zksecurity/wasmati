@@ -1,3 +1,4 @@
+import { Code } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
 import type { InstructionName } from "./instruction/opcodes.ts";
 import { isSubtype, printValueType, typeEquals, ValueType } from "./types.ts";
@@ -18,7 +19,7 @@ export {
   setUnreachable,
   labelTypes,
   getFrameFromLabel,
-  pushInstruction,
+  placeResults,
   emptyContext,
   withContext,
   isNumberType,
@@ -50,27 +51,34 @@ type ControlFrame = {
   endTypes: ValueType[];
   unreachable: boolean;
   stack: StackVar<StackType>[];
-  /** The start of the earliest value popped by the instruction being created, see `starts`. */
+  /** The start of the earliest value popped by the instruction being created, see `Placed`. */
   popsFrom?: number;
 };
 
 type LocalContext = {
   locals: ValueType[];
-  deps: Dependency.t[];
-  body: Dependency.Instruction[];
+  deps: Set<Dependency.t>;
+  /** Functions that the code calls directly. */
+  calls: Set<Dependency.AnyFunc>;
+  code: Code;
   stack: StackVar<StackType>[]; // === frames[0].stack
   frames: ControlFrame[];
   return: ValueType[] | null;
+  /** The instructions that the code may use, if not all, as in constant expressions. */
+  allowed?: Set<string>;
 };
 
 function emptyContext(): LocalContext {
   return {
     locals: [],
-    body: [],
-    deps: [],
+    code: new Code(64),
+    deps: new Set(),
+    calls: new Set(),
     return: [],
     stack: [],
     frames: [],
+    // Present, so that contexts that restrict instructions restore it.
+    allowed: undefined,
   };
 }
 
@@ -95,27 +103,24 @@ function withContext(
   return resultCtx;
 }
 
-/** Apply an instruction to the stack, and return its results, which are the new stack entries. */
-function pushInstruction(ctx: LocalContext, instr: Dependency.Instruction): StackVar<StackType>[] {
-  let { body, deps, stack } = ctx;
-  popStack(ctx, instr.type.args, instr.string);
-  let results = pushStack(ctx, instr.type.results);
+/**
+ * Values that an instruction pushed or passed through follow it, after it was written from `start`.
+ * They are computed from where its earliest operand was.
+ */
+function placeResults(ctx: LocalContext, start: number) {
+  let { stack, code } = ctx;
   let frame: ControlFrame | undefined = ctx.frames[0];
-  let start = Math.min(frame?.popsFrom ?? body.length, body.length);
-  if (frame !== undefined) frame.popsFrom = undefined;
-  body.push(instr);
-  // Values that the instruction pushed or passed through follow it.
-  for (let i = stack.length - 1; i >= 0 && placed(stack[i]).end < 0; i--) {
+  let from = start;
+  if (frame !== undefined) {
+    if (frame.popsFrom !== undefined && frame.popsFrom < start) from = frame.popsFrom;
+    frame.popsFrom = undefined;
+  }
+  for (let i = stack.length - 1; i >= 0; i--) {
     let value = placed(stack[i]);
-    value.end = body.length;
-    if (value.start < 0) value.start = start;
+    if (value.end >= 0) break;
+    value.end = code.length;
+    if (value.start < 0) value.start = from;
   }
-  for (let dep of instr.deps) {
-    if (!deps.includes(dep)) {
-      deps.push(dep);
-    }
-  }
-  return results;
 }
 
 /**
@@ -220,18 +225,18 @@ type StackVars<Results extends readonly ValueType[]> = {
   [k in keyof Results]: StackVar<Results[k]>;
 };
 
-/** The parameters of a block, which are on its stack at the start of its body. */
-function stackVars(types: ValueType[]) {
+/** The parameters of a block, which are on its stack at the start of its body, at `position`. */
+function stackVars(types: ValueType[], position: number) {
   let values = types.map(StackVar);
-  values.forEach((value) => place(value, 0, 0));
+  values.forEach((value) => place(value, position, position));
   return values;
 }
 
 /**
- * Where each stack value is computed in the body of its block: from `start`, where the stack has the
- * values below it, to `end`, right after the instruction that pushed it or last passed it through.
+ * Where each stack value is computed in the code of its function: from `start`, where the stack has
+ * the values below it, to `end`, right after the instruction that pushed it or last passed it through.
  * Instructions inserted at `start` compute a value between the value and the ones below. Both are -1
- * until the instruction is in the body. They are properties of the values, but not of their type.
+ * until the instruction is written. They are properties of the values, but not of their type.
  */
 type Placed = StackVar<StackType> & { start: number; end: number };
 
@@ -251,12 +256,12 @@ function place(value: StackVar<StackType>, start: number, end = start + 1) {
   Object.assign(placed(value), { start, end });
 }
 
-/** Values computed from `position` on move by one, after an instruction is inserted there. */
-function shiftPlaces(ctx: LocalContext, position: number) {
+/** Values computed from `position` on move by `n` bytes, after code is inserted there. */
+function shiftPlaces(ctx: LocalContext, position: number, n: number) {
   for (let value of ctx.stack) {
     let { start, end } = placeOf(value);
-    if (start >= position) placed(value).start = start + 1;
-    if (end > position) placed(value).end = end + 1;
+    if (start >= position) placed(value).start = start + n;
+    if (end > position) placed(value).end = end + n;
   }
 }
 

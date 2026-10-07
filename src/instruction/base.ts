@@ -1,10 +1,12 @@
 import { Binable, Undefined } from "../binable.ts";
+import type { Code, Immediate } from "../code.ts";
 import type * as Dependency from "../dependency.ts";
 import {
   formatStack,
   type LocalContext,
+  placeResults,
   popStack,
-  pushInstruction,
+  pushStack,
   type RandomLabel,
   StackVar,
   stackVars,
@@ -12,6 +14,7 @@ import {
 } from "../local-context.ts";
 import {
   type DefinedType,
+  type Local,
   FunctionType,
   isFunctionType,
   referencedTypes,
@@ -22,6 +25,7 @@ import {
 } from "../types.ts";
 import type { Tuple } from "../util.ts";
 import { type InstructionName, nameToOpcode } from "./opcodes.ts";
+import { U32 } from "../immediate.ts";
 
 export {
   withPublicSignature,
@@ -30,9 +34,12 @@ export {
   baseInstruction,
   type BaseInstruction,
   type ResolvedInstruction,
-  resolveInstruction,
-  resolveExpression,
-  createExpressionWithType,
+  type Description,
+  emit,
+  writeInstruction,
+  runBlock,
+  checkAllowed,
+  hasDefinedType,
   type FunctionTypeInput,
   lookupInstruction,
   lookupOpcode,
@@ -60,12 +67,45 @@ function withPublicSignature<Signature>() {
 const nameToInstruction: Record<string, BaseInstruction> = {};
 const opcodeToInstruction: Record<number, BaseInstruction | Record<number, BaseInstruction>> = {};
 
-type BaseInstruction = {
-  string: string;
+type BaseInstruction = Immediate & {
   opcode: number | [number, number];
   immediate: Binable<any> | undefined;
-  resolve: (deps: number[], ...args: any) => any;
+  /** The opcode's encoding. */
+  opcodeBytes: Uint8Array;
+  /** Whether the immediate may contain defined types, which Module() replaces by their indices. */
+  typed: boolean;
+  /** What the instruction changes that operands of later instructions may read. */
+  effect?: "local" | "global" | "call" | "direct call";
 };
+
+/** An instruction with its operands and results, and what its immediate is made of. */
+type Description = {
+  string: string;
+  instruction: BaseInstruction;
+  type: FunctionType;
+  deps: Dependency.t[];
+  resolveArgs: any[];
+  likely?: boolean;
+};
+
+const typedInstructions = new Set([
+  "ref.null",
+  "ref.test",
+  "ref.test_null",
+  "ref.cast",
+  "ref.cast_null",
+  "br_on_cast",
+  "br_on_cast_fail",
+  "select_t",
+]);
+
+function effectOf(name: string): BaseInstruction["effect"] {
+  if (name === "local.set" || name === "local.tee") return "local";
+  if (name === "global.set") return "global";
+  if (name === "call" || name === "return_call") return "direct call";
+  if (name.startsWith("call") || name.startsWith("return_call")) return "call";
+  return undefined;
+}
 /** An instruction with its immediate; `if` and `br_if` may carry a branch hint. */
 type ResolvedInstruction = { name: string; immediate: any; likely?: boolean };
 
@@ -98,11 +138,23 @@ function baseInstruction<
     resolve?(deps: number[], ...args: ResolveArgs): Immediate;
   },
 ): ((ctx: LocalContext, ...createArgs: CreateArgs) => Instruction_<Args, Results>) & {
-  create(ctx: LocalContext, ...createArgs: CreateArgs): Dependency.Instruction;
+  create(ctx: LocalContext, ...createArgs: CreateArgs): Description;
+  instruction: BaseInstruction;
 } {
   resolve ??= noResolve;
   let opcode = nameToOpcode[string];
-  let instruction = { string, opcode, immediate, resolve };
+  let opcodeBytes = Uint8Array.from(
+    typeof opcode === "number" ? [opcode] : [opcode[0], ...U32.toBytes(opcode[1])],
+  );
+  let instruction: BaseInstruction = {
+    string,
+    opcode,
+    opcodeBytes,
+    immediate,
+    resolve,
+    typed: typedInstructions.has(string),
+    effect: effectOf(string),
+  };
   nameToInstruction[string] = instruction;
   if (typeof opcode === "number") {
     opcodeToInstruction[opcode] = instruction;
@@ -111,7 +163,7 @@ function baseInstruction<
     (opcodeToInstruction[opcode[0]] as Record<number, BaseInstruction>)[opcode[1]] = instruction;
   }
 
-  function wrapCreate(ctx: LocalContext, ...createArgs: CreateArgs): Dependency.Instruction {
+  function wrapCreate(ctx: LocalContext, ...createArgs: CreateArgs): Description {
     let {
       in: args,
       out: results,
@@ -119,35 +171,92 @@ function baseInstruction<
       resolveArgs = createArgs,
       likely,
     } = create(ctx, ...createArgs);
-    return {
-      string,
-      deps,
-      type: { args, results },
-      resolveArgs,
-      ...hint(likely),
-    };
+    return { string, instruction, type: { args, results }, deps, resolveArgs, likely };
   }
 
   /**
-   * "Calling" an instruction does two different things:
-   * - creates a `Dependency.Instruction` (that represents the instruction before resolving dependencies)
-   *   - how to this is defined by the input `create()` function
-   * - applies the instruction to the current stack/ctx, and validates stack types
-   *
-   * If you only want creation, use `instruction.create()` instead of `instruction()`
-   * (this is currently not exposed to the public API)
+   * Calling an instruction validates its operands on the stack, writes it to the code, and pushes its
+   * results. `create()` only describes it, with its operand and result types.
    */
   return Object.assign(
-    function instruction(ctx: LocalContext, ...createArgs: CreateArgs) {
-      let instr = wrapCreate(ctx, ...createArgs);
+    function (ctx: LocalContext, ...createArgs: CreateArgs) {
+      let results = emit(ctx, wrapCreate(ctx, ...createArgs));
       // The results are the stack entries, so that operands can be checked to be where they are.
-      let results = pushInstruction(ctx, instr);
       return (
         results.length === 0 ? undefined : results.length === 1 ? results[0] : results
       ) as Instruction_<Args, Results>;
     },
-    { create: wrapCreate },
+    { create: wrapCreate, instruction },
   );
+}
+
+/** Apply an instruction to the stack, write it to the code, and return its results. */
+function emit(
+  ctx: LocalContext,
+  { instruction, type, deps, resolveArgs, likely }: Description,
+): StackVar<ValueType>[] {
+  let { code } = ctx;
+  checkAllowed(ctx, instruction.string);
+  let start = code.length;
+  popStack(ctx, type.args, instruction.string);
+  writeInstruction(code, instruction, deps, resolveArgs, likely);
+  for (let dep of deps) ctx.deps.add(dep);
+  if (instruction.effect === "direct call") ctx.calls.add(deps[0] as Dependency.AnyFunc);
+  let results = pushStack(ctx, type.results) as StackVar<ValueType>[];
+  placeResults(ctx, start);
+  return results;
+}
+
+/**
+ * Write an instruction: its opcode, and its immediate, or a hole for it if it refers to other
+ * definitions by index. Memory 0 and function references have no index of their own.
+ */
+function writeInstruction(
+  code: Code,
+  instruction: BaseInstruction,
+  deps: Dependency.t[],
+  args: any[],
+  likely?: boolean,
+) {
+  let start = code.length;
+  if (likely !== undefined) code.hints.push({ position: start, likely });
+  let { opcodeBytes, immediate, effect } = instruction;
+  if (opcodeBytes.length === 1) code.byte(opcodeBytes[0]);
+  else code.bytes(opcodeBytes);
+  if (immediate !== undefined) {
+    if (deps.some(hasIndex)) code.hole(instruction, deps, args);
+    else {
+      let value = instruction.resolve(deps.map(noIndex), ...args);
+      if (instruction.typed && hasDefinedType(value)) code.hole(instruction, deps, args);
+      else immediate.write(code, value);
+    }
+  }
+  if (effect !== undefined) {
+    let name = instruction.string;
+    if (effect === "local")
+      code.writes.push({ position: start, name, local: (args[0] as Local).index });
+    else if (effect === "global")
+      code.writes.push({ position: start, name, global: deps[0] as Dependency.AnyGlobal });
+    else code.writes.push({ position: start, name, call: true });
+  }
+}
+
+/** Constant expressions allow only some instructions. */
+function checkAllowed(ctx: LocalContext, name: string) {
+  if (ctx.allowed !== undefined && !ctx.allowed.has(name))
+    throw Error(`constant: ${name} is not a constant instruction`);
+}
+
+function hasIndex(dep: Dependency.t) {
+  return dep.kind !== "hasMemory" && dep.kind !== "hasRefTo";
+}
+const noIndex = () => 0;
+
+/** Whether a value contains defined types, which Module() replaces by their indices. */
+function hasDefinedType(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if ((value as { kind?: unknown }).kind === "type") return true;
+  return Object.values(value).some(hasDefinedType);
 }
 
 function isInstruction(
@@ -202,25 +311,6 @@ function baseInstructionWithImmediate<
   });
 }
 
-function resolveInstruction(
-  { string: name, deps, resolveArgs, likely }: Dependency.Instruction,
-  depToIndex: Map<Dependency.t, number>,
-): ResolvedInstruction {
-  let instr = lookupInstruction(name);
-  let depIndices: number[] = [];
-  for (let dep of deps) {
-    let index = depToIndex.get(dep);
-    if (index === undefined) {
-      if (dep.kind === "hasRefTo") index = 0;
-      else if (dep.kind === "hasMemory") index = 0;
-      else throw Error("bug: no index for dependency");
-    }
-    depIndices.push(index);
-  }
-  let immediate = instr.resolve(depIndices, ...resolveArgs);
-  return { name, immediate, ...hint(likely) };
-}
-
 const noResolve = (_: number[], ...args: any) => args[0];
 
 type FunctionTypeInput = {
@@ -251,62 +341,32 @@ function typeFromInput(type: FunctionTypeInput): FunctionType {
   };
 }
 
-function createExpressionWithType(
-  name: LocalContext["frames"][number]["opcode"],
+let labels = 0;
+
+/**
+ * Run the body of a block of the given type, whose code follows in place, in a frame of its own. Its
+ * results must be all that its body leaves on its stack.
+ */
+function runBlock(
   ctx: LocalContext,
-  type: FunctionTypeInput,
+  name: LocalContext["frames"][number]["opcode"],
+  { args, results }: FunctionType,
   run: (label: RandomLabel) => void,
-): {
-  body: Dependency.Instruction[];
-  type: FunctionType;
-  deps: Dependency.t[];
-} {
-  let args = valueTypeLiterals(type?.in ?? []);
-  let results = valueTypeLiterals(type?.out ?? []);
-  let stack = stackVars(args);
-  let label = String(Math.random()) as RandomLabel;
-  let subCtx = withContext(
-    ctx,
-    {
-      body: [],
-      stack,
-      frames: [
-        {
-          label,
-          opcode: name,
-          startTypes: args,
-          endTypes: results,
-          unreachable: false,
-          stack,
-        },
-        ...ctx.frames,
-      ],
-    },
-    () => run(label),
-  );
-  popStack(subCtx, results);
+) {
+  let stack = stackVars(args, ctx.code.length);
+  let label: RandomLabel = `0.${labels++}`;
+  let frame = {
+    label,
+    opcode: name,
+    startTypes: args,
+    endTypes: results,
+    unreachable: false,
+    stack,
+  };
+  let inner = withContext(ctx, { stack, frames: [frame, ...ctx.frames] }, () => run(label));
+  popStack(inner, results);
   if (stack.length !== 0)
     throw Error(`expected stack to be empty at the end of block, got ${formatStack(stack)}`);
-  let { body } = subCtx;
-  return { body, type: { args, results }, deps: body.flatMap((i) => i.deps) };
-}
-
-/** Branch hints are recorded only where given. */
-function hint(likely: boolean | undefined): { likely?: boolean } {
-  return likely === undefined ? {} : { likely };
-}
-
-function resolveExpression(deps: number[], body: Dependency.Instruction[]) {
-  let instructions: ResolvedInstruction[] = [];
-  let offset = 0;
-  for (let instr of body) {
-    let n = instr.deps.length;
-    let myDeps = deps.slice(offset, offset + n);
-    let immediate = lookupInstruction(instr.string).resolve(myDeps, ...instr.resolveArgs);
-    instructions.push({ name: instr.string, immediate, ...hint(instr.likely) });
-    offset += n;
-  }
-  return instructions;
 }
 
 function lookupInstruction(name: string) {
