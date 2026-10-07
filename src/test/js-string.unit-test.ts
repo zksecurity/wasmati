@@ -11,6 +11,7 @@ import {
   global,
   array,
   refType,
+  type Instance,
 } from "../index.ts";
 import { helperBytes } from "../js-string-polyfill.ts";
 
@@ -66,4 +67,18 @@ test("the polyfill's array helper is the module that wasmati builds", () => {
   );
   const bytes = Module({ exports: { length, get, set } }).toBytes();
   assert.equal(Buffer.from(bytes).toString("base64"), helperBytes);
+});
+
+test("compiled modules use the engine's builtins, and instantiate with the import object", async () => {
+  const wasm = Module({ exports: { greet, length } });
+  const compiled = await wasm.compile();
+  assert.deepEqual(
+    WebAssembly.Module.imports(compiled).map(({ module }) => module),
+    [],
+  );
+  const instance = (await WebAssembly.instantiate(compiled, wasm.importMap)) as Instance<
+    typeof wasm
+  >;
+  assert.equal(instance.exports.greet("world"), "hello world");
+  assert.equal(instance.exports.length("four"), 4);
 });

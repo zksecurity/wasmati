@@ -464,12 +464,19 @@ function createModule<Exports extends Record<string, ExportInput>>(
       let { instance, module } = await WebAssembly.instantiate(
         Uint8Array.from(BinableModule.toBytes(binableModule)),
         importMap,
-        usesJSStringBuiltins(binableModule.imports) ? jsStringBuiltins : {},
+        compileOptions(binableModule),
       );
       return { instance: withAsyncExports(instance, asyncExports), module } as {
         instance: ModuleInstance<Exports>;
         module: WebAssembly.Module;
       };
+    },
+    /** Compile Wasm without instantiating it, for example to instantiate it in workers. */
+    compile() {
+      return WebAssembly.compile(
+        Uint8Array.from(BinableModule.toBytes(binableModule)),
+        compileOptions(binableModule),
+      );
     },
     toBytes() {
       let bytes = BinableModule.toBytes(module.module);
@@ -481,6 +488,11 @@ function createModule<Exports extends Record<string, ExportInput>>(
     },
   };
   return module;
+}
+
+/** Modules that use JS string builtins compile with them. */
+function compileOptions(module: BinableModule): WebAssembly.CompileOptions {
+  return usesJSStringBuiltins(module.imports) ? jsStringBuiltins : {};
 }
 
 /**
