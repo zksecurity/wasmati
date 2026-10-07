@@ -205,6 +205,7 @@ export type {
   Elem,
   AnyImport,
 } from "./dependency.ts";
+export type { I32, I64, F32, F64, V128 };
 export type { AddressType, DefinedType } from "./types.ts";
 export type { U64 } from "./immediate.ts";
 export type { NamedLocals } from "./locals.ts";
@@ -232,12 +233,28 @@ const defaultCtx = emptyContext();
 const declareFunc = removeContext(defaultCtx, originalDeclareFunc);
 const constant = removeContext(defaultCtx, constantExpression);
 
+const instructions = createInstructions(defaultCtx);
+
+// Value types that are also instruction namespaces have names, which inferred types use.
+type Instructions = ReturnType<typeof createInstructions>;
+type I32Namespace = Instructions["i32"];
+type I64Namespace = Instructions["i64"];
+type F32Namespace = Instructions["f32"];
+type F64Namespace = Instructions["f64"];
+type V128Namespace = Instructions["v128"];
+interface I32 extends I32Namespace {}
+interface I64 extends I64Namespace {}
+interface F32 extends F32Namespace {}
+interface F64 extends F64Namespace {}
+interface V128 extends V128Namespace {}
+const i32: I32 = instructions.i32;
+const i64: I64 = instructions.i64;
+const f32: F32 = instructions.f32;
+const f64: F64 = instructions.f64;
+const v128: V128 = instructions.v128;
+
 const {
   func,
-  i32,
-  i64,
-  f32,
-  f64,
   local,
   global,
   ref,
@@ -248,7 +265,6 @@ const {
   data,
   table,
   elem,
-  v128,
   i8x16,
   i16x8,
   i32x4,
@@ -261,7 +277,7 @@ const {
   i31,
   any,
   extern,
-} = createInstructions(defaultCtx);
+} = instructions;
 
 let {
   nop,

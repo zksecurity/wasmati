@@ -15,6 +15,7 @@ import {
   func, declareFunc, importFunc, importGlobal, importMemory, importTable, importTag, i32, i64, f64,
   global, constant, memory, table, data, elem, funcref, externref, struct, array, mut, i8, rec,
   refType, funcType, tag, Module, localArray, async, call, block, if_, jsString, stringConstant,
+  v128,
 } from "wasmati";
 
 export const log = importFunc({ in: [{ x: i32 }], out: [] }, (x) => console.log(x));
@@ -33,6 +34,7 @@ export const counter = global(constant(() => i64.const(0n)), { mutable: true });
 export const functions = table({ type: funcref, min: 2 });
 export const segment = data({ memory: shared, offset: 0 }, [1]);
 export const hello = stringConstant("hello");
+export const layout = { x: i64, y: localArray(i32, 2), z: v128 };
 
 export const load = func({ in: [{ address: i64 }], locals: { limbs: localArray(i64, 2), s: externref }, out: [i64] }, ({ address }) => {
   i64.load({ memory: memory64 }, address);

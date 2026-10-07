@@ -1,7 +1,7 @@
 import type { Local, Type, ValueType } from "./types.ts";
 import type { TupleN } from "./util.ts";
 
-export { localArray, type LocalArray, type LocalDeclaration, type NamedLocals, type NamedLocal };
+export { localArray, type LocalArray, type LocalDeclaration, type NamedLocals };
 
 type LocalArray<T extends ValueType = ValueType, N extends number = number> = {
   kind: "local-array";
@@ -10,14 +10,12 @@ type LocalArray<T extends ValueType = ValueType, N extends number = number> = {
 };
 type LocalDeclaration = Type<ValueType> | LocalArray;
 type NamedLocals<L extends Record<string, LocalDeclaration>> = {
-  [K in keyof L]: NamedLocal<L[K]>;
-};
-type NamedLocal<D extends LocalDeclaration> =
-  D extends Type<infer T extends ValueType>
+  [K in keyof L]: L[K] extends Type<infer T extends ValueType>
     ? Local<T>
-    : D extends LocalArray<infer T, infer N>
+    : L[K] extends LocalArray<infer T, infer N>
       ? TupleN<Local<T>, N>
       : never;
+};
 
 /**
  * Declare a group of same-typed locals. localArray(i64, 5) gives the callback a five-element Local<i64> tuple;
