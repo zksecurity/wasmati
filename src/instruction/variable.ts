@@ -1,22 +1,36 @@
 import { Undefined } from "../binable.ts";
 import { Const } from "../dependency.ts";
 import * as Dependency from "../dependency.ts";
-import { baseInstruction } from "./base.ts";
+import { baseInstruction, type FunctionTypeInput, typeFromInput } from "./base.ts";
 import {
   FunctionIndex,
   GlobalIndex,
+  HeapType,
+  isRefType,
+  isSubtype,
   LocalIndex,
   type Local,
-  RefType,
-  type RefTypeObject,
+  printValueType,
+  referenced,
+  refType,
+  type RefType,
+  type Type,
   ValueType,
   valueTypeLiteral,
 } from "../types.ts";
-import { type LocalContext, StackVar, Unknown } from "../local-context.ts";
+import { type LocalContext, StackVar, type StackType, Unknown } from "../local-context.ts";
 import { globalGet, localGet } from "./variable-get.ts";
 import { type Input, processStackArgs } from "./stack-args.ts";
 
-export { localOps, bindLocalOps, globalOps, bindGlobalOps, globalConstructor, refOps };
+export {
+  localOps,
+  bindLocalOps,
+  globalOps,
+  bindGlobalOps,
+  globalConstructor,
+  refTypeConstructor,
+  refOps,
+};
 
 const localOps = {
   get: localGet,
@@ -83,39 +97,68 @@ function bindGlobalOps(ctx: LocalContext) {
   };
 }
 
+/** A global with the type of its initializer, or a declared supertype of it. */
 function globalConstructor<T extends ValueType>(
   init: Const.t<T>,
-  { mutable = false } = {},
+  { mutable = false, type }: { mutable?: boolean; type?: Type<T> } = {},
 ): Dependency.Global<T> {
   let deps = init.deps as Dependency.Global<T>["deps"];
-  let type = init.type.results[0];
-  return { kind: "global", type: { value: type, mutable }, init, deps };
+  let initType = init.type.results[0];
+  let value = type === undefined ? initType : valueTypeLiteral(type);
+  // Function references default to funcref, but may initialize a global of their precise type.
+  if (init.string === "ref.func")
+    initType = refType((init.deps[0] as Dependency.AnyFunc).type, false) as T;
+  if (!isSubtype(initType, value))
+    throw Error(
+      `global: initializer of type ${printValueType(initType)} does not fit type ${printValueType(value)}`,
+    );
+  return { kind: "global", type: { value, mutable }, init, deps };
+}
+
+/** The type of references to func, extern, or a function type; non-null unless `nullable` is set. */
+function refTypeConstructor(
+  heap: "func" | "extern" | FunctionTypeInput,
+  { nullable = false } = {},
+): Type<RefType> {
+  return { kind: refType(typeof heap === "string" ? heap : typeFromInput(heap), nullable) };
+}
+
+/** The reference on top of the stack, or unknown in unreachable code. */
+function topReference(stack: StackVar<StackType>[], name: string): RefType | Unknown {
+  let type = stack.at(-1)?.type ?? Unknown;
+  if (type !== Unknown && !isRefType(type))
+    throw Error(`${name}: expected a reference on the stack, got ${printValueType(type)}`);
+  return type;
 }
 
 const refOps = {
-  null: baseInstruction("ref.null", RefType, {
-    create(_, type: RefTypeObject) {
-      return {
-        in: [],
-        out: [valueTypeLiteral(type)],
-        resolveArgs: [valueTypeLiteral(type)],
-      };
+  /** The null reference of a reference type's heap type. */
+  null: baseInstruction("ref.null", HeapType, {
+    create(_, type: Type<RefType>) {
+      let heap = referenced(valueTypeLiteral(type)).ref;
+      return { in: [], out: [refType(heap, true)], resolveArgs: [heap] };
     },
   }),
   is_null: baseInstruction("ref.is_null", Undefined, {
     create({ stack }: LocalContext) {
-      const type = stack.at(-1)?.type ?? Unknown;
-      if (type !== "funcref" && type !== "externref" && type !== Unknown)
-        throw Error(`ref.is_null: expected a reference on the stack, got ${type}`);
-      return { in: [type as RefType], out: ["i32"] };
+      return { in: [topReference(stack, "ref.is_null") as RefType], out: ["i32"] };
     },
     resolve: () => undefined,
   }),
+  as_non_null: baseInstruction("ref.as_non_null", Undefined, {
+    create({ stack }: LocalContext) {
+      let type = topReference(stack, "ref.as_non_null");
+      let result = type === Unknown ? type : refType(referenced(type).ref, false);
+      return { in: [type as RefType], out: [result as RefType] };
+    },
+    resolve: () => undefined,
+  }),
+  /** A non-null reference to a function, typed by the function's type. */
   func: baseInstruction("ref.func", FunctionIndex, {
     create(_, func: Dependency.AnyFunc) {
       return {
         in: [],
-        out: ["funcref"],
+        out: [refType(func.type, false)],
         deps: [func, Dependency.hasRefTo(func)],
       };
     },

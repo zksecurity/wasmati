@@ -3,6 +3,8 @@ import { Name, U32, type U64 } from "./immediate.ts";
 import {
   type AddressType,
   FunctionType,
+  isRefType,
+  printValueType,
   type Type,
   GlobalType,
   type JSValue,
@@ -119,16 +121,20 @@ function importGlobal<V extends ValueType>(
   { mutable = false, module, field }: { mutable?: boolean } & Dependency.ImportPath = {},
 ): Dependency.ImportGlobal<V> {
   let globalType = { value: valueTypeLiteral(type), mutable };
-  let valueType: WebAssembly.ValueType = type.kind === "funcref" ? "anyfunc" : type.kind;
+  let kind = type.kind;
+  if (value instanceof WebAssembly.Global)
+    return { kind: "importGlobal", module, field, type: globalType, deps: [], value };
   // Like instantiation, accept only globals or plain values: other objects cannot be numbers.
-  let isReference = type.kind === "funcref" || type.kind === "externref";
   let isObject = typeof value === "object" || typeof value === "function";
-  if (!isReference && isObject && !(value instanceof WebAssembly.Global))
+  if (!isRefType(kind) && isObject)
     throw new WebAssembly.LinkError(`importGlobal: expected a global or a number, got ${value}`);
-  let value_ =
-    value instanceof WebAssembly.Global
-      ? value
-      : new WebAssembly.Global({ value: valueType, mutable }, value);
+  // The JS API creates globals of numbers, vectors, funcref and externref only.
+  if (typeof kind === "object")
+    throw new WebAssembly.LinkError(
+      `importGlobal: a global of type ${printValueType(kind)} must be a WebAssembly.Global`,
+    );
+  let valueType: WebAssembly.ValueType = kind === "funcref" ? "anyfunc" : kind;
+  let value_ = new WebAssembly.Global({ value: valueType, mutable }, value);
   return { kind: "importGlobal", module, field, type: globalType, deps: [], value: value_ };
 }
 

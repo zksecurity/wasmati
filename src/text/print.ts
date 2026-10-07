@@ -1,9 +1,16 @@
 import type { Module } from "../module-binable.ts";
 import type { ResolvedInstruction } from "../instruction/base.ts";
 import type { NameMap } from "../name-section.ts";
-import type { FunctionType, GlobalType, Limits, TableType, MemoryType } from "../types.ts";
+import type {
+  FunctionType,
+  GlobalType,
+  Limits,
+  TableType,
+  MemoryType,
+  ValueType,
+} from "../types.ts";
 import { UnsupportedTextError } from "./lexer.ts";
-import { printInstructions, printString, type Names } from "./instructions.ts";
+import { printInstructions, printString, printValueType, type Names } from "./instructions.ts";
 
 export { printWat };
 
@@ -34,6 +41,7 @@ function printWat(module: Module): string {
   const label = (space: keyof typeof spaces, index: number) => moduleNames.id(space, index) ?? "";
   const expression = (body: ResolvedInstruction[]) =>
     printInstructions(body, moduleNames).join(" ");
+  const type = (value: ValueType) => printValueType(value, moduleNames);
   const fields: string[] = [];
   const field = (...parts: string[]) =>
     fields.push(`(${parts.filter((part) => part !== "").join(" ")})`);
@@ -43,13 +51,20 @@ function printWat(module: Module): string {
     if (type === undefined) return `(type ${typeIdx})`;
     return [
       `(type ${id("type", typeIdx)})`,
-      ...type.args.map((arg, i) => `(param ${optional(identifiers(locals)[i])}${arg})`),
-      ...results(type),
+      ...type.args.map(
+        (arg, i) =>
+          `(param ${optional(identifiers(locals)[i])}${printValueType(arg, moduleNames)})`,
+      ),
+      ...results(type, moduleNames),
     ].join(" ");
   };
 
-  module.types.forEach((type, i) =>
-    field("type", label("type", i), `(${["func", ...params(type), ...results(type)].join(" ")})`),
+  module.types.forEach((func, i) =>
+    field(
+      "type",
+      label("type", i),
+      `(${["func", ...params(func, moduleNames), ...results(func, moduleNames)].join(" ")})`,
+    ),
   );
   const next = { function: 0, table: 0, memory: 0, global: 0 };
   for (const { module: from, name, description } of module.imports) {
@@ -58,9 +73,9 @@ function printWat(module: Module): string {
     const space = description.kind;
     let desc: string;
     if (description.kind === "function") desc = signature(description.value, names.locals?.[index]);
-    else if (description.kind === "table") desc = tableType(description.value);
+    else if (description.kind === "table") desc = tableType(description.value, moduleNames);
     else if (description.kind === "memory") desc = memoryType(description.value);
-    else desc = globalType(description.value);
+    else desc = globalType(description.value, moduleNames);
     const kind = space === "function" ? "func" : space;
     field(
       "import",
@@ -77,7 +92,7 @@ function printWat(module: Module): string {
       signature(func.typeIdx, locals, func.type),
     ];
     const declarations = func.locals.map(
-      (type, i) => `(local ${optional(localIds[func.type.args.length + i])}${type})`,
+      (local, i) => `(local ${optional(localIds[func.type.args.length + i])}${type(local)})`,
     );
     const bodyNames: Names = {
       id: (space, index) => (space === "local" ? localIds[index] : moduleNames.id(space, index)),
@@ -88,7 +103,12 @@ function printWat(module: Module): string {
     );
   }
   module.tables.forEach((table, i) =>
-    field("table", label("table", next.table + i), tableType(table)),
+    field(
+      "table",
+      label("table", next.table + i),
+      tableType(table, moduleNames),
+      table.init === undefined ? "" : expression(table.init),
+    ),
   );
   module.memories.forEach((memory, i) =>
     field("memory", label("memory", next.memory + i), memoryType(memory)),
@@ -97,7 +117,7 @@ function printWat(module: Module): string {
     field(
       "global",
       label("global", next.global + i),
-      globalType(global.type),
+      globalType(global.type, moduleNames),
       expression(global.init),
     ),
   );
@@ -114,7 +134,7 @@ function printWat(module: Module): string {
           ? "declare"
           : `${elem.mode.table === 0 ? "" : `(table ${id("table", elem.mode.table)}) `}(offset ${expression(elem.mode.offset)})`;
     const items = elem.init.map((item) => `(item ${expression(item)})`);
-    field("elem", label("elem", i), mode, elem.type, ...items);
+    field("elem", label("elem", i), mode, type(elem.type), ...items);
   });
   module.datas.forEach((data, i) => {
     const mode =
@@ -151,12 +171,14 @@ function optional(id: string | undefined) {
   return id === undefined ? "" : id + " ";
 }
 
-function params(type: FunctionType) {
-  return type.args.length === 0 ? [] : [`(param ${type.args.join(" ")})`];
+function params(type: FunctionType, names: Names) {
+  const args = type.args.map((arg) => printValueType(arg, names));
+  return args.length === 0 ? [] : [`(param ${args.join(" ")})`];
 }
 
-function results(type: FunctionType) {
-  return type.results.length === 0 ? [] : [`(result ${type.results.join(" ")})`];
+function results(type: FunctionType, names: Names) {
+  const results = type.results.map((result) => printValueType(result, names));
+  return results.length === 0 ? [] : [`(result ${results.join(" ")})`];
 }
 
 function limits({ min, max, address }: Limits) {
@@ -164,14 +186,15 @@ function limits({ min, max, address }: Limits) {
   return address === "i64" ? `i64 ${sizes}` : sizes;
 }
 
-function tableType(table: TableType) {
-  return `${limits(table.limits)} ${table.type}`;
+function tableType(table: TableType, names: Names) {
+  return `${limits(table.limits)} ${printValueType(table.type, names)}`;
 }
 
 function memoryType(memory: MemoryType) {
   return `${limits(memory.limits)}${memory.limits.shared ? " shared" : ""}`;
 }
 
-function globalType(type: GlobalType) {
-  return type.mutable ? `(mut ${type.value})` : type.value;
+function globalType(type: GlobalType, names: Names) {
+  const value = printValueType(type.value, names);
+  return type.mutable ? `(mut ${value})` : value;
 }

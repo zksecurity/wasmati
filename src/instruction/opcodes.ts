@@ -21,6 +21,10 @@ const opcodes = {
   0x0f: "return",
   0x10: "call",
   0x11: "call_indirect",
+  0x12: "return_call",
+  0x13: "return_call_indirect",
+  0x14: "call_ref",
+  0x15: "return_call_ref",
 
   // parametric
   0x1a: "drop",
@@ -219,6 +223,9 @@ const opcodes = {
   0xd0: "ref.null",
   0xd1: "ref.is_null",
   0xd2: "ref.func",
+  0xd4: "ref.as_non_null",
+  0xd5: "br_on_null",
+  0xd6: "br_on_non_null",
 
   0xfc: {
     // saturating float to int

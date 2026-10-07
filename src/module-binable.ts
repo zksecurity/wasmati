@@ -21,7 +21,7 @@ import {
   type ValueTypeObject,
 } from "./types.ts";
 import { Export, Import } from "./export.ts";
-import { Data, Elem, Global } from "./memory-binable.ts";
+import { Data, Elem, Global, Table } from "./memory-binable.ts";
 import { Code, type FinalizedFunc } from "./func.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 
@@ -39,7 +39,7 @@ type CustomSection = {
 type Module = {
   types: FunctionType[];
   funcs: FinalizedFunc[];
-  tables: TableType[];
+  tables: Table[];
   memories: MemoryType[];
   globals: Global[];
   elems: Elem[];
@@ -71,8 +71,8 @@ type FuncSection = U32[];
 let FuncSection = section<FuncSection>(3, vec(U32));
 
 // 4: TableSection
-type TableSection = TableType[];
-let TableSection = section<TableSection>(4, vec(TableType));
+type TableSection = Table[];
+let TableSection = section<TableSection>(4, vec(Table));
 
 // 5: MemorySection
 type MemorySection = MemoryType[];
@@ -325,7 +325,7 @@ const Module = iso(ParsedModule, {
 type ValidationContext = {
   types: FunctionType[];
   funcs: FunctionType[];
-  tables: TableType[];
+  tables: Table[];
   memories: MemoryType[];
   globals: GlobalType[];
   elems: Elem[];

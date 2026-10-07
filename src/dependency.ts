@@ -5,7 +5,16 @@
  * indices for them.
  */
 
-import { FunctionType, GlobalType, MemoryType, RefType, TableType, ValueType } from "./types.ts";
+import {
+  FunctionType,
+  GlobalType,
+  MemoryType,
+  referenced,
+  refType,
+  RefType,
+  TableType,
+  ValueType,
+} from "./types.ts";
 import type { Parameters } from "./parameters.ts";
 import { Byte } from "./binable.ts";
 import type { F32, F64 } from "./immediate.ts";
@@ -98,7 +107,9 @@ type Global<T extends ValueType = ValueType> = {
 type Table = {
   kind: "table";
   type: TableType;
-  deps: Elem[];
+  /** Initial value of every element, null by default. */
+  init?: Const.t<RefType>;
+  deps: (Elem | AnyFunc | AnyGlobal)[];
 };
 type Memory = {
   kind: "memory";
@@ -279,17 +290,27 @@ const Const = {
       resolveArgs: [toV128Bytes(...([shape, value] as V128))],
     };
   },
+  /** The null reference of a reference type. */
+  refNull<T extends RefType>(type: { kind: T }): Const.refNull<T> {
+    let heap = referenced(type.kind).ref;
+    return {
+      string: "ref.null",
+      type: { args: [], results: [refType(heap, true) as T] },
+      deps: [],
+      resolveArgs: [heap],
+    };
+  },
   refFuncNull: {
     string: "ref.null",
     type: { args: [], results: ["funcref"] },
     deps: [],
-    resolveArgs: ["funcref"],
+    resolveArgs: ["func"],
   } as Const.refNull<"funcref">,
   refExternNull: {
     string: "ref.null",
     type: { args: [], results: ["externref"] },
     deps: [],
-    resolveArgs: ["externref"],
+    resolveArgs: ["extern"],
   } as Const.refNull<"externref">,
   refFunc(func: AnyFunc): Const.refFunc {
     return {

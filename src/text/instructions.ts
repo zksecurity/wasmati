@@ -3,7 +3,7 @@ import { Byte, Undefined } from "../binable.ts";
 import { F32, F64, I32, I64, U8, type U64 } from "../immediate.ts";
 import { lookupInstruction, type ResolvedInstruction } from "../instruction/base.ts";
 import { Block, IfBlock } from "../instruction/binable.ts";
-import { RefType, type IndexSpace, type ValueType } from "../types.ts";
+import { HeapType, refType, type IndexSpace, type ValueType } from "../types.ts";
 import { Cursor } from "./cursor.ts";
 import { TextSyntaxError, UnsupportedTextError } from "./lexer.ts";
 import {
@@ -15,7 +15,14 @@ import {
   printFloat,
 } from "./numbers.ts";
 
-export { parseInstructions, printInstructions, parseValueType, printString };
+export {
+  parseInstructions,
+  printInstructions,
+  parseValueType,
+  printValueType,
+  printHeapType,
+  printString,
+};
 export type { Scope, Names, BlockType };
 
 type BlockType = "empty" | ValueType | number;
@@ -39,16 +46,46 @@ const blocks = new Set(["block", "loop", "if"]);
 const valueTypes = new Set<string>(["i32", "i64", "f32", "f64", "v128", "funcref", "externref"]);
 // Valid instructions of features that wasmati's module representation does not support yet.
 const unsupported =
-  /^(return_call|call_ref|throw|try_table|rethrow|struct\.|array\.|ref\.(i31|test|cast|as_non_null|eq)$|i31\.|any\.|extern\.|br_on_|[a-z0-9]+\.relaxed_)/;
+  /^(throw|try_table|rethrow|struct\.|array\.|ref\.(i31|test|cast|eq)$|i31\.|any\.|extern\.|br_on_cast|[a-z0-9]+\.relaxed_)/;
+const gcHeapTypes = /^(any|eq|i31|struct|array|none|nofunc|noextern|exn|noexn)$/;
 
-function parseValueType(c: Cursor): ValueType {
-  if (c.peekHead() === "ref") throw new UnsupportedTextError("typed references are not supported");
+/** Resolves a type index or identifier, for references to defined types. */
+type TypeIndex = (c: Cursor) => number;
+
+/** A value type: a number or vector type, `funcref`/`externref`, or `(ref null? heaptype)`. */
+function parseValueType(c: Cursor, typeIndex: TypeIndex): ValueType {
+  const reference = c.maybeList("ref");
+  if (reference !== undefined) {
+    const nullable = reference.maybeKeyword("null");
+    const heap = parseHeapType(reference, typeIndex);
+    reference.end();
+    return refType(heap, nullable);
+  }
   const node = c.peek();
   const type = c.atom();
   if (valueTypes.has(type)) return type as ValueType;
   if (/^(any|eq|i31|struct|array|none|nofunc|noextern|exn|noexn|null\w*)ref$/.test(type))
     throw new UnsupportedTextError(`value type ${type} is not supported`);
   return c.fail(`unknown value type ${type}`, node);
+}
+
+function parseHeapType(c: Cursor, typeIndex: TypeIndex): HeapType {
+  if (c.peekIndex()) return typeIndex(c);
+  const node = c.peek();
+  const heap = c.atom();
+  if (heap === "func" || heap === "extern") return heap;
+  if (gcHeapTypes.test(heap)) throw new UnsupportedTextError(`heap type ${heap} is not supported`);
+  return c.fail(`unknown heap type ${heap}`, node);
+}
+
+function printHeapType(heap: HeapType, names: Names): string {
+  if (typeof heap === "object") throw Error("printHeapType: function type has no index");
+  return typeof heap === "number" ? (names.id("type", heap) ?? String(heap)) : heap;
+}
+
+function printValueType(type: ValueType, names: Names): string {
+  if (typeof type !== "object") return type;
+  return `(ref ${type.nullable ? "null " : ""}${printHeapType(type.ref, names)})`;
 }
 
 /** Read instructions, flat or folded, until the list ends or a block delimiter follows. */
@@ -190,11 +227,8 @@ function immediate(
       return lane(c);
     case Byte:
       return 0;
-    case RefType: {
-      const type = c.atom();
-      if (type === "func" || type === "extern") return `${type}ref`;
-      throw new UnsupportedTextError(`heap type ${type} is not supported`);
-    }
+    case HeapType:
+      return parseHeapType(c, (c) => scope.index(c, "type"));
     case Block:
     case IfBlock:
       throw Error("unreachable");
@@ -206,12 +240,17 @@ function immediate(
       while (c.peekIndex());
       return { indices: indices.slice(0, -1), defaultIndex: indices.at(-1)! };
     }
-    case "call_indirect": {
+    case "call_indirect":
+    case "return_call_indirect": {
       const table = c.peekIndex() ? scope.index(c, "table") : 0;
       return [scope.typeUse(c), table];
     }
     case "select_t":
-      return c.lists("result", (result) => result.until(parseValueType)).flat();
+      return c
+        .lists("result", (result) =>
+          result.until((c) => parseValueType(c, (c) => scope.index(c, "type"))),
+        )
+        .flat();
     case "memory.init":
     case "table.init": {
       // An optional memory or table index precedes the segment index.
@@ -299,7 +338,7 @@ function v128(c: Cursor): number[] {
 function printInstructions(body: ResolvedInstruction[], names: Names, indent = ""): string[] {
   return body.flatMap(({ name, immediate }) => {
     if (blocks.has(name)) {
-      const head = [name, ...blockType(immediate.blockType)].join(" ");
+      const head = [name, ...blockType(immediate.blockType, names)].join(" ");
       const bodies = name === "if" ? immediate.instructions : { if: immediate.instructions };
       return [
         indent + head,
@@ -315,9 +354,11 @@ function printInstructions(body: ResolvedInstruction[], names: Names, indent = "
   });
 }
 
-function blockType(type: BlockType): string[] {
+function blockType(type: BlockType, names: Names): string[] {
   if (type === "empty") return [];
-  return typeof type === "number" ? [`(type ${type})`] : [`(result ${type})`];
+  return typeof type === "number"
+    ? [`(type ${type})`]
+    : [`(result ${printValueType(type, names)})`];
 }
 
 function printImmediate(name: string, value: any, names: Names): string[] {
@@ -344,16 +385,17 @@ function printImmediate(name: string, value: any, names: Names): string[] {
       return [printFloat(value, 32)];
     case F64:
       return [printFloat(value, 64)];
-    case RefType:
-      return [value === "funcref" ? "func" : "extern"];
+    case HeapType:
+      return [printHeapType(value, names)];
   }
   switch (name) {
     case "br_table":
       return [...value.indices, value.defaultIndex].map(String);
     case "call_indirect":
+    case "return_call_indirect":
       return [...(value[1] === 0 ? [] : [id("table", value[1])]), `(type ${value[0]})`];
     case "select_t":
-      return [`(result ${value.join(" ")})`];
+      return [`(result ${value.map((type: ValueType) => printValueType(type, names)).join(" ")})`];
     case "memory.init":
     case "table.init": {
       const [space, target] =

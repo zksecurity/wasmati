@@ -23,6 +23,13 @@ import {
   TableIndex,
   TypeIndex,
   addressType,
+  type FunctionType,
+  isRefType,
+  isSubtype,
+  printValueType,
+  referenced,
+  refType,
+  type RefType,
   ValueType,
   valueTypeLiteral,
   type ValueTypeObject,
@@ -197,6 +204,101 @@ const call_indirect = baseInstruction("call_indirect", tuple([TypeIndex, TableIn
   resolve: ([typeIdx, tableIdx]) => [typeIdx, tableIdx],
 });
 
+/** A tail call returns the callee's results from the current function, so they must fit its results. */
+function tailCall(ctx: LocalContext, type: FunctionType, operands: ValueType[]) {
+  if (ctx.return === null) throw Error("tail call outside a function");
+  const fits =
+    type.results.length === ctx.return.length &&
+    type.results.every((result, i) => isSubtype(result, ctx.return![i]));
+  if (!fits) throw Error("tail call: the callee's results must match the function's results");
+  popStack(ctx, [...type.args, ...operands]);
+  setUnreachable(ctx);
+}
+
+const return_call = baseInstruction("return_call", FunctionIndex, {
+  create(ctx, func: Dependency.AnyFunc) {
+    tailCall(ctx, func.type, []);
+    return { in: [], out: [], deps: [func] };
+  },
+  resolve: ([funcIndex]) => funcIndex,
+});
+
+const return_call_indirect = baseInstruction(
+  "return_call_indirect",
+  tuple([TypeIndex, TableIndex]),
+  {
+    create(ctx, table: Dependency.AnyTable, type: FunctionTypeInput) {
+      let t = typeFromInput(type);
+      tailCall(ctx, t, [addressType(table.type.limits)]);
+      return { in: [], out: [], deps: [Dependency.type(t), table] };
+    },
+    resolve: ([typeIdx, tableIdx]) => [typeIdx, tableIdx],
+  },
+);
+
+/** Call a function reference of the given type. */
+const call_ref = baseInstruction("call_ref", TypeIndex, {
+  create(_, type: FunctionTypeInput) {
+    let t = typeFromInput(type);
+    return {
+      in: [...t.args, refType(t, true)],
+      out: t.results,
+      deps: [Dependency.type(t)],
+    };
+  },
+  resolve: ([typeIdx]) => typeIdx,
+});
+
+const return_call_ref = baseInstruction("return_call_ref", TypeIndex, {
+  create(ctx, type: FunctionTypeInput) {
+    let t = typeFromInput(type);
+    tailCall(ctx, t, [refType(t, true)]);
+    return { in: [], out: [], deps: [Dependency.type(t)] };
+  },
+  resolve: ([typeIdx]) => typeIdx,
+});
+
+/** Pop a reference, which may be unknown in unreachable code. */
+function popReference(ctx: LocalContext): RefType | Unknown {
+  let type = popUnknown(ctx);
+  if (type !== Unknown && !isRefType(type))
+    throw Error(`expected a reference on the stack, got ${printValueType(type)}`);
+  return type;
+}
+
+function nonNull(type: RefType | Unknown): ValueType | Unknown {
+  return type === Unknown ? Unknown : refType(referenced(type).ref, false);
+}
+
+/** Branch if the reference is null; otherwise continue with it as non-null. */
+const br_on_null = baseInstruction("br_on_null", LabelIndex, {
+  create(ctx, label: Label | number) {
+    let [i, frame] = getFrameFromLabel(ctx, label);
+    let reference = popReference(ctx);
+    pushStack(ctx, popStack(ctx, labelTypes(frame)));
+    pushStack(ctx, [nonNull(reference)]);
+    return { in: [], out: [], resolveArgs: [i] };
+  },
+});
+
+/** Branch with the reference if it is not null; otherwise continue without it. */
+const br_on_non_null = baseInstruction("br_on_non_null", LabelIndex, {
+  create(ctx, label: Label | number) {
+    let [i, frame] = getFrameFromLabel(ctx, label);
+    let types = labelTypes(frame);
+    let target = types.at(-1);
+    if (target === undefined || !isRefType(target))
+      throw Error("br_on_non_null: the label's last type must be a reference");
+    let reference = nonNull(popReference(ctx));
+    if (reference !== Unknown && !isSubtype(reference, target))
+      throw Error(
+        `br_on_non_null: expected ${printValueType(target)}, got ${printValueType(reference)}`,
+      );
+    pushStack(ctx, popStack(ctx, types.slice(0, -1)));
+    return { in: [], out: [], resolveArgs: [i] };
+  },
+});
+
 function bindControlOps(ctx: LocalContext) {
   return {
     call: <F extends AnyFunc<any, any>>(
@@ -228,6 +330,12 @@ const control = {
   return: return_,
   // call,
   call_indirect,
+  call_ref,
+  return_call,
+  return_call_indirect,
+  return_call_ref,
+  br_on_null,
+  br_on_non_null,
 };
 
 // parametric instructions

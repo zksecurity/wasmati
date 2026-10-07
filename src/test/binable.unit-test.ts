@@ -70,16 +70,19 @@ test("interleaved records preserve extra entries around optional fields", () => 
   );
 });
 
-test("active element segments encode a non-default table or element type explicitly", () => {
+test("active element segments encode their table and element type, explicitly where not implied", () => {
   const offset = [{ name: "i32.const", immediate: 0 }];
   const ref = (immediate: number) => [{ name: "ref.func", immediate }];
   const cases: [Elem, number][] = [
-    [{ type: "funcref", init: [ref(1)], mode: { table: 0, offset } }, 0],
-    [{ type: "funcref", init: [ref(1)], mode: { table: 1, offset } }, 2],
+    // Function indices imply non-null function references; nullable ones need expressions.
+    [{ type: { ref: "func", nullable: false }, init: [ref(1)], mode: { table: 0, offset } }, 0],
+    [{ type: { ref: "func", nullable: false }, init: [ref(1)], mode: { table: 1, offset } }, 2],
+    [{ type: "funcref", init: [ref(1)], mode: { table: 0, offset } }, 4],
+    [{ type: "funcref", init: [ref(1)], mode: { table: 1, offset } }, 6],
     [
       {
         type: "externref",
-        init: [[{ name: "ref.null", immediate: "externref" }]],
+        init: [[{ name: "ref.null", immediate: "extern" }]],
         mode: { table: 0, offset },
       },
       6,
@@ -87,7 +90,7 @@ test("active element segments encode a non-default table or element type explici
     [
       {
         type: "externref",
-        init: [[{ name: "ref.null", immediate: "externref" }]],
+        init: [[{ name: "ref.null", immediate: "extern" }]],
         mode: { table: 1, offset },
       },
       6,

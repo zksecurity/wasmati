@@ -1,7 +1,14 @@
 import * as api from "./index.ts";
 import type { Module as DecodedModule } from "./module-binable.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
-import { functionTypeEquals, type FunctionType, type GlobalType, type ValueType } from "./types.ts";
+import {
+  functionTypeEquals,
+  type FunctionType,
+  type GlobalType,
+  refType,
+  typeEquals,
+  type ValueType,
+} from "./types.ts";
 import type { F32, F64 } from "./immediate.ts";
 
 export { decompile, decompileModule };
@@ -123,13 +130,13 @@ class Source {
     const parameters = (this.parameters[index] = bindings.slice(0, type.args.length));
     this.locals[index] = bindings.slice(type.args.length);
     const input = parameters
-      .map((b, i) => `{ ${property(b.key)}: ${this.use(type.args[i])} }`)
+      .map((b, i) => `{ ${property(b.key)}: ${this.valueType(type.args[i])} }`)
       .join(", ");
     const localEntries = this.locals[index]
-      .map((b, i) => `${property(b.key)}: ${this.use(locals[i])}`)
+      .map((b, i) => `${property(b.key)}: ${this.valueType(locals[i])}`)
       .join(", ");
     const name = this.module.names?.functions?.[index];
-    return `{ ${path === undefined ? "" : `module: ${literal(path.module)}, field: ${literal(path.field)}, `}${name === undefined ? "" : `name: ${literal(name)}, `}in: [${input}], ${locals.length ? `locals: { ${localEntries} }, ` : ""}out: [${type.results.map((t) => this.use(t)).join(", ")}] }`;
+    return `{ ${path === undefined ? "" : `module: ${literal(path.module)}, field: ${literal(path.field)}, `}${name === undefined ? "" : `name: ${literal(name)}, `}in: [${input}], ${locals.length ? `locals: { ${localEntries} }, ` : ""}out: [${type.results.map((t) => this.valueType(t)).join(", ")}] }`;
   }
 
   emit(): string {
@@ -175,7 +182,7 @@ class Source {
         case "global": {
           variable = this.globals[index];
           const type = value as Extract<typeof imp.description, { kind: "global" }>["value"];
-          expression = `${this.use("importGlobal")}(${this.use(type.value)}, ${imported} as WebAssembly.Global, ${literal({ mutable: type.mutable, ...path })})`;
+          expression = `${this.use("importGlobal")}(${this.valueType(type.value)}, ${imported} as WebAssembly.Global, ${literal({ mutable: type.mutable, ...path })})`;
           break;
         }
         case "memory": {
@@ -187,13 +194,22 @@ class Source {
         case "table": {
           variable = this.tables[index];
           const type = value as Extract<typeof imp.description, { kind: "table" }>["value"];
-          expression = `${this.use("importTable")}({ type: ${this.use(type.type)}, ...${literal({ ...type.limits, ...path })} }, ${imported} as WebAssembly.Table)`;
+          expression = `${this.use("importTable")}({ type: ${this.valueType(type.type)}, ...${literal({ ...type.limits, ...path })} }, ${imported} as WebAssembly.Table)`;
           break;
         }
       }
       this.line(`const ${variable} = ${expression};`);
       this.dependencies.push(variable);
     }
+    // Builders describe referenced types structurally, and add them before the types referring to them.
+    this.module.types.forEach(({ args, results }, index) => {
+      for (const type of [...args, ...results]) {
+        if (typeof type !== "object" || typeof type.ref !== "number") continue;
+        if (type.ref === index) throw Error("decompile: recursive types are not supported");
+        if (type.ref > index)
+          throw Error(`decompile: type ${index} refers to later type ${type.ref}`);
+      }
+    });
     for (const f of this.module.funcs) {
       // Builders derive type indices from signatures, so a mismatching index would silently be repaired.
       const declared = this.module.types[f.typeIdx];
@@ -205,19 +221,22 @@ class Source {
       this.dependencies.push(this.functions[f.funcIdx]);
     }
     for (const g of this.module.globals) {
-      // Builders derive a global's type from its initializer.
-      if (this.constantType(g.init) !== g.type.value)
-        throw Error(`decompile: global initializer does not have type ${g.type.value}`);
+      // Builders take a global's type from its initializer, unless it is declared.
+      const initType = this.constantType(g.init);
+      const declared =
+        initType !== undefined && typeEquals(initType, g.type.value)
+          ? ""
+          : `, type: ${this.valueType(g.type.value)}`;
       const variable = this.globals[nextIndex.global++];
       this.line(
-        `const ${variable} = ${this.use("global")}(${this.constant(g.init)}, { mutable: ${g.type.mutable} });`,
+        `const ${variable} = ${this.use("global")}(${this.constant(g.init)}, { mutable: ${g.type.mutable}${declared} });`,
       );
       this.dependencies.push(variable);
     }
     for (const t of this.module.tables) {
       const variable = this.tables[nextIndex.table++];
       this.line(
-        `const ${variable} = ${this.use("table")}({ type: ${this.use(t.type)}, ...${literal(t.limits)} });`,
+        `const ${variable} = ${this.use("table")}({ type: ${this.valueType(t.type)}, ...${literal(t.limits)}${t.init === undefined ? "" : `, init: ${this.constant(t.init)}`} });`,
       );
       this.dependencies.push(variable);
     }
@@ -242,7 +261,7 @@ class Source {
           ? literal(e.mode)
           : `{ table: ${this.reference(this.tables, e.mode.table)}, offset: ${this.constant(e.mode.offset)} }`;
       this.line(
-        `const ${variable} = ${this.use("elem")}({ type: ${this.use(e.type)}, mode: ${mode} }, [${e.init.map((init) => this.constant(init)).join(", ")}]);`,
+        `const ${variable} = ${this.use("elem")}({ type: ${this.valueType(e.type)}, mode: ${mode} }, [${e.init.map((init) => this.constant(init)).join(", ")}]);`,
       );
       this.dependencies.push(variable);
     }
@@ -266,7 +285,7 @@ class Source {
     }
     // Unreferenced types also belong to the module, even if the builder deduplicates equal signatures.
     for (const type of this.module.types) {
-      this.dependencies.push(`${this.use("Dependency")}.type(${literal(type)})`);
+      this.dependencies.push(`${this.use("Dependency")}.type(${this.functionType(type)})`);
     }
     const exports = this.module.exports.map((e) => {
       const refs = {
@@ -330,13 +349,29 @@ class Source {
           ? this.module.types[blockType]
           : { args: [], results: [blockType] };
     if (!type) throw Error(`decompile: missing block type ${blockType}`);
-    return `{ in: [${type.args.map((t) => this.use(t)).join(", ")}], out: [${type.results.map((t) => this.use(t)).join(", ")}] }`;
+    return `{ in: [${type.args.map((t) => this.valueType(t)).join(", ")}], out: [${type.results.map((t) => this.valueType(t)).join(", ")}] }`;
+  }
+
+  /** A value type of the builder API: references to defined types describe their signature. */
+  private valueType(type: ValueType): string {
+    if (typeof type !== "object") return this.use(type);
+    const heap = typeof type.ref === "number" ? this.type(type.ref) : literal(type.ref);
+    return `${this.use("refType")}(${heap}${type.nullable ? ", { nullable: true }" : ""})`;
+  }
+
+  /** A function type as Dependency.type takes it, with value type literals. */
+  private functionType({ args, results }: FunctionType): string {
+    const literals = (types: ValueType[]) =>
+      types
+        .map((t) => (typeof t === "object" ? `${this.valueType(t)}.kind` : literal(t)))
+        .join(", ");
+    return `{ args: [${literals(args)}], results: [${literals(results)}] }`;
   }
 
   private constantType(expression: ResolvedInstruction[]): ValueType | undefined {
     if (expression.length === 0) return undefined;
     const [{ name, immediate }] = expression;
-    if (name === "ref.null") return immediate;
+    if (name === "ref.null") return refType(immediate, true);
     if (name === "ref.func") return "funcref";
     if (name !== "global.get") return name.slice(0, name.indexOf(".")) as ValueType;
     const imported = this.module.imports.filter((i) => i.description.kind === "global");
@@ -348,6 +383,7 @@ class Source {
   }
 
   private constant(expression: ResolvedInstruction[]): string {
+    if (expression.length === 0) throw Error("decompile: constant expression is empty");
     if (expression.length !== 1)
       throw Error("decompile: extended constant expressions are not supported by the builder yet");
     const { name, immediate } = expression[0];
@@ -363,7 +399,7 @@ class Source {
       case "ref.func":
         return `${this.use("Const")}.refFunc(${this.reference(this.functions, immediate)})`;
       case "ref.null":
-        return `${this.use("Const")}.${immediate === "funcref" ? "refFuncNull" : "refExternNull"}`;
+        return `${this.use("Const")}.refNull(${this.valueType(refType(immediate, true))})`;
       case "global.get":
         return `${this.use("Const")}.globalGet(${this.reference(this.globals, immediate)})`;
       default:
@@ -405,7 +441,15 @@ class Source {
           args = [this.reference(this.functions, imm)];
           break;
         case "call_indirect":
+        case "return_call_indirect":
           args = [this.reference(this.tables, imm[1]), this.type(imm[0])];
+          break;
+        case "return_call":
+          args = [this.reference(this.functions, imm)];
+          break;
+        case "call_ref":
+        case "return_call_ref":
+          args = [this.type(imm)];
           break;
         case "return":
           op = "control.return";
@@ -418,12 +462,12 @@ class Source {
           args = [literal(imm.indices), literal(imm.defaultIndex)];
           break;
         case "ref.null":
-          args = [this.use(imm)];
+          args = [this.valueType(refType(imm, true))];
           break;
         case "select_t":
           if (imm.length !== 1) throw Error("decompile: select requires exactly one result type");
           op = "select";
-          args = [this.use(imm[0])];
+          args = [this.valueType(imm[0])];
           break;
         case "v128.const":
           args = [literal("i8x16"), literal(imm)];
@@ -532,7 +576,7 @@ function jsSignature(type: FunctionType): string {
       ? "bigint"
       : type === "funcref"
         ? "Function | null"
-        : type === "externref"
+        : type === "externref" || typeof type === "object"
           ? "unknown"
           : type === "v128"
             ? "never"

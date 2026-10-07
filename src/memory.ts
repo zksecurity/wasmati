@@ -114,18 +114,22 @@ function tableConstructor(
     min,
     max,
     address = "i32",
+    init,
   }: {
     type: RefTypeObject;
     min: U64;
     max?: U64;
     address?: AddressType;
+    /** Initial value of every element, null by default. */
+    init?: Const.t<RefType>;
   },
   content?: (Const.refFunc | Const.refNull<RefType>)[],
 ): Dependency.Table {
-  let table = {
+  let table: Dependency.Table = {
     kind: "table" as const,
     type: { type: valueTypeLiteral(type), limits: limits(min, max, false, address) },
-    deps: [],
+    deps: [...((init?.deps ?? []) as Dependency.Table["deps"])],
+    ...(init === undefined ? {} : { init }),
   };
   if (content !== undefined) {
     elemConstructor({ type, mode: { table, offset: constOffset(address, 0) } }, content);
