@@ -153,3 +153,34 @@ test("modules beyond the engine's limits are skipped, other failures still count
     [3],
   );
 });
+
+test("threads run concurrently on shared memory, and report their assertions on wait", async () => {
+  const result = await runWast(`(module $Mem (memory (export "shared") 1 1 shared))
+    (thread $T (shared (module $Mem))
+      (register "mem" $Mem)
+      (module
+        (memory (import "mem" "shared") 1 1 shared)
+        (func (export "wait") (result i32)
+          (memory.atomic.wait32 (i32.const 0) (i32.const 0) (i64.const -1)))
+        (func (export "time out") (result i32)
+          (memory.atomic.wait32 (i32.const 0) (i32.const 0) (i64.const 0))))
+      (assert_return (invoke "wait") (i32.const 0))
+      (assert_return (invoke "time out") (i32.const 1)))
+    (register "mem" $Mem)
+    (module
+      (memory (import "mem" "shared") 1 1 shared)
+      (func (export "notify") (result i32)
+        (loop (br_if 0 (i32.eqz (memory.atomic.notify (i32.const 0) (i32.const 1)))))
+        (i32.const 1)))
+    (assert_return (invoke "notify") (i32.const 1))
+    (wait $T)
+    (wait $U)`);
+  assert.equal(result.passed, 9);
+  assert.deepEqual(
+    result.failures.map((failure) => [failure.line, failure.kind]),
+    [
+      [11, "assert_return"],
+      [20, "wait"],
+    ],
+  );
+});

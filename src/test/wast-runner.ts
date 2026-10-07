@@ -1,3 +1,4 @@
+import { Worker } from "node:worker_threads";
 import {
   Module as Builder,
   func,
@@ -37,7 +38,7 @@ import {
   type ValueType,
 } from "../types.ts";
 import { jsLimits } from "../memory.ts";
-import { TextSyntaxError, UnsupportedTextError } from "../text/lexer.ts";
+import { TextSyntaxError, UnsupportedTextError, type List } from "../text/lexer.ts";
 import {
   parseCommand,
   readScript,
@@ -48,8 +49,8 @@ import {
 } from "../text/wast.ts";
 import { loadTextFactory, readModule } from "./text-helpers.ts";
 
-export { runWast };
-export type { Result };
+export { runWast, runCommands };
+export type { Result, Instance, SharedInstance };
 
 type Failure = { command: number; line: number; kind: string; message: string };
 /** Valid modules beyond the engine's implementation limits, which the spec permits, are skipped. */
@@ -64,10 +65,22 @@ type Factory = Awaited<ReturnType<typeof loadTextFactory>>;
  * vectors as integer bits so that NaN payloads never pass through JS numbers.
  */
 async function runWast(source: string): Promise<Result> {
+  return runCommands(source, readScript(source), new Map());
+}
+
+/**
+ * Run commands with named instances shared from an enclosing script. Threads run their commands in
+ * workers, which receive the shared instances' shared memories, and report their results on wait.
+ */
+async function runCommands(
+  source: string,
+  lists: List[],
+  shared: Map<string, Instance>,
+): Promise<Result> {
   const result: Result = { passed: 0, failures: [], skipped: [] };
-  const lists = readScript(source);
   const registered: WebAssembly.Imports = linked({ spectest: spectest() });
-  const instances = new Map<string, Instance>();
+  const instances = new Map<string, Instance>(shared);
+  const threads = new Map<string, Promise<Result>>();
   const definitions = new Map<string, Factory>();
   const hosts = new Map<number, object>();
   const wrappers = new WeakMap<object, (...args: unknown[]) => unknown>();
@@ -190,6 +203,25 @@ async function runWast(source: string): Promise<Result> {
           );
           break;
         }
+        case "thread": {
+          const thread = startThread(source, command.commands, command.shared, instances);
+          // A thread that fails to run is a failure of its command.
+          const line = lineOf(source, list);
+          const failed = (error: unknown) => ({
+            passed: 0,
+            failures: [{ command: index + 1, line, kind, message: messageOf(error) }],
+            skipped: [],
+          });
+          threads.set(command.name, thread.catch(failed));
+          break;
+        }
+        case "wait": {
+          const thread = threads.get(command.name);
+          if (thread === undefined) throw Error(`no thread ${command.name}`);
+          threads.delete(command.name);
+          merge(result, await thread);
+          break;
+        }
         case "assert_malformed": {
           const { source } = command.module;
           // Text must fail with a syntax error, not an unsupported feature; binary must fail to decode.
@@ -202,17 +234,62 @@ async function runWast(source: string): Promise<Result> {
       }
       result.passed++;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = messageOf(error);
       const limited = kind === "module" && /larger than implementation limit/.test(message);
       (limited ? result.skipped : result.failures).push({
         command: index + 1,
-        line: source.slice(0, list.offset).split(/\r\n|[\r\n]/).length,
+        line: lineOf(source, list),
         kind,
         message,
       });
     }
   }
+  for (const thread of threads.values()) merge(result, await thread);
   return result;
+}
+
+function lineOf(source: string, list: List) {
+  return source.slice(0, list.offset).split(/\r\n|[\r\n]/).length;
+}
+
+function messageOf(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function merge(result: Result, thread: Result) {
+  result.passed += thread.passed;
+  result.failures.push(...thread.failures);
+  result.skipped.push(...thread.skipped);
+}
+
+/** Instances cross into threads with the exports that can be shared: shared memories. */
+type SharedInstance = { exports: Record<string, WebAssembly.Memory>; module: ModuleValue };
+
+function startThread(
+  source: string,
+  commands: List[],
+  names: string[],
+  instances: Map<string, Instance>,
+): Promise<Result> {
+  const shared = names.map((name): [string, SharedInstance] => {
+    const found = instances.get(name);
+    if (found === undefined) throw Error(`no module instance ${name}`);
+    const exports = Object.fromEntries(
+      Object.entries(found.instance.exports).filter(
+        ([, value]) =>
+          value instanceof WebAssembly.Memory && value.buffer instanceof SharedArrayBuffer,
+      ),
+    ) as Record<string, WebAssembly.Memory>;
+    return [name, { exports, module: found.module }];
+  });
+  const worker = new Worker(new URL("./wast-thread.ts", import.meta.url), {
+    workerData: { source, commands, shared },
+  });
+  return new Promise((resolve, reject) => {
+    worker.once("message", resolve);
+    worker.once("error", reject);
+    worker.once("exit", (code) => reject(Error(`thread exited with code ${code}`)));
+  });
 }
 
 async function loadModule(command: ModuleCommand): Promise<Factory> {
