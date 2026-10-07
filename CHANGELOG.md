@@ -2,7 +2,14 @@
 
 ## Unreleased
 
-- **Faster encoding**: modules encode into one growable byte buffer instead of nested arrays, and integers avoid BigInt where they fit. `module.toBytes()` of a 245 KB module takes about 20 ms instead of 70. Codecs (`Binable`) have `write` and `encode` methods.
+### Breaking changes
+
+- **Functions and constants hold their code as bytes.** Instructions are encoded when they are created, and `Module()` fills in the indices they refer to. `Func` and `Constant` dependencies have `code` in place of `body`, functions list the functions they call in `calls`, and the `DependencyInstruction` type is gone. The bodies of built modules, `module.module.funcs[i].body`, are decoded where they are read.
+
+### Changes
+
+- **Faster builds and encoding**: building montgomery's Pallas field module, 245 KB of code, takes 64 ms instead of 139 the first time, and 29 ms instead of about 90 after that; encoding it, `module.toBytes()`, takes 0.5 ms instead of 55 once warm, and about 4 ms instead of 70 the first time. Modules encode into one growable byte buffer instead of nested arrays, and integers avoid BigInt where they fit. Codecs (`Binable`) have `write` and `encode` methods.
+- **No side effects**: the package declares `sideEffects: false`, so bundlers leave wasmati out where it is imported but unused.
 
 ## 1.0.0
 
