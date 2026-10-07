@@ -105,7 +105,7 @@ export default function createModule(imports: WebAssembly.Imports = {}) {
     call(consoleLogF64);
     local.get(x);
     local.get(doLog);
-    control.if({ in: [], out: [] }, () => {
+    control.if(() => {
       local.get(x);
       call(consoleLog);
     });
@@ -166,7 +166,7 @@ export default function createModule(imports: WebAssembly.Imports = {}) {
     block({ in: [i32], out: [i32] }, () => {
       local.tee(tmp);
       call(consoleLog);
-      loop({ in: [], out: [] }, () => {
+      loop(() => {
         local.get(i);
         call(consoleLog);
         local.get(i);
@@ -175,7 +175,7 @@ export default function createModule(imports: WebAssembly.Imports = {}) {
         local.tee(i);
         i32.const(5);
         i32.eq();
-        control.if({ in: [], out: [] }, () => {
+        control.if(() => {
           local.get(tmp);
           control.return();
           call(consoleLog);
@@ -205,12 +205,12 @@ export default function createModule(imports: WebAssembly.Imports = {}) {
     exports: { exportedFunc, fma, importedGlobal, memory: memory_1 },
     start: f4,
     dependencies: [
-      Dependency.type({ args: [], results: [] }),
       Dependency.type({ args: ["i32"], results: ["i32"] }),
       Dependency.type({ args: ["funcref"], results: [] }),
       Dependency.type({ args: ["i64"], results: [] }),
       Dependency.type({ args: ["i32"], results: [] }),
       Dependency.type({ args: ["f64"], results: [] }),
+      Dependency.type({ args: [], results: [] }),
       Dependency.type({ args: ["i32", "i32"], results: ["i32"] }),
       Dependency.type({ args: ["f64", "f64", "f64"], results: ["f64"] }),
       consoleLog64,

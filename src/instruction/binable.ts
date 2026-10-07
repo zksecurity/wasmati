@@ -10,7 +10,16 @@ import {
   type ResolvedInstruction,
 } from "./base.ts";
 
-export { Expression, ConstExpression, Block, IfBlock, TryTable, type Catch };
+export {
+  Instruction,
+  Expression,
+  ConstExpression,
+  Block,
+  IfBlock,
+  TryTable,
+  type Catch,
+  type BlockType,
+};
 
 const Instruction = Binable<ResolvedInstruction>({
   toBytes({ name, immediate }) {

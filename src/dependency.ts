@@ -1,3 +1,4 @@
+import type {} from "./js-api.ts";
 /**
  * interfaces for declaring functions/globals/etc stand-alone (without reference to a module)
  * that keep track of their dependencies. Declaring them as the exports of a module
@@ -173,7 +174,9 @@ type ImportFunc = ImportPath & {
   type: FunctionType;
   /** An explicit type, such as a subtype or a type of a recursion group. */
   definedType?: DefinedType;
-  value: Function;
+  value: Function | WebAssembly.Suspending;
+  /** An async import, which suspends Wasm until its promise resolves (JSPI). */
+  async?: true;
   deps: DefinedType[];
 };
 type ImportGlobal<T = ValueType> = ImportPath & {
@@ -255,6 +258,8 @@ type Instruction = {
   type: FunctionType;
   deps: t[];
   resolveArgs: any[];
+  /** A branch hint, on `if` and `br_if`. */
+  likely?: boolean;
 };
 
 /** A constant expression: instructions that produce one value, such as a global's initializer. */

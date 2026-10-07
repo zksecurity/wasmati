@@ -79,7 +79,14 @@ import {
 } from "./memory.ts";
 import * as Dependency from "./dependency.ts";
 import type { Global, ImportGlobal, AnyGlobal, ImportMemory, AnyMemory } from "./dependency.ts";
-import { importFunc, importGlobal, importMemory, importTable, importTag } from "./export.ts";
+import {
+  asyncExport,
+  importFunc,
+  importGlobal,
+  importMemory,
+  importTable,
+  importTag,
+} from "./export.ts";
 import { constant as constantExpression } from "./constant.ts";
 import type { TupleN } from "./util.ts";
 import type { ModuleExport } from "./module.ts";
@@ -156,6 +163,7 @@ export {
 // other public API
 export { defaultCtx };
 export { declareFunc, func, type Func, importFunc, type ImportFunc, type AnyFunc, constant };
+export { asyncExport as async };
 export { importTable, importTag, tagConstructor as tag };
 export { funcType, rec, mut, i8, i16 } from "./type-definitions.ts";
 export { importMemory, type ImportMemory, type AnyMemory };
@@ -420,3 +428,5 @@ function removeContext<Args extends Tuple<any>, Return extends any>(
 }
 
 export { decompile } from "./decompile.ts";
+
+export { jsString, stringConstant } from "./js-string.ts";

@@ -66,7 +66,8 @@ type BaseInstruction = {
   immediate: Binable<any> | undefined;
   resolve: (deps: number[], ...args: any) => any;
 };
-type ResolvedInstruction = { name: string; immediate: any };
+/** An instruction with its immediate; `if` and `br_if` may carry a branch hint. */
+type ResolvedInstruction = { name: string; immediate: any; likely?: boolean };
 
 /**
  * Most general function to create instructions
@@ -92,6 +93,7 @@ function baseInstruction<
       out: Results;
       deps?: Dependency.t[];
       resolveArgs?: ResolveArgs;
+      likely?: boolean;
     };
     resolve?(deps: number[], ...args: ResolveArgs): Immediate;
   },
@@ -115,8 +117,15 @@ function baseInstruction<
       out: results,
       deps = [],
       resolveArgs = createArgs,
+      likely,
     } = create(ctx, ...createArgs);
-    return { string, deps, type: { args, results }, resolveArgs };
+    return {
+      string,
+      deps,
+      type: { args, results },
+      resolveArgs,
+      ...hint(likely),
+    };
   }
 
   /**
@@ -194,7 +203,7 @@ function baseInstructionWithImmediate<
 }
 
 function resolveInstruction(
-  { string: name, deps, resolveArgs }: Dependency.Instruction,
+  { string: name, deps, resolveArgs, likely }: Dependency.Instruction,
   depToIndex: Map<Dependency.t, number>,
 ): ResolvedInstruction {
   let instr = lookupInstruction(name);
@@ -209,7 +218,7 @@ function resolveInstruction(
     depIndices.push(index);
   }
   let immediate = instr.resolve(depIndices, ...resolveArgs);
-  return { name, immediate };
+  return { name, immediate, ...hint(likely) };
 }
 
 const noResolve = (_: number[], ...args: any) => args[0];
@@ -282,15 +291,19 @@ function createExpressionWithType(
   return { body, type: { args, results }, deps: body.flatMap((i) => i.deps) };
 }
 
+/** Branch hints are recorded only where given. */
+function hint(likely: boolean | undefined): { likely?: boolean } {
+  return likely === undefined ? {} : { likely };
+}
+
 function resolveExpression(deps: number[], body: Dependency.Instruction[]) {
   let instructions: ResolvedInstruction[] = [];
   let offset = 0;
   for (let instr of body) {
     let n = instr.deps.length;
     let myDeps = deps.slice(offset, offset + n);
-    let instrObject = lookupInstruction(instr.string);
-    let immediate = instrObject.resolve(myDeps, ...instr.resolveArgs);
-    instructions.push({ name: instr.string, immediate });
+    let immediate = lookupInstruction(instr.string).resolve(myDeps, ...instr.resolveArgs);
+    instructions.push({ name: instr.string, immediate, ...hint(instr.likely) });
     offset += n;
   }
   return instructions;

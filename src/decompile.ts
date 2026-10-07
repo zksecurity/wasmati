@@ -377,6 +377,23 @@ class Source {
     return `{ in: [${type.args.map((t) => this.valueType(t)).join(", ")}], out: [${type.results.map((t) => this.valueType(t)).join(", ")}] }`;
   }
 
+  /** A block's options: its type where not empty, and further options. */
+  private blockOptions(blockType: "empty" | ValueType | number, options: string[] = []): string {
+    const type =
+      blockType === "empty"
+        ? { args: [], results: [] }
+        : typeof blockType === "number"
+          ? this.functionType(blockType)
+          : { args: [], results: [blockType] };
+    const types = (types: ValueType[]) => types.map((t) => this.valueType(t)).join(", ");
+    const entries = [
+      ...(type.args.length > 0 ? [`in: [${types(type.args)}]`] : []),
+      ...(type.results.length > 0 ? [`out: [${types(type.results)}]`] : []),
+      ...options,
+    ];
+    return entries.length === 0 ? "" : `{ ${entries.join(", ")} }`;
+  }
+
   /** A tag's parameters; its type must not have results. */
   private tagParameters(typeIdx: number): string {
     const type = this.functionType(typeIdx);
@@ -587,24 +604,21 @@ class Source {
   }
 
   private instructions(body: ResolvedInstruction[], locals: string[], indent: number) {
-    for (const { name, immediate: imm } of body) {
-      if (name === "try_table") {
-        const catches = imm.catches.map((c: Catch) => {
+    for (const { name, immediate: imm, likely } of body) {
+      if (likely !== undefined && name !== "if" && name !== "br_if")
+        throw Error(`decompile: branch hint on ${name}: only if and br_if take hints`);
+      if (name === "try_table" || name === "block" || name === "loop" || name === "if") {
+        const catches = (imm.catches ?? []).map((c: Catch) => {
           const tag = "tag" in c ? `tag: ${this.reference(this.tags, c.tag)}, ` : "";
           const ref = c.kind.endsWith("_ref") ? "ref: true, " : "";
           return `{ ${tag}${ref}label: ${c.label} }`;
         });
-        this.line(
-          `${this.use("try_table")}(${this.type(imm.blockType)}, [${catches.join(", ")}], () => {`,
-          indent,
-        );
-        this.instructions(imm.instructions, locals, indent + 1);
-        this.line("});", indent);
-        continue;
-      }
-      if (name === "block" || name === "loop" || name === "if") {
+        const options = this.blockOptions(imm.blockType, [
+          ...(catches.length > 0 ? [`catches: [${catches.join(", ")}]`] : []),
+          ...(likely === undefined ? [] : [`likely: ${likely}`]),
+        ]);
         const op = this.use(name === "if" ? "control.if" : name);
-        this.line(`${op}(${this.type(imm.blockType)}, () => {`, indent);
+        this.line(`${op}(${options === "" ? "" : `${options}, `}() => {`, indent);
         this.instructions(
           name === "if" ? imm.instructions.if : imm.instructions,
           locals,
@@ -652,8 +666,10 @@ class Source {
           op = "control.return";
           break;
         case "br":
-        case "br_if":
           args = [literal(imm)];
+          break;
+        case "br_if":
+          args = [literal(imm), ...(likely === undefined ? [] : [`{ likely: ${likely} }`])];
           break;
         case "br_table":
           args = [literal(imm.indices), literal(imm.defaultIndex)];

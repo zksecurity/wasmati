@@ -67,8 +67,8 @@ const numeric = new RegExp(
 );
 const encoder = new TextEncoder();
 
-/** Annotations that the parser reads, as lists headed by `@custom` or `@name`. */
-const readAnnotation = /\(@(custom|name)(?=[ \t\r\n()";]|$)/y;
+/** Annotations that the parser reads, as lists headed by `@custom`, `@name` or a branch hint. */
+const readAnnotation = /\(@(custom|name|metadata\.code\.branch_hint)(?=[ \t\r\n()";]|$)/y;
 
 /** Tokenize WAT/WAST, discarding whitespace, nested comments, and unrecognized annotations. */
 function tokenize(source: string): Token[] {

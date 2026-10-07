@@ -50,7 +50,7 @@ const add = func(
 
     // if (z < p) return;
     isLower(z, zi, P);
-    if_(null, () => return_());
+    if_(() => return_());
 
     // z -= p
     for (let i = 0; i < n; i++) {
@@ -180,14 +180,14 @@ function isLower(x: Local<i32>, xi: Local<i32>, y: Uint32Array) {
 
       // return true if (xi < yi)
       i32.lt_s(xi, y[i]);
-      if_(null, () => {
+      if_(() => {
         i32.const(1);
         br(block);
       });
 
       // return false if (xi != yi)
       i32.ne(xi, y[i]);
-      if_(null, () => {
+      if_(() => {
         i32.const(0);
         br(block);
       });

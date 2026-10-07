@@ -1,5 +1,7 @@
+import type {} from "./js-api.ts";
+import type { JSValues, ReturnValues } from "./func.ts";
 import { Binable, byteEnum, record } from "./binable.ts";
-import { Name, U32, type U64 } from "./immediate.ts";
+import { Name, U32, type U64, vec } from "./immediate.ts";
 import {
   type AddressType,
   type DefinedType,
@@ -31,8 +33,11 @@ import type { ImportFunc } from "./func-types.ts";
 import { dataConstructor, jsLimits, limits } from "./memory.ts";
 
 export {
+  asyncExport,
+  type AsyncExport,
   Export,
   Import,
+  Imports,
   type ExternType,
   importFunc,
   importGlobal,
@@ -99,16 +104,66 @@ const Import = record<Import>({
   description: ImportDescription,
 });
 
+/**
+ * The import section's imports. Besides single imports, the compact encodings share one module name
+ * among several items (0x7F), or also one description (0x7E); they decode into single imports.
+ */
+const Imports = Binable<Import[]>({
+  toBytes(imports) {
+    return vec(Import).toBytes(imports);
+  },
+  readBytes(bytes, offset) {
+    let imports: Import[] = [];
+    let count: number;
+    [count, offset] = U32.readBytes(bytes, offset);
+    for (let i = 0; i < count; i++) {
+      let module: string, name: string;
+      [module, offset] = Name.readBytes(bytes, offset);
+      [name, offset] = Name.readBytes(bytes, offset);
+      let encoding = name === "" ? bytes[offset] : undefined;
+      if (encoding === 0x7f) {
+        let items: { name: string; description: ImportDescription }[];
+        [items, offset] = vec(CompactItem).readBytes(bytes, offset + 1);
+        imports.push(...items.map((item) => ({ module, ...item })));
+      } else if (encoding === 0x7e) {
+        let description: ImportDescription, names: string[];
+        [description, offset] = ImportDescription.readBytes(bytes, offset + 1);
+        [names, offset] = vec(Name).readBytes(bytes, offset);
+        imports.push(...names.map((name) => ({ module, name, description })));
+      } else {
+        let description: ImportDescription;
+        [description, offset] = ImportDescription.readBytes(bytes, offset);
+        imports.push({ module, name, description });
+      }
+    }
+    return [imports, offset];
+  },
+});
+const CompactItem = record({ name: Name, description: ImportDescription });
+
+/**
+ * An async export, `exports: { run: async(run) }`: JS calls it asynchronously (JSPI). Wasm it enters may
+ * wait for async imports, while the export returns a promise of its results. Only Wasm entered through
+ * async exports can call async imports.
+ */
+type AsyncExport<F extends Dependency.Func = Dependency.Func> = { kind: "asyncExport"; func: F };
+
+function asyncExport<F extends Dependency.Func>(func: F): AsyncExport<F> {
+  return { kind: "asyncExport", func };
+}
+
 /** Declare a typed native JS import. module/field optionally override its automatically assigned import path. */
 function importFunc<
   const Args extends readonly ParameterInput[] = [],
   const Results extends Tuple<ValueType> = [],
+  const Async extends boolean = false,
 >(
   {
     name: inputName,
     in: entries,
     out: results_,
     type: definedType,
+    async: isAsync,
     module,
     field,
   }: {
@@ -117,8 +172,17 @@ function importFunc<
     out: ToTypeTuple<Results>;
     /** An explicit function type, such as a subtype; it must match the signature. */
     type?: DefinedType;
+    /**
+     * The function may return a promise: Wasm waits for it, suspended until it resolves (JSPI). Wasm
+     * that calls it must be entered through an async export.
+     */
+    async?: Async;
   } & Dependency.ImportPath,
-  run: NoInfer<JSFunction<ImportFunc<ParameterSchema<Args>, Results>>>,
+  run: NoInfer<
+    Async extends true
+      ? AsyncJSFunction<ImportFunc<ParameterSchema<Args>, Results>>
+      : JSFunction<ImportFunc<ParameterSchema<Args>, Results>>
+  >,
 ): ImportFunc<ParameterSchema<Args>, Results> {
   const args_ = createParameters<Args>(entries);
   const type = { args: args_.types, results: valueTypeLiterals<Results>(results_) };
@@ -131,10 +195,16 @@ function importFunc<
     type,
     ...explicitType(definedType, type),
     deps: [],
-    value: run,
+    value: isAsync ? new WebAssembly.Suspending(run) : run,
+    ...(isAsync ? { async: true as const } : {}),
     ...(name === undefined ? {} : { name }),
   };
 }
+
+/** A JS function that may return a promise of its results. */
+type AsyncJSFunction<T extends Dependency.AnyFunc> = (
+  ...args: JSValues<T["type"]["args"]>
+) => ReturnValues<T["type"]["results"]> | Promise<ReturnValues<T["type"]["results"]>>;
 
 function importGlobal<V extends ValueType>(
   type: Type<V>,

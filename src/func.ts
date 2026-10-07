@@ -38,7 +38,16 @@ import type { Func } from "./func-types.ts";
 // external
 export { func, declareFunc, type Local };
 // internal
-export { type FinalizedFunc, Code, type JSFunction, type ToTypeTuple, explicitType };
+export {
+  type FinalizedFunc,
+  Code,
+  Locals,
+  type JSFunction,
+  type ReturnValues,
+  type JSValues,
+  type ToTypeTuple,
+  explicitType,
+};
 
 /**
  * Declare named parameters and locals, preserving each key's Wasm type in the callback.

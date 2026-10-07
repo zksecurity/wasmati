@@ -49,7 +49,7 @@ import {
 } from "../text/wast.ts";
 import { loadTextFactory, readModule } from "./text-helpers.ts";
 
-export { runWast, runCommands };
+export { runWast, runCommands, placeholders };
 export type { Result, Instance, SharedInstance };
 
 type Failure = { command: number; line: number; kind: string; message: string };
@@ -334,8 +334,8 @@ function traps(error: unknown, message: string): boolean {
 }
 
 /**
- * Imports for compiling a module that is expected to be invalid: missing imports get placeholders,
- * so that a link error cannot stand in for invalidity.
+ * Imports for building a module that is only compiled, not instantiated: missing imports get
+ * placeholders, so that a link error cannot stand in for invalidity.
  */
 function placeholders(module: ModuleValue, imports: WebAssembly.Imports): WebAssembly.Imports {
   const result: Record<string, Record<string, unknown>> = {};
@@ -367,12 +367,11 @@ function placeholders(module: ModuleValue, imports: WebAssembly.Imports): WebAss
         ) as WebAssembly.ValueType[],
       });
     } else {
-      const { value, mutable } = description.value;
-      if (value === "v128" || (isRefType(value) && value !== "funcref" && value !== "externref"))
-        throw Error("placeholders for globals of this type are not supported");
-      const type = (value === "funcref" ? "anyfunc" : value) as WebAssembly.ValueType;
-      const initial = type === "i64" ? 0n : type === "anyfunc" || type === "externref" ? null : 0;
-      fields[name] = new WebAssembly.Global({ value: type, mutable }, initial);
+      // The builder accepts any global object, and compiling does not look at it.
+      fields[name] = new WebAssembly.Global(
+        { value: "i32", mutable: description.value.mutable },
+        0,
+      );
     }
   }
   return result as WebAssembly.Imports;

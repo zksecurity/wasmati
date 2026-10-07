@@ -68,14 +68,14 @@ function isLower(x: Field, y: Field) {
 
       // return true if (xi < yi)
       i32.lt_u(xi, yi);
-      if_(null, () => {
+      if_(() => {
         i32.const(1);
         br(block);
       });
 
       // return false if (xi != yi)
       i32.ne(xi, yi);
-      if_(null, () => {
+      if_(() => {
         i32.const(0);
         br(block);
       });
@@ -110,7 +110,7 @@ const add = func(
 
     // if (z < p) return;
     isLower(z, P);
-    if_(null, () => return_());
+    if_(() => return_());
 
     // z -= p
     for (let i = 0; i < n; i++) {

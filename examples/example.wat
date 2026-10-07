@@ -1,17 +1,17 @@
 (module $example
-  (type (;0;) (func))
-  (type (;1;) (func (param i32) (result i32)))
-  (type (;2;) (func (param funcref)))
-  (type (;3;) (func (param i64)))
-  (type (;4;) (func (param i32)))
-  (type (;5;) (func (param f64)))
+  (type (;0;) (func (param i32) (result i32)))
+  (type (;1;) (func (param funcref)))
+  (type (;2;) (func (param i64)))
+  (type (;3;) (func (param i32)))
+  (type (;4;) (func (param f64)))
+  (type (;5;) (func))
   (type (;6;) (func (param i32 i32) (result i32)))
   (type (;7;) (func (param f64 f64 f64) (result f64)))
-  (import "" "f0" (func $consoleLog64 (type 3)))
-  (import "" "f1" (func $consoleLog (type 4)))
-  (import "" "f2" (func $consoleLogFunc (type 2)))
-  (import "" "f3" (func $consoleLogF64 (type 5)))
-  (import "" "f4" (func $f4 (type 0)))
+  (import "" "f0" (func $consoleLog64 (type 2)))
+  (import "" "f1" (func $consoleLog (type 3)))
+  (import "" "f2" (func $consoleLogFunc (type 1)))
+  (import "" "f3" (func $consoleLogF64 (type 4)))
+  (import "" "f4" (func $f4 (type 5)))
   (import "" "g0" (global $importedGlobal i64))
   (import "" "m0" (memory $memory 1 65536 shared))
   (func $exportedFunc (type 6) (param $x i32) (param $doLog i32) (result i32)
@@ -20,7 +20,7 @@
     call $consoleLogFunc
     global.get 1
     i32.const 0
-    call_indirect (type 2)
+    call_indirect (type 1)
     f64.const 0x1.004189374bc6ap+0 (;=1.001;)
     global.set 2
     f64.const 0x1.028f5c28f5c29p+0 (;=1.01;)

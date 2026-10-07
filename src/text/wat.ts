@@ -22,7 +22,7 @@ import {
   type ValueType,
 } from "../types.ts";
 import { Cursor } from "./cursor.ts";
-import { readTree, withLocation, UnsupportedTextError, type List } from "./lexer.ts";
+import { readTree, withLocation, UnsupportedTextError, type List, type Node } from "./lexer.ts";
 import { parseInstructions, parseValueType, type BlockType, type Scope } from "./instructions.ts";
 import { parseU64 } from "./numbers.ts";
 import { limits } from "../memory.ts";
@@ -120,14 +120,8 @@ class ModuleParser {
         this.typeField(c);
         this.groups.push(1);
         return () => {};
-      case "import": {
-        const path = { module: c.name(), name: c.name() };
-        const description = c.list();
-        c.end();
-        const kind = description.atom();
-        if (!(kind in spaceOf)) description.fail(`unknown import kind ${kind}`);
-        return this.entity(kind as EntityKind, description, path);
-      }
+      case "import":
+        return this.imports(c);
       case "func":
       case "table":
       case "memory":
@@ -162,6 +156,55 @@ class ModuleParser {
       default:
         return c.fail(`unknown module field ${kind}`);
     }
+  }
+
+  /**
+   * `(import "module" "name" description)`, or the compact forms with several items of one module:
+   * `(import "module" (item "name" description)*)`, or `(import "module" (item "name")* description)`
+   * with a shared description.
+   */
+  private imports(c: Cursor): () => void {
+    const module = c.name();
+    const description = (node: Node, name: string) => {
+      if (node.kind !== "list") return c.fail("expected an import description", node);
+      const description = Cursor.of(node);
+      const kind = description.atom();
+      if (!(kind in spaceOf)) description.fail(`unknown import kind ${kind}`);
+      return this.entity(kind as EntityKind, description, { module, name });
+    };
+    if (c.peek()?.kind === "string") {
+      const name = c.name();
+      const node = c.next();
+      c.end();
+      return description(node, name);
+    }
+    const items = c.lists("item", (item) => {
+      const name = item.name();
+      const node = item.done ? undefined : item.next();
+      item.end();
+      return { name, node };
+    });
+    const shared = items.every(({ node }) => node === undefined) && !c.done ? c.next() : undefined;
+    c.end();
+    if (shared !== undefined) {
+      // A shared description describes several entities, so it cannot bind an identifier.
+      const check = shared.kind === "list" ? Cursor.of(shared) : undefined;
+      check?.atom();
+      if (check?.peekIdentifier())
+        check.fail("identifier not allowed in a shared import description");
+    }
+    const imports = items.map(({ name, node }) => {
+      if (node === undefined && shared === undefined) c.fail("import item without description");
+      // A shared description is read once per item.
+      return description((node ?? shared)!, name);
+    });
+    // Without items, a shared function type use still defines its type.
+    if (items.length === 0 && shared?.kind === "list") {
+      const use = Cursor.of(shared);
+      const kind = use.atom();
+      if (kind === "func" || kind === "tag") imports.push(() => this.typeUse(use, true));
+    }
+    return () => imports.forEach((define) => define());
   }
 
   /** Take the next index of a space, binding the cursor's identifier, if any, to it. */

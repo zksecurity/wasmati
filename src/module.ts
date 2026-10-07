@@ -1,3 +1,4 @@
+import type {} from "./js-api.ts";
 import * as Dependency from "./dependency.ts";
 import { Export, Import } from "./export.ts";
 import type { FinalizedFunc, JSFunction } from "./func.ts";
@@ -18,6 +19,8 @@ import {
 import { memoryConstructor } from "./memory.ts";
 import { parseWat } from "./text/wat.ts";
 import { printWat } from "./text/print.ts";
+import { jsStringBuiltins, usesJSStringBuiltins } from "./js-string.ts";
+import type { AsyncExport } from "./export.ts";
 import { TypeRegistry } from "./type-registry.ts";
 import type { NameMap, NameSection } from "./name-section.ts";
 import type { CustomSection } from "./module-binable.ts";
@@ -26,7 +29,10 @@ export { Module, type ModuleExport };
 
 type Module = ReturnType<typeof ModuleConstructor>;
 
-function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
+/** Exports, of which functions may be async exports. */
+type ExportInput = Dependency.Export | AsyncExport;
+
+function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   exports: inputExports,
   exportEntries = [],
   memory: inputMemory,
@@ -41,7 +47,7 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
    * Further exports as ordered name-value pairs, after `exports`. Unlike in `exports`, names can repeat,
    * which makes the module invalid; the decompiler uses this to reproduce such modules faithfully.
    */
-  exportEntries?: [name: string, value: Dependency.Export][];
+  exportEntries?: [name: string, value: ExportInput][];
   memory?: Limits | Dependency.AnyMemory;
   start?: Dependency.AnyFunc;
   name?: string;
@@ -53,10 +59,15 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
   // collect all dependencies (by kind)
   let dependencies = new Set<Dependency.t>();
   for (const dep of inputDependencies) pushDependency(dependencies, dep);
-  let allExports: [string, Dependency.Export][] = [
-    ...Object.entries(inputExports),
-    ...exportEntries,
-  ];
+  let inputs: [string, ExportInput][] = [...Object.entries(inputExports), ...exportEntries];
+  let allExports = inputs.map(([name, value]): [string, Dependency.Export] => [
+    name,
+    value.kind === "asyncExport" ? value.func : value,
+  ]);
+  let asyncExports = inputs.flatMap(([name, value]) =>
+    value.kind === "asyncExport" ? [name] : [],
+  );
+  checkAsyncCalls(allExports, asyncExports, inputStart);
   for (let [, exp] of allExports) {
     pushDependency(dependencies, exp);
   }
@@ -269,7 +280,62 @@ function ModuleConstructor<Exports extends Record<string, Dependency.Export>>({
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(indexTypes(binableModule, registry), importMap);
+  return createModule<Exports>(indexTypes(binableModule, registry), importMap, asyncExports);
+}
+
+/**
+ * Wasm can only wait for async imports when JS entered it through an async export. Following direct
+ * calls, check that other exports and the start function cannot reach an async import. Indirect calls
+ * are not followed: they fail at runtime with a `WebAssembly.SuspendError`.
+ */
+function checkAsyncCalls(
+  exports: [string, Dependency.Export][],
+  asyncExports: string[],
+  start: Dependency.AnyFunc | undefined,
+) {
+  let roots: [string, Dependency.AnyFunc][] = exports.flatMap(([name, value]) =>
+    (value.kind === "function" || value.kind === "importFunction") && !asyncExports.includes(name)
+      ? [[`export "${name}"`, value] as [string, Dependency.AnyFunc]]
+      : [],
+  );
+  if (start !== undefined) roots.push(["the start function", start]);
+  for (let [root, func] of roots) {
+    let path = asyncPath(func);
+    if (path === undefined) continue;
+    let via = path.slice(1, -1).map(functionName);
+    throw Error(
+      `${root} reaches async import ${functionName(path.at(-1)!)}${via.length > 0 ? ` via ${via.join(", ")}` : ""}; export it as async(...)`,
+    );
+  }
+}
+
+/** A chain of direct calls from a function to an async import, if any. */
+function asyncPath(
+  func: Dependency.AnyFunc,
+  visited = new Set<Dependency.AnyFunc>(),
+): Dependency.AnyFunc[] | undefined {
+  if (visited.has(func)) return undefined;
+  visited.add(func);
+  if (func.kind === "importFunction") return func.async ? [func] : undefined;
+  for (let callee of directCalls(func.body)) {
+    let path = asyncPath(callee, visited);
+    if (path !== undefined) return [func, ...path];
+  }
+  return undefined;
+}
+
+/** Functions called by `call` and `return_call`, including in nested blocks. */
+function* directCalls(body: Dependency.Instruction[]): Generator<Dependency.AnyFunc> {
+  for (let instruction of body) {
+    if (instruction.string === "call" || instruction.string === "return_call")
+      yield instruction.deps[0] as Dependency.AnyFunc;
+    for (let arg of instruction.resolveArgs)
+      if (Array.isArray(arg) && typeof arg[0]?.string === "string") yield* directCalls(arg);
+  }
+}
+
+function functionName(func: Dependency.AnyFunc) {
+  return func.name === undefined ? "<anonymous function>" : `"${func.name}"`;
 }
 
 function orderGlobals(globals: Dependency.Global[]): Dependency.Global[] {
@@ -343,19 +409,23 @@ function indexTypes(module: BinableModule, registry: TypeRegistry): BinableModul
   return indexed;
 }
 
-function createModule<Exports extends Record<string, Dependency.Export>>(
+/** `asyncExports` names the exports that are wrapped by `WebAssembly.promising` on instantiation. */
+function createModule<Exports extends Record<string, ExportInput>>(
   binableModule: BinableModule,
   importMap: WebAssembly.Imports,
+  asyncExports: string[] = [],
 ) {
   let module = {
     module: binableModule,
     importMap,
     /** Instantiate Wasm with inferred native export signatures; exports are the actual Wasm functions. */
     async instantiate() {
-      return (await WebAssembly.instantiate(
+      let { instance, module } = await WebAssembly.instantiate(
         Uint8Array.from(BinableModule.toBytes(binableModule)),
         importMap,
-      )) as {
+        usesJSStringBuiltins(binableModule.imports) ? jsStringBuiltins : {},
+      );
+      return { instance: withAsyncExports(instance, asyncExports), module } as {
         instance: WebAssembly.Instance & {
           exports: { [K in keyof Exports]: ModuleExport<Exports[K]> };
         };
@@ -374,23 +444,44 @@ function createModule<Exports extends Record<string, Dependency.Export>>(
   return module;
 }
 
-type ModuleExport<Export extends Dependency.Export> = Export extends Dependency.AnyFunc
-  ? JSFunction<Export>
-  : Export extends Dependency.AnyGlobal
-    ? {
-        value: JSValue<Export["type"]["value"]>;
-        valueOf(): JSValue<Export["type"]["value"]>;
-      }
-    : Export extends Dependency.AnyMemory
-      ? WebAssembly.Memory
-      : Export extends Dependency.AnyTable
-        ? WebAssembly.Table
-        : Export extends Dependency.AnyTag
-          ? WebAssembly.Tag
-          : unknown;
+/**
+ * An instance whose async exports are wrapped by `WebAssembly.promising`; the other exports and the
+ * prototype are the instance's own.
+ */
+function withAsyncExports(instance: WebAssembly.Instance, asyncExports: string[]) {
+  if (asyncExports.length === 0) return instance;
+  let wrapped = Object.fromEntries(
+    asyncExports.map((name) => [name, WebAssembly.promising(instance.exports[name] as Function)]),
+  );
+  let exports = Object.freeze({ ...instance.exports, ...wrapped });
+  return Object.create(instance, { exports: { value: exports } }) as WebAssembly.Instance;
+}
+
+type ModuleExport<Export extends ExportInput> =
+  Export extends AsyncExport<infer F>
+    ? AsyncFunction<F>
+    : Export extends Dependency.AnyFunc
+      ? JSFunction<Export>
+      : Export extends Dependency.AnyGlobal
+        ? {
+            value: JSValue<Export["type"]["value"]>;
+            valueOf(): JSValue<Export["type"]["value"]>;
+          }
+        : Export extends Dependency.AnyMemory
+          ? WebAssembly.Memory
+          : Export extends Dependency.AnyTable
+            ? WebAssembly.Table
+            : Export extends Dependency.AnyTag
+              ? WebAssembly.Tag
+              : unknown;
+
+/** An async export returns a promise of its results. */
+type AsyncFunction<T extends Dependency.AnyFunc> = (
+  ...args: Parameters<JSFunction<T>>
+) => Promise<ReturnType<JSFunction<T>>>;
 
 const Module = Object.assign(ModuleConstructor, {
-  fromBytes<Exports extends Record<string, Dependency.Export>>(
+  fromBytes<Exports extends Record<string, ExportInput>>(
     bytes: Uint8Array,
     importMap: WebAssembly.Imports = {},
   ) {
@@ -398,7 +489,7 @@ const Module = Object.assign(ModuleConstructor, {
     return createModule<Exports>(binableModule, importMap);
   },
   /** A module from the WebAssembly text format. */
-  fromWat<Exports extends Record<string, Dependency.Export>>(
+  fromWat<Exports extends Record<string, ExportInput>>(
     text: string,
     importMap: WebAssembly.Imports = {},
   ) {

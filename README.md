@@ -36,12 +36,15 @@ $ node example.ts
 
 - Works in all modern browsers, `node` and `deno`
 
-- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of [WebAssembly 3.0](https://webassembly.github.io/spec/core/) are supported, including garbage collection, typed function references, tail calls, exception handling, memory64, multiple memories, extended constant expressions and relaxed SIMD. In addition, wasmati supports the following extensions which are not part of that spec:
+- **Parity with WebAssembly.** The API directly corresponds to Wasm opcodes, like `i32.add` etc. All opcodes and language features of [WebAssembly 3.0](https://webassembly.github.io/spec/core/) are supported, including garbage collection, typed function references, tail calls, exception handling, memory64, multiple memories, extended constant expressions, relaxed SIMD and JS string builtins (`jsString`, `stringConstant`). In addition, wasmati supports all standardized and nearly standardized (phase 4 and 5) proposals that are not part of that spec:
 
   - [threads and atomics](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)
   - [wide arithmetic](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md)
+  - [branch hinting](https://github.com/WebAssembly/branch-hinting/blob/main/proposals/branch-hinting/Overview.md): `br_if(label, { likely: true })`, `if_({ likely: false }, ...)`
+  - [JS Promise Integration](https://github.com/WebAssembly/js-promise-integration/blob/main/proposals/js-promise-integration/Overview.md): Wasm waits for async imports, `importFunc({ ..., async: true }, async () => ...)`, when JS enters it through async exports, `Module({ exports: { run: async(run) } })`, which return promises. `Module` checks that other exports cannot reach async imports.
+  - [compact import sections](https://github.com/WebAssembly/compact-import-section/blob/main/proposals/compact-import-section/Overview.md), which wasmati reads
 
-  Every module and assertion of the official WebAssembly 3.0 spec test suite runs through wasmati in CI, along with the tests of the threads and wide arithmetic proposals: modules are decompiled to wasmati code, rebuilt, and checked against the expected results.
+  Every module and assertion of the official WebAssembly 3.0 spec test suite runs through wasmati in CI, along with the tests of these proposals: modules are decompiled to wasmati code, rebuilt, and checked against the expected results.
 
 - **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
