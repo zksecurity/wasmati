@@ -13,6 +13,9 @@ import {
 export {
   Instruction,
   Expression,
+  END,
+  ELSE,
+  rememberEncoding,
   ConstExpression,
   Block,
   IfBlock,
@@ -49,9 +52,24 @@ const Instruction = Binable<ResolvedInstruction>({
 });
 
 const END = 0x0b;
+
+/**
+ * Encodings of expressions that were encoded already, to measure the offsets of branch hints, for
+ * the next encoding of the expression only.
+ */
+const encodings = new WeakMap<ResolvedInstruction[], number[]>();
+
+function rememberEncoding(expression: ResolvedInstruction[], bytes: number[]) {
+  encodings.set(expression, bytes);
+}
 type Expression = ResolvedInstruction[];
 const Expression = Binable<ResolvedInstruction[]>({
   toBytes(t) {
+    let encoded = encodings.get(t);
+    if (encoded !== undefined) {
+      encodings.delete(t);
+      return encoded;
+    }
     let instructions = t.map(Instruction.toBytes).flat();
     instructions.push(END);
     return instructions;

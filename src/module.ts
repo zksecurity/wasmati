@@ -331,8 +331,10 @@ function checkAsyncCalls(
       : [],
   );
   if (start !== undefined) roots.push(["the start function", start]);
+  // Functions that one root reaches without an async import need no second look from another.
+  let visited = new Set<Dependency.AnyFunc>();
   for (let [root, func] of roots) {
-    let path = asyncPath(func);
+    let path = asyncPath(func, visited);
     if (path === undefined) continue;
     let via = path.slice(1, -1).map(functionName);
     throw Error(
@@ -344,7 +346,7 @@ function checkAsyncCalls(
 /** A chain of direct calls from a function to an async import, if any. */
 function asyncPath(
   func: Dependency.AnyFunc,
-  visited = new Set<Dependency.AnyFunc>(),
+  visited: Set<Dependency.AnyFunc>,
 ): Dependency.AnyFunc[] | undefined {
   if (visited.has(func)) return undefined;
   visited.add(func);
