@@ -12,12 +12,14 @@ const root = fileURLToPath(new URL(".", import.meta.url));
 const run = (command: string, ...args: string[]) =>
   execFileSync(command, args, { cwd: root, stdio: ["ignore", "pipe", "inherit"] }).toString();
 
-run("npx", "wasmati", "build", "src/counter.ts", "-o", "src/built");
+run("npm", "run", "build");
 
-// Node imports the built module directly.
-const { increment } = await import("./src/built/counter.wasm");
+// Node imports the built modules directly.
+const { increment, measure } = await import("./src/built/counter.wasm");
+const { greet } = await import("./src/built/greet.wasm");
 increment(1);
-check("Node", increment(41));
+const all = "count 42, length 7, hello wasmati";
+check("Node", `count ${increment(41)}, length ${measure("wasmati")}, ${greet("wasmati")}`, all);
 
 run("npx", "vite", "build");
 run("npx", "webpack");
@@ -32,7 +34,9 @@ const types: Record<string, string> = {
   ".js": "text/javascript",
   ".wasm": "application/wasm",
 };
-for (const bundler of ["vite", "webpack"]) {
+// webpack cannot parse Wasm 3.0 types, so its page only uses the counter.
+const expected = { vite: all, webpack: "count 42, length 7" };
+for (const bundler of ["vite", "webpack"] as const) {
   const directory = join(root, "dist", bundler);
   const server = createServer(async (request, response) => {
     const path = join(directory, new URL(request.url!, "http://localhost").pathname);
@@ -53,13 +57,13 @@ for (const bundler of ["vite", "webpack"]) {
         error ? reject(error) : resolve(stdout),
       ),
     );
-    check(`Chrome with ${bundler}`, Number(dom.match(/<title>count (\d+)<\/title>/)?.[1]));
+    check(`Chrome with ${bundler}`, dom.match(/<title>(.*)<\/title>/)?.[1], expected[bundler]);
   } finally {
     server.close();
   }
 }
 
-function check(where: string, result: number) {
-  if (result !== 42) throw Error(`${where}: expected count 42, got ${result}`);
-  console.log(`${where}: count 42`);
+function check(where: string, result: string | undefined, expected: string) {
+  if (result !== expected) throw Error(`${where}: expected "${expected}", got "${result}"`);
+  console.log(`${where}: ${expected}`);
 }

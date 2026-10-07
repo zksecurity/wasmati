@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "wasmati build src/counter.ts -o src/built",
+    "build": "wasmati build src/counter.ts -o src/built && wasmati build src/greet.ts -o src/built",
     "test": "node test.ts"
   },
   "dependencies": {

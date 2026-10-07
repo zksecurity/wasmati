@@ -20,7 +20,7 @@ test("built modules import their inline imports from an extracted host module", 
   const directory = await project({
     "format.ts": "export const format = (x: number) => `value ${x}`;",
     "counter.ts": "export let count = 0;\nexport function increment() { count++; }",
-    "lib.ts": `import { Module, func, i32, call, importFunc, importGlobal, jsString, externref } from WASMATI;
+    "lib.ts": `import { Module, func, i32, call, importFunc, importGlobal, jsString, externref, global, stringConstant } from WASMATI;
 import { format } from "./format.ts";
 import { increment } from "./counter.ts";
 const lines: string[] = [];
@@ -35,7 +35,9 @@ const run = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => {
   i32.add(x, 1);
 });
 const length = func({ in: [{ s: externref }], out: [i32] }, ({ s }) => call(jsString.length, { string: s }));
-export default Module({ exports: { run, length, offset } });
+const hello = stringConstant("hello");
+const greeting = func({ in: [], out: [externref] }, () => global.get(hello));
+export default Module({ exports: { run, length, offset, greeting } });
 `,
   });
   try {
@@ -45,6 +47,10 @@ export default Module({ exports: { run, length, offset } });
     assert.match(host, /^const lines = \[\];$/m);
     assert.match(host, /^const log = \(x\) => \{ lines\.push\(format\(x\)\); \};$/m);
     assert.match(host, /^export \{ increment \} from "\.\.\/counter\.ts";$/m);
+    // String constants become exports of the host module; builtins get a polyfill for bundlers.
+    assert.match(host, /^const hello = "hello";$/m);
+    const polyfill = await import(pathToFileURL(output.jsStringPolyfill!).href);
+    assert.equal(polyfill.length("abcd"), 4);
     assert.match(
       await readFile(output.types, "utf8"),
       /declare function run\(x: number\): number;/,
@@ -55,6 +61,7 @@ export default Module({ exports: { run, length, offset } });
     assert.equal(exports.run(41), 42);
     assert.equal(exports.length("abc"), 3);
     assert.equal(exports.offset, 10);
+    assert.equal(exports.greeting(), "hello");
     // The counter module is shared between the app and the host module.
     const { count: after } = await import(pathToFileURL(join(directory, "counter.ts")).href);
     assert.equal(after, 1);

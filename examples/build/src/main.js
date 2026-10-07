@@ -1,7 +1,4 @@
-// Imports the built Wasm module directly, as an ES module.
-import { increment } from "./built/counter.wasm";
+import { summary } from "./counter-page.js";
+import { greet } from "./built/greet.wasm";
 
-increment(1);
-const result = increment(41);
-document.title = `count ${result}`;
-document.body.textContent = `count is ${result}`;
+document.title = `${summary}, ${greet("wasmati")}`;

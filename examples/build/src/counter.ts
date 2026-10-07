@@ -1,4 +1,14 @@
-import { Module, func, global, i32, call, importFunc, constant } from "wasmati";
+import {
+  Module,
+  func,
+  global,
+  i32,
+  call,
+  importFunc,
+  constant,
+  externref,
+  jsString,
+} from "wasmati";
 
 // Imports are written inline, as usual; `wasmati build` moves them into counter.host.js.
 const messages: string[] = [];
@@ -18,4 +28,9 @@ const increment = func({ in: [{ by: i32 }], out: [i32] }, ({ by }) => {
   global.get(count);
 });
 
-export default Module({ exports: { increment } });
+// JS string builtins come from the engine, or from a polyfill that bundlers map wasm:js-string to.
+const measure = func({ in: [{ text: externref }], out: [i32] }, ({ text }) =>
+  call(jsString.length, { string: text }),
+);
+
+export default Module({ exports: { increment, measure } });

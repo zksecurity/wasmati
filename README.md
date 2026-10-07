@@ -171,7 +171,29 @@ The build writes:
 - `counter.d.wasm.ts`, the types of its exports. TypeScript reads them with the `allowArbitraryExtensions` option.
 - `counter.host.js`, if the module has imports written inline as above. The build extracts them from `counter.ts`, together with the top-level declarations and imports that they use; the Wasm module imports them from there.
 - `counter.js` and `counter.d.ts`, if the module has async exports. JS imports this entry module instead, which wraps the async exports with `WebAssembly.promising`.
+- `js-string.js`, if the module uses JS string builtins (`jsString`): a polyfill for bundlers, see below. String constants (`stringConstant`) become exports of `counter.host.js`.
 
 A built file may only export its `Module`. Code that the app shares with imports, like state, belongs in another module, which both import. The build rejects imports that it can't move faithfully, such as functions that use variables of an enclosing function, and imports with an explicit `module` path must lead to the same value from the built file.
 
-Built modules run in Node from 22.19 and 24.5, and in Deno from 2.1, which implement the ESM integration of Wasm. In browsers, bundle them: with Vite and [`vite-plugin-wasm`](https://github.com/Menci/vite-plugin-wasm), building for the `esnext` target, or with webpack and `experiments.asyncWebAssembly`. [examples/build](examples/build) has both configurations, which CI tests in Chrome. Bundlers do not support JS string builtins yet, so modules that use `jsString` or `stringConstant` run in Node and Deno only.
+Built modules run in Node from 22.19 and 24.5, and in Deno from 2.1, which implement the ESM integration of Wasm. In browsers, bundle them. Bundlers do not provide JS string builtins, so map their module, `wasm:js-string`, to the polyfill. [examples/build](examples/build) has both configurations, which CI tests in Chrome:
+
+- **Vite** with [`vite-plugin-wasm`](https://github.com/Menci/vite-plugin-wasm), building for the `esnext` target:
+
+```js
+export default {
+  plugins: [wasm()],
+  resolve: { alias: { "wasm:js-string": "/path/to/built/js-string.js" } },
+  build: { target: "esnext" },
+};
+```
+
+- **webpack** with `experiments.asyncWebAssembly`. Its Wasm parser does not support Wasm 3.0 types, such as typed references and GC types, so it only bundles modules with Wasm 2.0 types:
+
+```js
+export default {
+  experiments: { asyncWebAssembly: true },
+  plugins: [
+    new webpack.NormalModuleReplacementPlugin(/^wasm:js-string$/, "/path/to/built/js-string.js"),
+  ],
+};
+```
