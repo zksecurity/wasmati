@@ -6,6 +6,7 @@
  */
 
 import {
+  type AddressType,
   FunctionType,
   GlobalType,
   MemoryType,
@@ -109,16 +110,19 @@ type Global<T extends ValueType = ValueType> = {
   deps: (AnyGlobal | AnyFunc)[];
 };
 
-type Table = {
+/** Memories and tables record their address type, which types the addresses and sizes of their instructions. */
+type Table<A extends AddressType = AddressType> = {
   kind: "table";
   type: TableType;
+  address: A;
   /** Initial value of every element, null by default. */
   init?: Const.t<RefType>;
   deps: (Elem | AnyFunc | AnyGlobal)[];
 };
-type Memory = {
+type Memory<A extends AddressType = AddressType> = {
   kind: "memory";
   type: MemoryType;
+  address: A;
   deps: Data[];
 };
 type HasMemory = { kind: "hasMemory"; deps: [] };
@@ -133,7 +137,13 @@ type Data = {
 };
 
 /** Segment offsets have the address type of their memory or table. */
-type Offset = Const.i32 | Const.i64 | Const.globalGet<"i32"> | Const.globalGet<"i64">;
+type Offset =
+  | Const.i32
+  | Const.i64
+  | Const.globalGet<"i32">
+  | Const.globalGet<"i64">
+  | Const.arithmetic<"i32">
+  | Const.arithmetic<"i64">;
 
 type Elem = {
   kind: "elem";
@@ -165,15 +175,17 @@ type ImportGlobal<T = ValueType> = ImportPath & {
   value: WebAssembly.Global;
   deps: [];
 };
-type ImportTable = ImportPath & {
+type ImportTable<A extends AddressType = AddressType> = ImportPath & {
   kind: "importTable";
   type: TableType;
+  address: A;
   value: WebAssembly.Table;
   deps: Elem[];
 };
-type ImportMemory = ImportPath & {
+type ImportMemory<A extends AddressType = AddressType> = ImportPath & {
   kind: "importMemory";
   type: MemoryType;
+  address: A;
   value: WebAssembly.Memory;
   deps: Data[];
 };
@@ -190,8 +202,8 @@ type AnyTag = Tag | ImportTag;
 
 type AnyFunc = Func | ImportFunc;
 type AnyGlobal<T extends ValueType = ValueType> = Global<T> | ImportGlobal<T>;
-type AnyTable = Table | ImportTable;
-type AnyMemory = Memory | ImportMemory;
+type AnyTable<A extends AddressType = AddressType> = Table<A> | ImportTable<A>;
+type AnyMemory<A extends AddressType = AddressType> = Memory<A> | ImportMemory<A>;
 type AnyImport = ImportFunc | ImportGlobal | ImportTable | ImportMemory | ImportTag;
 
 const dependencyKinds = [

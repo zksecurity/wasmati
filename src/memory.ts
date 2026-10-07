@@ -27,23 +27,24 @@ function tagConstructor({ in: args = [] }: { in?: ValueTypeObject[] }): Dependen
   return { kind: "tag", type: { args: valueTypeLiterals(args), results: [] }, deps: [] };
 }
 
-function memoryConstructor(
+function memoryConstructor<A extends AddressType = "i32">(
   {
     min,
     max,
     shared = false,
-    address = "i32",
+    address = "i32" as A,
   }: {
     min: U64;
     max?: U64;
     shared?: boolean;
-    address?: AddressType;
+    address?: A;
   },
   ...content: (number[] | Uint8Array)[]
-): Dependency.Memory {
-  let memory: Dependency.Memory = {
+): Dependency.Memory<A> {
+  let memory: Dependency.Memory<A> = {
     kind: "memory",
     type: { limits: limits(min, max, shared, address) },
+    address,
     deps: [],
   };
   let offset = 0;
@@ -116,26 +117,27 @@ function dataConstructor(
   return result;
 }
 
-function tableConstructor(
+function tableConstructor<A extends AddressType = "i32">(
   {
     type,
     min,
     max,
-    address = "i32",
+    address = "i32" as A,
     init,
   }: {
     type: RefTypeObject;
     min: U64;
     max?: U64;
-    address?: AddressType;
+    address?: A;
     /** Initial value of every element, null by default. */
     init?: Const.t<RefType>;
   },
   content?: (Const.refFunc | Const.refNull<RefType>)[],
-): Dependency.Table {
-  let table: Dependency.Table = {
+): Dependency.Table<A> {
+  let table: Dependency.Table<A> = {
     kind: "table" as const,
     type: { type: valueTypeLiteral(type), limits: limits(min, max, false, address) },
+    address,
     deps: [...((init?.deps ?? []) as Dependency.Table["deps"])],
     ...(init === undefined ? {} : { init }),
   };
