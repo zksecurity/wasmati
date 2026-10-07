@@ -3,7 +3,8 @@ import { join, relative, resolve } from "node:path";
 import { runJsApi } from "./js-api-runner.ts";
 import { runWast } from "./wast-runner.ts";
 
-// Run spec tests through wasmati. Fails if any assertion fails; modules beyond engine limits are skipped.
+// Run spec tests through wasmati. Fails if any assertion fails; modules beyond engine limits, and JS API
+// tests of legacy exception handling, which wasmati does not support, are skipped.
 // Each argument is a spec checkout, whose core tests (test/core/**/*.wast) run, or a glob of WAST files
 // or of JS API tests (test/js-api/**/*.any.js).
 // node --wasm-wide-arithmetic src/test/spec-tests.ts /path/to/spec [/path/to/proposal/test/core/x.wast ...]
@@ -29,7 +30,7 @@ let skipped = 0;
 for (const file of files) {
   const path = resolve(file);
   const result = path.endsWith(".js")
-    ? runJsApi(path)
+    ? await runJsApi(path)
     : await runWast(await readFile(path, "utf8"));
   passed += result.passed;
   failed += result.failures.length;
@@ -41,6 +42,6 @@ for (const file of files) {
   console.log(`${relative(".", path)}: ${result.passed} passed, ${result.failures.length} failed`);
 }
 console.log(
-  `Spec assertions through wasmati: ${passed} passed, ${failed} failed, ${skipped} skipped for engine limits`,
+  `Spec assertions through wasmati: ${passed} passed, ${failed} failed, ${skipped} skipped`,
 );
 if (failed !== 0) process.exitCode = 1;

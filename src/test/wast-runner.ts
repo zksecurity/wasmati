@@ -53,7 +53,7 @@ export { runWast, runCommands, placeholders };
 export type { Result, Instance, SharedInstance };
 
 type Failure = { command: number; line: number; kind: string; message: string };
-/** Valid modules beyond the engine's implementation limits, which the spec permits, are skipped. */
+/** Valid modules beyond the engine's implementation limits, which the spec permits, and unsupported legacy features are skipped. */
 type Result = { passed: number; failures: Failure[]; skipped: Failure[] };
 
 type Instance = { instance: WebAssembly.Instance; module: ModuleValue };
