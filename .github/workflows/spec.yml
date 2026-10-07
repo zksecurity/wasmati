@@ -20,13 +20,28 @@ jobs:
           # wg-3.0; keep the corpus fixed while wasmati catches up with it.
           ref: 9d36019973201a19f9c9ebb0f10828b2fe2374aa
           path: .spec-tests
+      # Proposals that wasmati supports beyond 3.0; only their own test files run.
+      - uses: actions/checkout@v7
+        with:
+          repository: WebAssembly/threads
+          ref: cc535ada1aa21cfaa3cabf3ac73b89acef78a0a0
+          path: .spec-threads
+      - uses: actions/checkout@v7
+        with:
+          repository: WebAssembly/wide-arithmetic
+          ref: 024d4ce1b28cee7fd006d9c5175e3b7ece52b429
+          path: .spec-wide-arithmetic
       - uses: actions/setup-node@v7
         with:
           node-version: 27.0.0-nightly20261006fcfb7ecc0b
           cache: npm
       - run: npm ci
       - name: Run assertions through wasmati
-        run: npm run test:spec -- .spec-tests > spec-results.txt 2>&1
+        run: >-
+          npm run test:spec -- .spec-tests
+          .spec-threads/test/core/threads/atomic.wast
+          .spec-wide-arithmetic/test/core/wide-arithmetic.wast
+          > spec-results.txt 2>&1
       - name: Report results
         if: always()
         run: tail -n 1 spec-results.txt >> "$GITHUB_STEP_SUMMARY"

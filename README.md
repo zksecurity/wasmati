@@ -41,7 +41,7 @@ $ node example.ts
   - [threads and atomics](https://github.com/WebAssembly/threads/blob/master/proposals/threads/Overview.md)
   - [wide arithmetic](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md)
 
-  Every module and assertion of the official WebAssembly 3.0 spec test suite runs through wasmati in CI: modules are decompiled to wasmati code, rebuilt, and checked against the expected results.
+  Every module and assertion of the official WebAssembly 3.0 spec test suite runs through wasmati in CI, along with the atomics and wide arithmetic tests of their proposals: modules are decompiled to wasmati code, rebuilt, and checked against the expected results.
 
 - **Readability.** Wasm code looks imperative - like writing WAT by hand, just with better DX:
 
