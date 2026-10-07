@@ -1,6 +1,6 @@
 {
   "name": "wasmati",
-  "version": "0.3.2",
+  "version": "1.0.0",
   "description": "Write low-level WebAssembly, from JavaScript",
   "type": "module",
   "main": "build/index.js",
@@ -29,7 +29,9 @@
   },
   "files": [
     "src",
-    "build"
+    "build",
+    "skills",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "webassembly",
