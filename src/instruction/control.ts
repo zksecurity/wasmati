@@ -7,6 +7,7 @@ import {
   type Label,
   labelTypes,
   popStack,
+  checkStack,
   popUnknown,
   Unknown,
   pushStack,
@@ -188,7 +189,7 @@ const br_table = baseInstruction("br_table", LabelTable, {
       let types = labelTypes(frame);
       if (types.length !== arity)
         throw Error("inconsistent length of block label types in br_table");
-      pushStack(ctx, popStack(ctx, types));
+      checkStack(ctx, types);
     }
     popStack(ctx, types);
     setUnreachable(ctx);
@@ -299,7 +300,7 @@ const br_on_null = baseInstruction("br_on_null", LabelIndex, {
   create(ctx, label: Label | number) {
     let [i, frame] = getFrameFromLabel(ctx, label);
     let reference = popReference(ctx);
-    pushStack(ctx, popStack(ctx, labelTypes(frame)));
+    checkStack(ctx, labelTypes(frame));
     pushStack(ctx, [nonNull(reference)]);
     return { in: [], out: [], resolveArgs: [i] };
   },
@@ -318,7 +319,7 @@ const br_on_non_null = baseInstruction("br_on_non_null", LabelIndex, {
       throw Error(
         `br_on_non_null: expected ${printValueType(target)}, got ${printValueType(reference)}`,
       );
-    pushStack(ctx, popStack(ctx, types.slice(0, -1)));
+    checkStack(ctx, types.slice(0, -1));
     return { in: [], out: [], resolveArgs: [i] };
   },
 });

@@ -286,6 +286,9 @@ function insertInstruction(ctx: LocalContext, i: number, instr: Dependency.Instr
   // now `stack` matches what we want, so swap out the current stack with it and insert instruction into body
   ctx.stack.splice(0, ctx.stack.length, ...stack);
   ctx.body.splice(ctx.body.length - nInstructions, 0, instr);
+  for (let dep of instr.deps) {
+    if (!ctx.deps.includes(dep)) ctx.deps.push(dep);
+  }
 }
 
 const dummyFrame = {

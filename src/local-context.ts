@@ -13,6 +13,7 @@ export {
   type RandomLabel,
   popStack,
   popUnknown,
+  checkStack,
   pushStack,
   setUnreachable,
   labelTypes,
@@ -128,6 +129,17 @@ function popStack(
     popped.unshift(stackValue?.type ?? Unknown);
   }
   return popped;
+}
+
+/**
+ * Check that the stack has values of the given types, and leave them in place, as the same values. In
+ * unreachable code, missing values become values of Unknown type.
+ */
+function checkStack(ctx: LocalContext, values: StackType[]) {
+  let kept = ctx.stack.slice(Math.max(0, ctx.stack.length - values.length));
+  let popped = popStack(ctx, values);
+  pushStack(ctx, popped.slice(0, popped.length - kept.length));
+  ctx.stack.push(...kept);
 }
 
 function popUnknown({ stack, frames }: LocalContext): ValueType | Unknown {
