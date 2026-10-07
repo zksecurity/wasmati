@@ -40,9 +40,21 @@ const utf8Encoder = new TextEncoder();
 
 const Name = Binable<string>({
   write(writer, string: string) {
-    let bytes = utf8Encoder.encode(string);
-    writer.unsigned(bytes.length);
-    writer.bytes(bytes);
+    let n = string.length;
+    let ascii = true;
+    for (let i = 0; i < n && ascii; i++) ascii = string.charCodeAt(i) < 0x80;
+    if (!ascii) {
+      let bytes = utf8Encoder.encode(string);
+      writer.unsigned(bytes.length);
+      writer.bytes(bytes);
+      return;
+    }
+    // ASCII strings are their own UTF-8 encoding.
+    writer.unsigned(n);
+    writer.reserve(n);
+    let { buffer, length } = writer;
+    for (let i = 0; i < n; i++) buffer[length + i] = string.charCodeAt(i);
+    writer.length = length + n;
   },
   readBytes(bytes, start) {
     let [length, offset] = U32.readBytes(bytes, start);

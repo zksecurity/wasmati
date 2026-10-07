@@ -1,12 +1,4 @@
-import {
-  type Binable,
-  Byte,
-  RemainingBytes,
-  iso,
-  record,
-  sequence,
-  withValidation,
-} from "./binable.ts";
+import { Binable, Byte, RemainingBytes, iso, record, sequence, withValidation } from "./binable.ts";
 import { Name, U32, vec, withByteLength } from "./immediate.ts";
 
 export { NameSection, type NameMap, type IndirectNameMap };
@@ -55,9 +47,19 @@ function indexed<T>(value: Binable<T>): Binable<Record<number, T>> {
       previous = index;
     }
   });
-  return iso(entries, {
-    to: (map: Record<number, T>) => indices(map).map((index) => ({ index, value: map[index] })),
-    from: (entries) => Object.fromEntries(entries.map(({ index, value }) => [index, value])),
+  return Binable({
+    write(writer, map: Record<number, T>) {
+      let keys = indices(map);
+      writer.unsigned(keys.length);
+      for (let index of keys) {
+        writer.unsigned(index);
+        value.write(writer, map[index]);
+      }
+    },
+    readBytes(bytes, offset) {
+      let [list, end] = entries.readBytes(bytes, offset);
+      return [Object.fromEntries(list.map(({ index, value }) => [index, value])), end];
+    },
   });
 }
 
@@ -95,7 +97,9 @@ const NameSection = iso(Subsections, {
     const sections: { id: number; data: number[] }[] = [];
     for (const [id, [key, codec]] of subsections.entries()) {
       const value = names[key];
-      if (value !== undefined) sections.push({ id, data: (codec as Binable<any>).toBytes(value) });
+      // Bytes, which the subsection's codec writes as they are.
+      if (value !== undefined)
+        sections.push({ id, data: (codec as Binable<any>).encode(value) as unknown as number[] });
     }
     for (const section of names.unknown ?? []) {
       if (!Number.isInteger(section.id) || section.id < subsections.length || section.id > 255) {

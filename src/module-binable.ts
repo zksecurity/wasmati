@@ -261,7 +261,9 @@ const Module = iso(ParsedModule, {
       return { after: after === undefined ? null : key, value };
     });
     if (names !== undefined) {
-      extras.push({ after: null, value: { name: "name", data: NameSection.toBytes(names) } });
+      // Bytes, which the custom section's codec writes as they are.
+      let data = NameSection.encode(names) as unknown as number[];
+      extras.push({ after: null, value: { name: "name", data } });
     }
     let funcSection = funcs.map((f) => f.typeIdx);
     // The functions themselves, whose bodies may be encoded already, and decoded only when read.

@@ -105,7 +105,8 @@ class Writer {
     let n = bytes.length;
     this.reserve(n);
     let { buffer, length } = this;
-    for (let i = 0; i < n; i++) buffer[length + i] = bytes[i];
+    if (bytes instanceof Uint8Array) buffer.set(bytes, length);
+    else for (let i = 0; i < n; i++) buffer[length + i] = bytes[i];
     this.length = length + n;
   }
 
