@@ -186,7 +186,7 @@ test("GC instructions take operands as arguments, and struct fields by name", as
     { in: [{ v: i32 }], out: [i32], locals: { a: refType(bytes) } },
     ({ v }, { a }) => {
       local.set(a, array.new_fixed(bytes, [v, 2, 3]));
-      array.set(bytes, a, 1, i32.add(v, 1));
+      array.set(bytes, local.get(a), i32.const(1), i32.add(v, 1));
       struct.set(point, "y", global.get(origin), array.get_s(bytes, a, 1));
       i32.add(struct.get(point, "y", global.get(origin)), ref.test(refType(point), ref.i31(0)));
     },
@@ -199,7 +199,7 @@ test("GC instructions take operands as arguments, and struct fields by name", as
 
 test("named operands keep their values, and instruction results must come in order", async () => {
   const point = struct({ x: i32, y: i32 });
-  const p = global(constant(() => struct.new(point, { y: i32.const(2), x: 1 })));
+  const p = global(constant(() => struct.new(point, { y: 2, x: i32.const(1) })));
   const q = global(constant(() => struct.new(point, { x: i32.const(3), y: i32.const(4) })));
   const add = importFunc({ in: [{ a: i32 }, { b: i32 }], out: [i32] }, (a, b) => a * 10 + b);
   const read = func({ in: [], out: [i32, i32, i32, i32, i32] }, () => {
@@ -207,7 +207,7 @@ test("named operands keep their values, and instruction results must come in ord
     struct.get(point, "y", global.get(p));
     struct.get(point, "x", global.get(q));
     struct.get(point, "y", global.get(q));
-    call(add, { b: i32.const(2), a: 1 });
+    call(add, { b: 2, a: i32.const(1) });
   });
   const { instance } = await Module({ exports: { read } }).instantiate();
   assert.deepEqual(instance.exports.read(), [1, 2, 3, 4, 12]);

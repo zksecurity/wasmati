@@ -1,5 +1,5 @@
 // Time building a module like those of field arithmetic libraries, and instantiating it: unrolled multiplication
-// of limbs in locals, loads and stores, loops, and operands that are inserted below results.
+// of limbs in locals, loads and stores, and loops.
 // node src/test/benchmark.ts [runs]
 import { Module, block, br_if, func, i32, i64, local, localArray, loop, memory } from "../index.ts";
 
@@ -25,10 +25,9 @@ function multiply(name: string) {
         local.set(t[2 * limbs - 1], i64.load({ offset: 8 * j }, y));
         for (let i = 0; i < limbs; i++) {
           // t[i + j] + x[i] * y[j] + carry, split into 32-bit halves
-          let sum = i64.add(i64.add(t[i + j], i64.mul(xs[i], t[2 * limbs - 1])), carry);
+          let sum = i64.add(i64.add(i64.mul(xs[i], t[2 * limbs - 1]), t[i + j]), carry);
           local.set(carry, i64.shr_u(local.tee(t[i + j], sum), 32n));
-          // The mask is an operand before a result, which is inserted below the result.
-          local.set(t[i + j], i64.and(0xffff_ffffn, local.get(t[i + j])));
+          local.set(t[i + j], i64.and(local.get(t[i + j]), 0xffff_ffffn));
         }
       }
       for (let i = 0; i < 2 * limbs; i++) i64.store({ offset: 8 * i }, out, t[i]);
@@ -48,7 +47,7 @@ function countdown() {
         br_if(next);
       }),
     );
-    local.set(x, i32.add(1, local.get(x)));
+    local.set(x, i32.add(local.get(x), 1));
   });
 }
 

@@ -129,8 +129,10 @@ test("wide results compose with locals, constants, globals and stack operands", 
   const stackBelowConstants = func(
     { in: [{ a: i64 }, { b: i64 }], out: [i64, i64] },
     ({ a, b }) => {
+      i64.const(0n);
+      i64.const(0n);
       i64.mul_wide_u(a, b);
-      i64.sub128(0n, 0n, $, $);
+      i64.sub128();
     },
   );
   const chained = func(

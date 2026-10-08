@@ -1,7 +1,7 @@
 import { Writer } from "./binable.ts";
 import type * as Dependency from "./dependency.ts";
 
-export { Code, type Hole, type Linker, type Immediate, type Write, link };
+export { Code, type Hole, type Linker, type Immediate, link };
 
 /**
  * How an immediate that refers to other definitions is written, once their indices are known: from the
@@ -24,15 +24,6 @@ type Linker = {
   types(name: string, immediate: unknown): unknown;
 };
 
-/** A write of a local or global, or a call, which operands must not be read before. */
-type Write = {
-  position: number;
-  name: string;
-  local?: number;
-  global?: Dependency.AnyGlobal;
-  call?: boolean;
-};
-
 /**
  * Code under construction: the encoding of a function body or constant expression, without its final
  * `end`. Immediates that refer to other definitions by index are holes, which Module() fills in.
@@ -42,47 +33,9 @@ class Code extends Writer {
   holes: Hole[] = [];
   /** Branch hints, at the position of their instruction. */
   hints: { position: number; likely: boolean }[] = [];
-  /** Writes of locals and globals and calls, at the position of their instruction. */
-  writes: Write[] = [];
-
-  clear() {
-    this.length = 0;
-    // Setting the length of arrays is slow, and they are mostly empty.
-    if (this.holes.length > 0) this.holes = [];
-    if (this.hints.length > 0) this.hints = [];
-    if (this.writes.length > 0) this.writes = [];
-  }
 
   hole(immediate: Immediate, deps: Dependency.t[], args: unknown[]) {
     this.holes.push({ position: this.length, immediate, deps, args });
-  }
-
-  /**
-   * Insert other code at a position where an instruction starts. Holes at the position belong to the
-   * instruction before it and stay; hints and writes at the position belong to the instruction there
-   * and move with it.
-   */
-  insert(position: number, other: Code) {
-    let n = other.length;
-    this.reserve(n);
-    let { buffer } = this;
-    buffer.copyWithin(position + n, position, this.length);
-    let source = other.buffer;
-    for (let i = 0; i < n; i++) buffer[position + i] = source[i];
-    this.length += n;
-    let holes = this.holes;
-    let i = holes.length;
-    while (i > 0 && holes[i - 1].position > position) holes[--i].position += n;
-    if (other.holes.length > 0)
-      holes.splice(
-        i,
-        0,
-        ...other.holes.map((hole) => ({ ...hole, position: hole.position + position })),
-      );
-    for (let j = this.hints.length - 1; j >= 0 && this.hints[j].position >= position; j--)
-      this.hints[j].position += n;
-    for (let j = this.writes.length - 1; j >= 0 && this.writes[j].position >= position; j--)
-      this.writes[j].position += n;
   }
 }
 

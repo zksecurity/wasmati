@@ -54,8 +54,9 @@ class MemoryField implements Field {
     local.set(this.xi);
     return this.xi;
   }
-  set(i: number, xi: Input<i32>) {
-    i32.store({ offset: 4 * i }, this.x, xi);
+  /** The address is pushed before the value, which `xi` computes. */
+  set(i: number, xi: () => Input<i32>) {
+    i32.store({ offset: 4 * i }, local.get(this.x), xi());
   }
 }
 
@@ -105,7 +106,7 @@ const add = func(
       local.set(zi);
 
       if (i < n - 1) i32.shr_u(zi, w);
-      z.set(i, i32.and(zi, wordMax));
+      z.set(i, () => i32.and(zi, wordMax));
     }
 
     // if (z < p) return;
@@ -119,7 +120,7 @@ const add = func(
       local.set(zi);
 
       if (i < n - 1) i32.shr_s(zi, w);
-      z.set(i, i32.and(zi, wordMax));
+      z.set(i, () => i32.and(zi, wordMax));
     }
   },
 );

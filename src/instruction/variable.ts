@@ -73,8 +73,8 @@ const localOps = {
 };
 
 /**
- * Write local.set or local.tee, with its operand, or the value on the stack, and return where its
- * value's computation starts. Constant expressions take the instructions' general path.
+ * Write local.set or local.tee, with its operand, or the value on the stack. Constant expressions take
+ * the instructions' general path.
  */
 function writeLocal(
   ctx: LocalContext,
@@ -83,25 +83,20 @@ function writeLocal(
   x: Local,
   value: Input<any> | undefined,
 ) {
+  let type = localType(ctx, x);
   if (ctx.allowed !== undefined) {
     if (value !== undefined) processStackArg(ctx, name, x.type, value);
-    let type = localType(ctx, x);
     let instruction = localOps[name === "local.set" ? "set" : "tee"].instruction;
     emitSimple(ctx, instruction, one(type), undefined, x.index);
-    return ctx.code.length;
+    return type;
   }
-  let type = localType(ctx, x);
-  let { code } = ctx;
-  let start = code.length;
-  let from = start;
   if (value !== undefined && !(value instanceof StackValue)) writeOperand(ctx, name, x.type, value);
   else {
     if (value !== undefined) checkLatest(ctx, name, value, 1);
-    from = popOne(ctx, type, name, from);
+    popOne(ctx, type, name);
   }
-  code.writes.push({ position: start, name, local: x.index });
-  code.indexed(opcode, x.index);
-  return from;
+  ctx.code.indexed(opcode, x.index);
+  return type;
 }
 
 function localType({ locals }: LocalContext, x: Local) {
@@ -119,8 +114,7 @@ function bindLocalOps(ctx: LocalContext) {
       writeLocal(ctx, "local.set", 0x21, x, value);
     },
     tee: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      let start = writeLocal(ctx, "local.tee", 0x22, x, value);
-      let result = new StackValue(localType(ctx, x), start, ctx.code.length);
+      let result = new StackValue(writeLocal(ctx, "local.tee", 0x22, x, value));
       ctx.stack.push(result);
       return result as StackVar<L["type"]>;
     },

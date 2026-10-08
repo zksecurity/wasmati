@@ -4,7 +4,6 @@ import type * as Dependency from "../dependency.ts";
 import {
   formatStack,
   type LocalContext,
-  placeResults,
   popStack,
   popTypes,
   pushResult,
@@ -78,8 +77,8 @@ type BaseInstruction = Immediate & {
   opcodeBytes: number[];
   /** Whether the immediate may contain defined types, which Module() replaces by their indices. */
   typed: boolean;
-  /** What the instruction changes that operands of later instructions may read. */
-  effect?: "local" | "global" | "call" | "direct call";
+  /** Whether the instruction calls a function directly, which async exports must know. */
+  directCall: boolean;
 };
 
 /** An instruction with its operands and results, and what its immediate is made of. */
@@ -103,13 +102,6 @@ const typedInstructions = new Set([
   "select_t",
 ]);
 
-function effectOf(name: string): BaseInstruction["effect"] {
-  if (name === "local.set" || name === "local.tee") return "local";
-  if (name === "global.set") return "global";
-  if (name === "call" || name === "return_call") return "direct call";
-  if (name.startsWith("call") || name.startsWith("return_call")) return "call";
-  return undefined;
-}
 /** An instruction with its immediate; `if` and `br_if` may carry a branch hint. */
 type ResolvedInstruction = { name: string; immediate: any; likely?: boolean };
 
@@ -161,7 +153,7 @@ function baseInstruction<
     immediate,
     resolve,
     typed: typedInstructions.has(string),
-    effect: effectOf(string),
+    directCall: string === "call" || string === "return_call",
   };
   nameToInstruction[string] = instruction;
   if (typeof opcode === "number") {
@@ -203,16 +195,12 @@ function emit(
   ctx: LocalContext,
   { instruction, type, deps, resolveArgs, likely }: Description,
 ): StackVar<ValueType>[] {
-  let { code } = ctx;
   checkAllowed(ctx, instruction.string);
-  let start = code.length;
   popTypes(ctx, type.args, instruction.string);
-  writeInstruction(code, instruction, deps, resolveArgs, likely);
+  writeInstruction(ctx.code, instruction, deps, resolveArgs, likely);
   for (let i = 0; i < deps.length; i++) ctx.deps.add(deps[i]);
-  if (instruction.effect === "direct call") ctx.calls.add(deps[0] as Dependency.AnyFunc);
-  let results = pushStack(ctx, type.results) as StackVar<ValueType>[];
-  placeResults(ctx, start);
-  return results;
+  if (instruction.directCall) ctx.calls.add(deps[0] as Dependency.AnyFunc);
+  return pushStack(ctx, type.results) as StackVar<ValueType>[];
 }
 
 /**
@@ -225,22 +213,17 @@ function emitSimple(
   args: ValueType[],
   result: ValueType | undefined,
   immediate?: unknown,
-  operands?: number,
+  popped = false,
 ): StackVar<ValueType> | undefined {
   let { code } = ctx;
   if (ctx.allowed !== undefined) checkAllowed(ctx, instruction.string);
-  // Operands written in place, from `operands`, were checked and are not on the stack.
-  let start = operands ?? code.length;
-  if (operands === undefined && args.length > 0) popTypes(ctx, args, instruction.string);
+  // Operands written by the instruction itself were checked and are not on the stack.
+  if (!popped && args.length > 0) popTypes(ctx, args, instruction.string);
   let { opcodeBytes } = instruction;
   if (opcodeBytes.length === 1) code.byte(opcodeBytes[0]);
   else code.bytes(opcodeBytes);
   if (instruction.immediate !== undefined) instruction.immediate.write(code, immediate);
-  if (instruction.effect === "local")
-    code.writes.push({ position: start, name: instruction.string, local: immediate as number });
-  if (result !== undefined) return pushResult(ctx, result, start);
-  placeResults(ctx, start);
-  return undefined;
+  return result === undefined ? undefined : pushResult(ctx, result);
 }
 
 const singletons = new Map<ValueType, ValueType[]>();
@@ -259,16 +242,12 @@ function emitResults(
   instruction: BaseInstruction,
   args: ValueType[],
   results: ValueType[],
-  operands?: number,
+  popped = false,
 ): StackVar<ValueType>[] {
-  let { code } = ctx;
   if (ctx.allowed !== undefined) checkAllowed(ctx, instruction.string);
-  let start = operands ?? code.length;
-  if (operands === undefined && args.length > 0) popTypes(ctx, args, instruction.string);
-  code.bytes(instruction.opcodeBytes);
-  let pushed = pushStack(ctx, results) as StackVar<ValueType>[];
-  placeResults(ctx, start);
-  return pushed;
+  if (!popped && args.length > 0) popTypes(ctx, args, instruction.string);
+  ctx.code.bytes(instruction.opcodeBytes);
+  return pushStack(ctx, results) as StackVar<ValueType>[];
 }
 
 /**
@@ -282,9 +261,8 @@ function writeInstruction(
   args: any[],
   likely?: boolean,
 ) {
-  let start = code.length;
-  if (likely !== undefined) code.hints.push({ position: start, likely });
-  let { opcodeBytes, immediate, effect } = instruction;
+  if (likely !== undefined) code.hints.push({ position: code.length, likely });
+  let { opcodeBytes, immediate } = instruction;
   if (opcodeBytes.length === 1) code.byte(opcodeBytes[0]);
   else code.bytes(opcodeBytes);
   if (immediate !== undefined) {
@@ -294,14 +272,6 @@ function writeInstruction(
       if (instruction.typed && hasDefinedType(value)) code.hole(instruction, deps, args);
       else immediate.write(code, value);
     }
-  }
-  if (effect !== undefined) {
-    let name = instruction.string;
-    if (effect === "local")
-      code.writes.push({ position: start, name, local: (args[0] as Local).index });
-    else if (effect === "global")
-      code.writes.push({ position: start, name, global: deps[0] as Dependency.AnyGlobal });
-    else code.writes.push({ position: start, name, call: true });
   }
 }
 
@@ -388,10 +358,9 @@ function baseInstructionWithImmediate<
       if (!direct || ctx.allowed !== undefined)
         return emitSimple(ctx, instruction, instr.in, result, value) as Instruction_<Args, Results>;
       let { code } = ctx;
-      let start = code.length;
       code.byte(opcode);
       immediate?.write(code, value as Immediate);
-      let pushed = new StackValue(result, start, code.length);
+      let pushed = new StackValue(result);
       ctx.stack.push(pushed);
       return pushed as unknown as Instruction_<Args, Results>;
     },
@@ -441,7 +410,7 @@ function runBlock(
   { args, results }: FunctionType,
   run: (label: RandomLabel) => void,
 ) {
-  let stack = stackVars(args, ctx.code.length);
+  let stack = stackVars(args);
   let label: RandomLabel = `0.${labels++}`;
   let frame = {
     label,

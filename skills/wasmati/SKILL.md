@@ -76,7 +76,7 @@ const { instance } = await Module({ exports: { f } }).instantiate();
 instance.exports.f(5); // ((5 * 2) + 5) << 1 = 30
 ```
 
-Both styles produce the same instructions, in the order the calls run. An instruction's result is pushed when its call runs, so operands that are instruction results must be the latest values on the stack, in the order the operands are passed: compute them in that order, and use each once. wasmati throws otherwise. Numbers, locals and globals can come in any position: wasmati inserts their instructions where they belong, as in `i32.sub(5, x)` with `x` computed first. Some instructions take named operands, like `call(f, { x, y })` and `struct.new(type, { a, b })`, where the order is the declared order of the parameters or fields. The stack style matches the text format and the spec; the expression style reads like code. Mix them freely. TypeScript checks operand types too: an `i64` local where `i32.add` expects an `i32` is a type error.
+Both styles produce the same instructions, in the order the calls run. An instruction's result is pushed when its call runs, so operands that are instruction results must be the latest values on the stack, in the order the operands are passed: compute them in that order, and use each once. wasmati throws otherwise. Numbers, locals and globals are read where they are passed, so they come after the instruction results among the operands: write `i32.sub(i32.const(5), i32.mul(x, 2))`, not `i32.sub(5, i32.mul(x, 2))`, which throws. Some instructions take named operands, like `call(f, { x, y })` and `struct.new(type, { a, b })`, where the order is the declared order of the parameters or fields. The stack style matches the text format and the spec; the expression style reads like code. Mix them freely. TypeScript checks operand types too: an `i64` local where `i32.add` expects an `i32` is a type error.
 
 ## Control flow
 
@@ -134,7 +134,7 @@ factorial.define(({ n }) => {
   if_(
     { out: [i32] },
     () => i32.const(1),
-    () => i32.mul(n, call(factorial, { n: i32.sub(n, 1) })),
+    () => i32.mul(call(factorial, { n: i32.sub(n, 1) }), n),
   );
 });
 
@@ -192,7 +192,7 @@ const sumBytes = func(
       loop((next) => {
         i32.ge_u(start, end);
         br_if(done);
-        local.set(sum, i32.add(sum, i32.load8_u({}, start)));
+        local.set(sum, i32.add(local.get(sum), i32.load8_u({}, start)));
         local.set(start, i32.add(start, 1));
         br(next);
       });
@@ -248,7 +248,7 @@ const base = importGlobal(i32, 100);
 
 const f = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => {
   call(log, { x });
-  i32.add(x, global.get(base));
+  i32.add(x, base);
 });
 
 const { instance } = await Module({ exports: { f } }).instantiate();
@@ -339,7 +339,7 @@ const sum = func({ in: [{ l: list }], locals: { total: i32 }, out: [i32] }, ({ l
       local.get(l);
       ref.is_null();
       br_if(done);
-      local.set(total, i32.add(total, struct.get(node, "value", l)));
+      local.set(total, i32.add(struct.get(node, "value", l), total));
       local.set(l, struct.get(node, "next", l));
       br(next);
     });
@@ -350,7 +350,10 @@ const sum = func({ in: [{ l: list }], locals: { total: i32 }, out: [i32] }, ({ l
 const main = func({ in: [], out: [f64, i32, i32] }, () => {
   call(lengthSquared, { p: struct.new(point, { x: 3, y: 4 }) });
   call(sum, {
-    l: struct.new(node, { value: 1, next: struct.new(node, { value: 2, next: ref.null(list) }) }),
+    l: struct.new(node, {
+      value: i32.const(1),
+      next: struct.new(node, { value: i32.const(2), next: ref.null(list) }),
+    }),
   });
   array.len(array.new_fixed(numbers, [1, 2, 3]));
 });

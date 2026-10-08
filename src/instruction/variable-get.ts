@@ -19,10 +19,8 @@ const localGet = Object.assign(
     if (local === undefined) throw Error(`local with index ${x.index} not available`);
     if (ctx.allowed !== undefined)
       return emitSimple(ctx, localGetBase.instruction, noArgs, local, x.index)!;
-    let { code } = ctx;
-    let start = code.length;
-    code.indexed(0x20, x.index);
-    let value = new StackValue(local, start, code.length);
+    ctx.code.indexed(0x20, x.index);
+    let value = new StackValue(local);
     ctx.stack.push(value);
     return value;
   },

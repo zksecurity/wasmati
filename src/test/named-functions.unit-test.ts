@@ -217,7 +217,7 @@ test("exported globals, tables and memories receive names and retain native iden
 
 test("native parameter order follows the declaration, including numeric keys", async () => {
   const ordered = func({ in: [{ last: i32 }, { 2: i32 }, { 1: i64 }], out: [i64] }, (args) => {
-    i64.add(args[1], i64.extend_i32_u(i32.sub(args[2], args.last)));
+    i64.add(local.get(args[1]), i64.extend_i32_u(i32.sub(args[2], args.last)));
   });
   assert.deepEqual(ordered.params.names, ["last", "2", "1"]);
   const { instance } = await Module({ exports: { ordered } }).instantiate();

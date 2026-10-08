@@ -4,7 +4,6 @@ import type { AnyFunc } from "../func-types.ts";
 import { vec } from "../immediate.ts";
 import {
   getFrameFromLabel,
-  placeResults,
   type Label,
   labelTypes,
   popStack,
@@ -114,16 +113,10 @@ function writeHeader(ctx: LocalContext, instruction: BaseInstruction, type: Func
 }
 
 /** After a block's code: take its parameters from the stack, and push its results. */
-function endBlock<Args, Results>(
-  ctx: LocalContext,
-  name: string,
-  { args, results }: FunctionType,
-  start: number,
-) {
+function endBlock<Args, Results>(ctx: LocalContext, name: string, { args, results }: FunctionType) {
   ctx.code.byte(END);
   popStack(ctx, args, name);
   let pushed = pushStack(ctx, results);
-  placeResults(ctx, start);
   return (
     pushed.length === 0 ? undefined : pushed.length === 1 ? pushed[0] : pushed
   ) as Instruction_<Args, Results>;
@@ -139,10 +132,9 @@ function blockInstruction(name: "block" | "loop") {
   return function (ctx: LocalContext, ...args: BlockArgs) {
     let [options, run] = withOptions<BlockOptions, [Body]>(args, 1);
     let type = typeFromInput(options);
-    let start = ctx.code.length;
     writeHeader(ctx, instruction, type);
     runBlock(ctx, name, type, run);
-    return endBlock(ctx, name, type, start);
+    return endBlock(ctx, name, type);
   };
 }
 
@@ -169,8 +161,8 @@ function if_(ctx: LocalContext, ...args: IfArgs) {
   let { code } = ctx;
   popStack(ctx, ["i32"]);
   let type = typeFromInput(options);
-  let start = code.length;
-  if (options.likely !== undefined) code.hints.push({ position: start, likely: options.likely });
+  if (options.likely !== undefined)
+    code.hints.push({ position: code.length, likely: options.likely });
   writeHeader(ctx, ifInstruction, type);
   runBlock(ctx, "if", type, runIf);
   if (runElse !== undefined) {
@@ -179,7 +171,7 @@ function if_(ctx: LocalContext, ...args: IfArgs) {
   }
   // The condition was taken before the branches; the parameters are below it.
   pushStack(ctx, ["i32"]);
-  return endBlock(ctx, "if", { args: [...type.args, "i32"], results: type.results }, start);
+  return endBlock(ctx, "if", { args: [...type.args, "i32"], results: type.results });
 }
 
 const br = baseInstruction("br", LabelIndex, {
@@ -426,7 +418,6 @@ function try_table(
   });
   let type = typeFromInput(options);
   let { code } = ctx;
-  let start = code.length;
   writeHeader(ctx, tryTableInstruction, type);
   let tags = clauses.flatMap(({ tag }) => (tag === undefined ? [] : [tag]));
   let resolved = clauses.map(({ kind, label, tag }) => ({
@@ -437,7 +428,7 @@ function try_table(
   for (let tag of tags) ctx.deps.add(tag);
   code.hole(catchesImmediate, tags, [resolved]);
   runBlock(ctx, "try_table", type, run);
-  return endBlock(ctx, "try_table", type, start);
+  return endBlock(ctx, "try_table", type);
 }
 
 function bindControlOps(ctx: LocalContext) {

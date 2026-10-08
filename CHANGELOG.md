@@ -7,6 +7,7 @@
 - **Functions and constants hold their code as bytes.** Instructions are encoded when they are created, and `Module()` fills in the indices they refer to. `Func` and `Constant` dependencies have `code` in place of `body`, functions list the functions they call in `calls`, and the `DependencyInstruction` type is gone.
 - **Modules are their bytes.** `module.toBytes()` returns them, and `Module.fromBytes(bytes)` checks that they are well-formed and takes them; `module.module` is gone. `module.toJSON()` decodes a module, and `Module.fromJSON(json)` encodes one. Modules compile with the options of JS string builtins, which do not affect modules that do not import them.
 - **`StackVar` has no `id`**: instruction results are told apart by identity.
+- **Numbers, locals and globals are not inserted below instruction results.** Operands are computed where they are passed, so new values must come after the instruction results among the operands: `i32.sub(5, i32.mul(x, 2))` throws, and becomes `i32.sub(i32.const(5), i32.mul(x, 2))`. `i32.sub(i32.mul(x, 2), 5)` is unchanged. Inserting them cost every instruction the bookkeeping of where its values were computed and which locals it wrote.
 
 ### Changes
 

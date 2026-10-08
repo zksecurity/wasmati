@@ -37,11 +37,10 @@ const point = struct({ x: i32 });
 
 const holes = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => {
   block((done) => {
-    // Holes for indices: calls, globals, types, and a global.get inserted before an operand.
+    // Holes for indices: calls, globals, types, and a global.get written as an operand.
     call(identity, { x });
     drop();
-    const one = i32.const(1);
-    i32.sub(counter, one);
+    i32.sub(counter, 1);
     br_if(done, { likely: false });
     ref.null(refType(point, { nullable: true }));
     drop();
