@@ -1,4 +1,4 @@
-// Time building and encoding a module like those of field arithmetic libraries: unrolled multiplication
+// Time building a module like those of field arithmetic libraries, and instantiating it: unrolled multiplication
 // of limbs in locals, loads and stores, loops, and operands that are inserted below results.
 // node src/test/benchmark.ts [runs]
 import { Module, block, br_if, func, i32, i64, local, localArray, loop, memory } from "../index.ts";
@@ -59,20 +59,23 @@ function build() {
   return Module({ exports: { ...exports, countdown: countdown() }, memory: mem });
 }
 
+// The build, from builder code to bytes, next to what the engine takes to instantiate the bytes.
 let builds: number[] = [];
-let encodings: number[] = [];
+let instantiations: number[] = [];
 let size = 0;
 for (let run = 0; run < runs; run++) {
   let start = performance.now();
   let module = build();
   builds.push(performance.now() - start);
-  start = performance.now();
   size = module.toBytes().length;
-  encodings.push(performance.now() - start);
+  start = performance.now();
+  await module.instantiate();
+  instantiations.push(performance.now() - start);
 }
 const median = (times: number[]) => [...times].sort((a, b) => a - b)[times.length >> 1];
-const ms = (time: number) => `${time.toFixed(2)} ms`;
+const ms = (time: number) => `${time.toFixed(1)} ms`;
 console.log(`module of ${size} bytes, ${runs} runs`);
 console.log(`build: first ${ms(builds[0])}, median ${ms(median(builds.slice(1)))}`);
-console.log(`toBytes: first ${ms(encodings[0])}, median ${ms(median(encodings.slice(1)))}`);
-await WebAssembly.compile(build().toBytes());
+console.log(
+  `WebAssembly.instantiate: first ${ms(instantiations[0])}, median ${ms(median(instantiations.slice(1)))}`,
+);
