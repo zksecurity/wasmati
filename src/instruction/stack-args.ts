@@ -5,7 +5,9 @@ import { formatStack, place, placeOf, pushStack, shiftPlaces } from "../local-co
 import {
   isStackVar,
   type LocalContext,
+  popOne,
   popTypes,
+  StackValue,
   pushValue,
   StackVar,
   Unknown,
@@ -104,7 +106,7 @@ function instruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueT
   let { instruction } = createInstr;
   let [result] = instr.out;
   let simple = instr.out.length <= 1;
-  return function createInstr_(
+  let general = function createInstr_(
     ctx: LocalContext,
     ...actualArgs: Input<ValueType>[]
   ): Instruction_<Args, Results> {
@@ -123,6 +125,102 @@ function instruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueT
       Results
     >;
   };
+  return flat(name, instruction.opcodeBytes, instr.in, instr.out, general) as any;
+}
+
+type General = (ctx: LocalContext, ...operands: Input<ValueType>[]) => unknown;
+
+/**
+ * An instruction of one or two operands, flat: it checks and writes its operands, writes itself, and
+ * pushes its results in one function, which matters most for code that runs for the first time. New
+ * operands that come before instruction results, which are inserted, and constant expressions take
+ * the general path.
+ */
+function flat(
+  name: string,
+  opcode: number[],
+  args: ValueType[],
+  results: ValueType[],
+  general: General,
+): General {
+  if (args.length === 1) {
+    let [t0] = args;
+    return function (ctx: LocalContext, a?: Input<ValueType>) {
+      if (ctx.allowed !== undefined) return a === undefined ? general(ctx) : general(ctx, a);
+      let from = ctx.code.length;
+      if (a !== undefined && !(a instanceof StackValue)) writeOperand(ctx, name, t0, a);
+      else {
+        if (a !== undefined) checkLatest(ctx, name, a, 1);
+        from = popOne(ctx, t0, name, from);
+      }
+      return finish(ctx, opcode, from, results);
+    };
+  }
+  if (args.length === 2) {
+    let [t0, t1] = args;
+    return function (ctx: LocalContext, a?: Input<ValueType>, b?: Input<ValueType>) {
+      if (ctx.allowed !== undefined) return a === undefined ? general(ctx) : general(ctx, a, b!);
+      let from = ctx.code.length;
+      if (a === undefined) {
+        from = popOne(ctx, t1, name, from);
+        from = popOne(ctx, t0, name, from);
+        return finish(ctx, opcode, from, results);
+      }
+      let aResult = a instanceof StackValue;
+      let bResult = b instanceof StackValue;
+      if (bResult && !aResult) {
+        // A new value before a result goes below the result, where the result's computation starts.
+        checkLatest(ctx, name, b as StackVar<ValueType>, 1);
+        if ((b as StackVar<ValueType | Unknown>).type === Unknown || ctx.frames[0]?.unreachable)
+          return general(ctx, a, b!);
+        let start = insertOperand(ctx, name, t0, a);
+        popOne(ctx, t1, name, from);
+        return finish(ctx, opcode, start, results);
+      }
+      if (aResult) checkLatest(ctx, name, a as StackVar<ValueType>, bResult ? 2 : 1);
+      if (bResult) checkLatest(ctx, name, b as StackVar<ValueType>, 1);
+      if (!aResult) writeOperand(ctx, name, t0, a);
+      if (!bResult) writeOperand(ctx, name, t1, b!);
+      if (bResult) from = popOne(ctx, t1, name, from);
+      if (aResult) from = popOne(ctx, t0, name, from);
+      return finish(ctx, opcode, from, results);
+    };
+  }
+  return general;
+}
+
+/** An operand that is an instruction result must be the value `depth` from the top of the stack. */
+function checkLatest(ctx: LocalContext, name: string, operand: StackVar<any>, depth: number) {
+  if (operand.type === Unknown || ctx.frames[0]?.unreachable) return;
+  if (ctx.stack[ctx.stack.length - depth] !== operand)
+    throw Error(
+      `${name}: operands that are instruction results must be the latest values on the stack, in order. Compute them in the order they are passed, and use each once.`,
+    );
+}
+
+/** Write an instruction's opcode, and push its results, which are computed from `from`. */
+function finish(ctx: LocalContext, opcode: number[], from: number, results: ValueType[]) {
+  let { code, stack } = ctx;
+  let n = opcode.length;
+  code.reserve(n);
+  let { buffer } = code;
+  let length = code.length;
+  for (let i = 0; i < n; i++) buffer[length + i] = opcode[i];
+  length += n;
+  code.length = length;
+  if (results.length === 1) {
+    let value = new StackValue(results[0], from, length);
+    stack.push(value);
+    return value;
+  }
+  if (results.length === 0) return undefined;
+  let pushed: StackVar<ValueType>[] = [];
+  for (let i = 0; i < results.length; i++) {
+    let value = new StackValue(results[i], from, length);
+    stack.push(value);
+    pushed.push(value);
+  }
+  return pushed;
 }
 
 /**
@@ -263,8 +361,13 @@ function writeOperands(
 }
 
 /** Write a local, global or number of the given type, as an operand that is not pushed. */
-function writeOperand(ctx: LocalContext, string: string, type: ValueType, x: Input<any>) {
-  let { code } = ctx;
+function writeOperand(
+  ctx: LocalContext,
+  string: string,
+  type: ValueType,
+  x: Input<any>,
+  code = ctx.code,
+) {
   if (isLocal(x)) {
     if (x.type !== type && !isSubtype(x.type, type))
       throw Error(
@@ -400,6 +503,37 @@ function insertInstruction(ctx: LocalContext, i: number, description: Descriptio
   place(result, position, position + inserted.length);
   stack.splice(below, 0, result);
   for (let k = 0; k < deps.length; k++) ctx.deps.add(deps[k]);
+}
+
+/**
+ * Insert a local, global or number below the value on top of the stack, where that value's computation
+ * starts, and return that position. It must not be read before a later write to it.
+ */
+function insertOperand(ctx: LocalContext, name: string, type: ValueType, x: Input<any>) {
+  let { stack, code } = ctx;
+  let top = stack[stack.length - 1];
+  let position = placeOf(top).start;
+  let below = stack[stack.length - 2];
+  if (below !== undefined && position < placeOf(below).end)
+    throw Error(
+      `${name}: can't insert an operand between values that one instruction pushes or passes through, in stack ${formatStack(stack)}`,
+    );
+  let local = isLocal(x) ? x.index : undefined;
+  let global = isGlobal(x) && x.type.mutable ? x : undefined;
+  if (local !== undefined || global !== undefined) {
+    for (let k = code.writes.length - 1; k >= 0 && code.writes[k].position >= position; k--) {
+      let write = code.writes[k];
+      if (local !== undefined ? write.local === local : write.global === global || write.call)
+        throw Error(
+          `${local !== undefined ? "local.get" : "global.get"}: an operand would be read before ${write.name}, which comes after earlier operands that are instruction results and changes it. Compute the operands in the order they are passed.`,
+        );
+    }
+  }
+  scratch.clear();
+  writeOperand(ctx, name, type, x, scratch);
+  code.insert(position, scratch);
+  shiftPlaces(ctx, position, scratch.length);
+  return position;
 }
 
 /** Code of an instruction to insert. */

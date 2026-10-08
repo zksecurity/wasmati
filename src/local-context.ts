@@ -7,6 +7,8 @@ export {
   type LocalContext,
   type StackType,
   StackVar,
+  StackValue,
+  popOne,
   isStackVar,
   pushResult,
   pushValue,
@@ -178,6 +180,22 @@ function popTypes(
       );
     if (start >= 0 && frame !== undefined && !(frame.popsFrom! <= start)) frame.popsFrom = start;
   }
+}
+
+/**
+ * Pop one value of the given type, for instructions that place their results themselves: returns the
+ * earlier of `from` and where the value's computation starts.
+ */
+function popOne(ctx: LocalContext, expected: StackType, instruction: string, from: number) {
+  let value = ctx.stack.pop() as Placed | undefined;
+  if (value === undefined) {
+    if (ctx.frames[0]?.unreachable) return from;
+    throw Error(`${instruction}: expected ${format(expected)} on the stack, got nothing`);
+  }
+  let { type, start } = value;
+  if (type !== expected && !isAssignable(type, expected))
+    throw Error(`${instruction}: expected ${format(expected)} on the stack, got ${format(type)}`);
+  return start >= 0 && start < from ? start : from;
 }
 
 /**

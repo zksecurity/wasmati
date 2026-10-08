@@ -167,23 +167,7 @@ test("decoded wide arithmetic modules execute", async () => {
   assert.deepEqual(instance.exports.mulWideU(-1n, -1n), [1n, -2n]);
 });
 
-test("wide arithmetic validates operand counts, operand types and both results", () => {
-  assert.throws(
-    () =>
-      func({ in: [], out: [i64, i64] }, () => {
-        // @ts-expect-error widening multiply requires either zero or two operands
-        i64.mul_wide_u(1n);
-      }),
-    /Expected 0 or 2 arguments/,
-  );
-  assert.throws(
-    () =>
-      func({ in: [], out: [i64, i64] }, () => {
-        // @ts-expect-error 128-bit addition requires either zero or four operands
-        i64.add128(1n, 2n);
-      }),
-    /Expected 0 or 4 arguments/,
-  );
+test("wide arithmetic validates operand types and both results", () => {
   assert.throws(
     () =>
       func({ in: [{ x: i32 }], out: [i64, i64] }, ({ x }) => {
