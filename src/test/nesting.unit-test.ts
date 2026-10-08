@@ -6,7 +6,7 @@ import { Module, block, call, constant, func, global, i32, local, $, type Func }
 // must leave as they found it.
 test("functions, constants and modules can be built in the middle of a function body", async () => {
   let inner: Func<any, any> | undefined;
-  let other: Uint8Array | undefined;
+  let other: Uint8Array<ArrayBuffer> | undefined;
   const outer = func({ in: [{ x: i32 }], locals: { t: i32 }, out: [i32] }, ({ x }, { t }) => {
     i32.add(x, 1);
     block({ in: [i32], out: [i32] }, () => {
@@ -29,6 +29,6 @@ test("functions, constants and modules can be built in the middle of a function 
   const { instance } = await Module({ exports: { outer } }).instantiate();
   // 3x + 2 (x + 1 + x + 2) + 100
   assert.equal(instance.exports.outer(5), 15 + 26 + 100);
-  const { instance: deep } = await WebAssembly.instantiate(other!);
+  const deep = new WebAssembly.Instance(new WebAssembly.Module(other!));
   assert.equal((deep.exports.deep as () => number)(), 4);
 });
