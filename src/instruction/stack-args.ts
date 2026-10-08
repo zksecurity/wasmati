@@ -1,7 +1,7 @@
 import { Binable, reserve, writeByte, writeIndexed } from "../binable.ts";
+import type * as Dependency from "../dependency.ts";
 import type { AnyGlobal } from "../dependency.ts";
 import {
-  isStackVar,
   type LocalContext,
   popOne,
   StackValue,
@@ -24,13 +24,14 @@ import {
   type Instruction_,
   checkAllowed,
   define,
+  emitInstruction,
   writeInstruction,
 } from "./base.ts";
 import type { Code } from "../code.ts";
-import { checkInt32, checkInt64, f32Const, f64Const, i32Const, i64Const } from "./const.ts";
+import { checkInt32, checkInt64 } from "./const.ts";
 import { F32, F64, I32, I64 } from "../immediate.ts";
 import type { InstructionName } from "./opcodes.ts";
-import { globalGet, localGet } from "./variable-get.ts";
+import { globalGetInstruction } from "./variable-get.ts";
 
 export {
   fixed,
@@ -38,11 +39,12 @@ export {
   takeOne,
   takeTwo,
   takeOperands,
+  typedByImmediates,
+  type Signature,
   writeOpcode,
   pushResults,
   type Input,
   type Inputs,
-  processStackArgs,
   writeOperand,
   checkLatest,
   namedInputs,
@@ -251,24 +253,59 @@ function takeOperands(
   ctx: LocalContext,
   name: string,
   types: ValueType[],
-  operands: (Input<ValueType> | undefined)[],
+  operands: readonly unknown[],
+  start = 0,
 ) {
   let n = types.length;
-  if (operands[0] === undefined) {
+  if (operands[start] === undefined) {
     for (let i = n - 1; i >= 0; i--) popOne(ctx, types[i], name);
     return;
   }
   let count = 0;
-  while (count < n && operands[count] instanceof StackValue) count++;
+  while (count < n && operands[start + count] instanceof StackValue) count++;
   // Instruction results are the latest values on the stack, in order.
   for (let i = 0; i < count; i++)
-    checkLatest(ctx, name, operands[i] as StackVar<ValueType>, count - i);
+    checkLatest(ctx, name, operands[start + i] as StackVar<ValueType>, count - i);
   for (let i = count; i < n; i++) {
-    let x = operands[i]!;
+    let x = operands[start + i] as Input<ValueType>;
     if (x instanceof StackValue) newBeforeResult(name);
     writeOperand(ctx, name, types[i], x);
   }
   for (let i = count - 1; i >= 0; i--) popOne(ctx, types[i], name);
+}
+
+/** An instruction's operand and result types, its dependencies, and the arguments of its `resolve`. */
+type Signature<Results extends ValueType[] = ValueType[]> = {
+  in: ValueType[];
+  out: Results;
+  deps: Dependency.t[];
+  args: unknown[];
+};
+
+/**
+ * Instructions whose types follow from their immediates, like `struct.get` or `table.get`, which refer
+ * to other definitions: `signature` gives them from the immediates. The function takes the immediates,
+ * `count` of them, and then the operands, if any, which are otherwise taken from the stack.
+ */
+function typedByImmediates<Immediates extends unknown[], const Results extends ValueType[]>(
+  instruction: BaseInstruction,
+  count: Immediates["length"],
+  signature: (...immediates: Immediates) => Signature<Results>,
+) {
+  let name = instruction.string;
+  return Object.assign(
+    function (
+      ctx: LocalContext,
+      ...args: [...Immediates, ...Input<any>[]]
+    ): Instruction_<ValueType[], Results> {
+      if (ctx.allowed !== undefined) checkAllowed(ctx, name);
+      let { in: ins, out, deps, args: resolveArgs } = signature(...(args as unknown as Immediates));
+      takeOperands(ctx, name, ins, args, count);
+      emitInstruction(ctx, instruction, deps, resolveArgs);
+      return pushResults(ctx, out) as Instruction_<ValueType[], Results>;
+    },
+    { instruction },
+  );
 }
 
 /** An operand that is an instruction result must be the value `depth` from the top of the stack. */
@@ -322,52 +359,6 @@ function namedInputs(names: string[], values: Record<string, Input<any>>): Input
   return names.map((name) => values[name]);
 }
 
-/**
- * Operands that are instruction results are on the stack already, where they were pushed. They must
- * be the latest values on the stack, in the order of the operands, or the instruction would take
- * other values. `$` stands for whatever value is there. Unreachable code accepts any stack.
- */
-function checkStackOperands(
-  ctx: LocalContext,
-  string: string,
-  operands: Input<any>[],
-  count: number,
-) {
-  if (ctx.frames[0]?.unreachable) return;
-  let { stack } = ctx;
-  let i = stack.length - count;
-  // Indexed loops, which unoptimized code runs without allocating iterators.
-  for (let k = 0; k < operands.length; k++) {
-    let operand = operands[k];
-    if (!isStackVar(operand)) continue;
-    let value = stack[i++];
-    if (operand.type === Unknown || operand === value) continue;
-    throw notLatest(string);
-  }
-}
-
-/**
- * Operands of the general path: instruction results, and `$`, are on the stack already and come first;
- * new values that follow them are pushed.
- */
-function processStackArgs(
-  ctx: LocalContext,
-  string: string,
-  expectedArgs: ValueType[],
-  actualArgs: Input<ValueType | Unknown>[],
-) {
-  if (actualArgs.length === 0) return;
-  let n = expectedArgs.length;
-  if (actualArgs.length !== n) {
-    throw Error(`${string}: Expected 0 or ${n} arguments, got ${actualArgs.length}.`);
-  }
-  let results = 0;
-  while (results < n && isStackVar(actualArgs[results])) results++;
-  for (let i = results; i < n; i++) if (isStackVar(actualArgs[i])) newBeforeResult(string);
-  if (results > 0) checkStackOperands(ctx, string, actualArgs, results);
-  for (let i = 0; i < n; i++) operand(ctx, string, expectedArgs[i], actualArgs[i]);
-}
-
 /** Write a local, global or number of the given type, as an operand that is not pushed. */
 function writeOperand(ctx: LocalContext, string: string, type: ValueType, x: Input<any>) {
   let { code } = ctx;
@@ -386,7 +377,7 @@ function writeOperand(ctx: LocalContext, string: string, type: ValueType, x: Inp
       throw Error(
         `${string}: Expected type ${printValueType(type)}, got global of type ${printValueType(x.type.value)}.`,
       );
-    writeInstruction(code, globalGet.instruction, [x], [x]);
+    writeInstruction(code, globalGetInstruction, [x], []);
     ctx.deps.add(x);
   } else if (type === "i32" && typeof x === "number") {
     checkInt32(x);
@@ -403,48 +394,4 @@ function writeOperand(ctx: LocalContext, string: string, type: ValueType, x: Inp
     writeByte(code, 0x44);
     F64.writeBytes(code, x);
   } else throw Error(`${string}: Unsupported input for type ${type}, got ${x}.`);
-}
-
-/**
- * An operand of the given type: a local, global or number is pushed; an instruction result is on the
- * stack already.
- */
-function operand(
-  ctx: LocalContext,
-  string: string,
-  type: ValueType,
-  x: Input<ValueType | Unknown>,
-) {
-  if (isStackVar(x)) {
-    if (x.type !== Unknown && x.type !== type && !isSubtype(x.type, type))
-      throw Error(
-        `${string}: Expected argument of type ${printValueType(type)}, got ${printValueType(x.type)}.`,
-      );
-  } else if (isLocal(x)) {
-    if (x.type !== type && !isSubtype(x.type, type))
-      throw Error(
-        `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
-      );
-    localGet(ctx, x);
-  } else if (isGlobal(x)) {
-    if (!isSubtype(x.type.value, type))
-      throw Error(
-        `${string}: Expected type ${printValueType(type)}, got global of type ${printValueType(x.type.value)}.`,
-      );
-    globalGet(ctx, x);
-  } else {
-    let constant =
-      type === "i32" && typeof x === "number"
-        ? i32Const
-        : type === "i64" && typeof x === "bigint"
-          ? i64Const
-          : type === "f32" && typeof x === "number"
-            ? f32Const
-            : type === "f64" && typeof x === "number"
-              ? f64Const
-              : undefined;
-    if (constant === undefined)
-      throw Error(`${string}: Unsupported input for type ${type}, got ${x}.`);
-    constant(ctx, x as never);
-  }
 }

@@ -65,7 +65,6 @@ import {
   i64x2Ops,
   i8x16Ops,
   v128Ops,
-  wrapConst,
 } from "./instruction/vector.ts";
 import {
   dataConstructor,
@@ -425,7 +424,6 @@ function createNamespaces(ctx: LocalContext) {
   const v128_ = removeContexts(ctx, v128Ops);
   const v128 = Object.assign(valueType("v128"), {
     ...v128_,
-    const: wrapConst(v128_.const),
   });
 
   const i8x16 = removeContexts(ctx, i8x16Ops);
