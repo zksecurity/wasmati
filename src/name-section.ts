@@ -27,7 +27,7 @@ type NameSection = {
   data?: NameMap;
   fields?: IndirectNameMap;
   tags?: NameMap;
-  unknown?: { id: number; data: number[] }[];
+  unknown?: { id: number; data: Uint8Array }[];
 };
 
 function indices(map: Record<number, unknown>) {
@@ -92,7 +92,7 @@ const Subsections = withValidation(sequence(Subsection), (sections) => {
 // Payload only: the enclosing custom section supplies the "name" string.
 const NameSection = iso(Subsections, {
   to(names: NameSection) {
-    const sections: { id: number; data: number[] }[] = [];
+    const sections: { id: number; data: Uint8Array }[] = [];
     for (const [id, [key, codec]] of subsections.entries()) {
       const value = names[key];
       if (value !== undefined) sections.push({ id, data: (codec as Binable<any>).toBytes(value) });

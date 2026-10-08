@@ -105,8 +105,9 @@ function dataConstructor(
         offset: ConstantInput;
       }
     | "passive",
-  [...init]: number[] | Uint8Array,
+  bytes: number[] | Uint8Array,
 ): Dependency.Data {
+  let init = Uint8Array.from(bytes);
   if (mode === "passive") {
     return { kind: "data", init, mode, deps: [] };
   }

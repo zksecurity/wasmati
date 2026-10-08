@@ -18,7 +18,7 @@ test("public Module API emits readable module, function and local names", async 
   const compiled = new WebAssembly.Module(bytes);
   const sections = WebAssembly.Module.customSections(compiled, "name");
   assert.equal(sections.length, 1);
-  assert.deepEqual([...new Uint8Array(sections[0])], NameSection.toBytes(names));
+  assert.deepEqual(new Uint8Array(sections[0]), NameSection.toBytes(names));
   assert.deepEqual(Module.fromBytes(bytes).module.names, names);
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.add(20, 22), 42);
@@ -68,18 +68,21 @@ test("supports all standard and extended name maps and preserves unknown subsect
     data: { 0: "data" },
     fields: { 3: { 1: "field" } },
     tags: { 0: "exception" },
-    unknown: [{ id: 127, data: [0, 255, 42] }],
+    unknown: [{ id: 127, data: new Uint8Array([0, 255, 42]) }],
   };
   assert.deepEqual(NameSection.fromBytes(NameSection.toBytes(names)), names);
-  assert.deepEqual(NameSection.fromBytes([]), {});
-  assert.deepEqual(NameSection.toBytes({ functions: { 1: "x" } }), [1, 4, 1, 1, 1, 120]);
+  assert.deepEqual(NameSection.fromBytes(new Uint8Array([])), {});
+  assert.deepEqual(
+    NameSection.toBytes({ functions: { 1: "x" } }),
+    new Uint8Array([1, 4, 1, 1, 1, 120]),
+  );
 });
 
 test("custom sections survive before, between and after standard sections", async () => {
   const customSections = [
-    { name: "前", data: [0, 255], after: 0 },
-    { name: "middle", data: [1, 2, 3], after: 1 },
-    { name: "last", data: [4], after: 10 },
+    { name: "前", data: new Uint8Array([0, 255]), after: 0 },
+    { name: "middle", data: new Uint8Array([1, 2, 3]), after: 1 },
+    { name: "last", data: new Uint8Array([4]), after: 10 },
   ];
   const module = Module({ exports: { add }, customSections, names: { functions: { 0: "add" } } });
   const recovered = Module.fromBytes<{ add: typeof add }>(module.toBytes());
@@ -88,7 +91,11 @@ test("custom sections survive before, between and after standard sections", asyn
   const { instance } = await recovered.instantiate();
   assert.equal(instance.exports.add(20, 22), 42);
   assert.throws(
-    () => Module({ exports: {}, customSections: [{ name: "x", data: [], after: 255 }] }).toBytes(),
+    () =>
+      Module({
+        exports: {},
+        customSections: [{ name: "x", data: new Uint8Array([]), after: 255 }],
+      }).toBytes(),
     /position/,
   );
 });
@@ -113,18 +120,20 @@ test("preserves custom metadata when an empty preceding standard section is omit
   ]);
   assert.equal(WebAssembly.validate(bytes), true);
   const module = Module.fromBytes(bytes);
-  assert.deepEqual(module.module.customSections, [{ name: "x", data: [42], after: 1 }]);
+  assert.deepEqual(module.module.customSections, [
+    { name: "x", data: new Uint8Array([42]), after: 1 },
+  ]);
   const rewritten = new WebAssembly.Module(module.toBytes());
   assert.deepEqual([...new Uint8Array(WebAssembly.Module.customSections(rewritten, "x")[0])], [42]);
 });
 
 test("opaque custom sections can be large or repeated", () => {
-  const data = new Array<number>(200_000).fill(42);
+  const data = new Uint8Array(200_000).fill(42);
   const module = Module({
     exports: {},
     customSections: [
       { name: "x", data },
-      { name: "x", data: [] },
+      { name: "x", data: new Uint8Array([]) },
     ],
   });
   const bytes = module.toBytes();
@@ -134,7 +143,7 @@ test("opaque custom sections can be large or repeated", () => {
     decoded.module.customSections?.map(({ name, data }) => ({ name, data })),
     [
       { name: "x", data },
-      { name: "x", data: [] },
+      { name: "x", data: new Uint8Array([]) },
     ],
   );
 });
@@ -143,7 +152,7 @@ test("UTF-8 names use byte lengths", () => {
   for (const name of ["", "🍚", "λ", "a\0b"]) {
     assert.equal(Name.fromBytes(Name.toBytes(name)), name);
   }
-  assert.deepEqual(Name.toBytes("🍚"), [4, 240, 159, 141, 154]);
+  assert.deepEqual(Name.toBytes("🍚"), new Uint8Array([4, 240, 159, 141, 154]));
   const names = {
     module: "算術 🍚",
     functions: { 0: "加算" },
@@ -157,8 +166,8 @@ test("UTF-8 names use byte lengths", () => {
 
 test("malformed optional name metadata is preserved without invalidating the module", () => {
   const badPayloads = [
-    [1, 7, 2, 0, 1, 97, 0, 1, 98], // duplicate indices
-    [0, 1, 0, 0, 1, 0], // duplicate subsections
+    new Uint8Array([1, 7, 2, 0, 1, 97, 0, 1, 98]), // duplicate indices
+    new Uint8Array([0, 1, 0, 0, 1, 0]), // duplicate subsections
   ];
   for (const data of badPayloads) {
     assert.throws(() => NameSection.fromBytes(data));
@@ -177,7 +186,7 @@ test("duplicate name sections remain opaque and are preserved", () => {
     exports: {},
     customSections: [
       { name: "name", data },
-      { name: "name", data: [] },
+      { name: "name", data: new Uint8Array([]) },
     ],
   }).toBytes();
   const module = Module.fromBytes(bytes);
@@ -191,13 +200,16 @@ test("duplicate name sections remain opaque and are preserved", () => {
 
 test("rejects invalid metadata on encoding and truncated custom-section framing", () => {
   assert.throws(() => NameSection.toBytes({ functions: { [-1]: "x" } }), /index/);
-  assert.throws(() => NameSection.toBytes({ unknown: [{ id: 1, data: [] }] }), /subsection id/);
+  assert.throws(
+    () => NameSection.toBytes({ unknown: [{ id: 1, data: new Uint8Array([]) }] }),
+    /subsection id/,
+  );
   assert.throws(
     () =>
       NameSection.toBytes({
         unknown: [
-          { id: 12, data: [] },
-          { id: 12, data: [] },
+          { id: 12, data: new Uint8Array([]) },
+          { id: 12, data: new Uint8Array([]) },
         ],
       }),
     /duplicate/,

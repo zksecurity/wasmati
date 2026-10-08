@@ -18,24 +18,27 @@ test("LEB128 integers roundtrip at their width", () => {
 
 test("LEB128 decoding rejects overlong encodings, unused bits and truncation", () => {
   // Redundant zero padding is allowed up to the maximum length.
-  assert.equal(U32.fromBytes([0x80, 0x80, 0x80, 0x80, 0x00]), 0);
-  assert.equal(I32.fromBytes([0xff, 0xff, 0xff, 0xff, 0x7f]), -1);
-  assert.throws(() => U32.fromBytes([0x80, 0x80, 0x80, 0x80, 0x80, 0x00]), /too long/);
-  assert.throws(() => U32.fromBytes([0x80, 0x80, 0x80, 0x80, 0x70]), /too large/);
-  assert.throws(() => I32.fromBytes([0xff, 0xff, 0xff, 0xff, 0x4f]), /too large/);
-  assert.throws(() => I32.fromBytes([0x80, 0x80, 0x80, 0x80, 0x1f]), /too large/);
-  assert.throws(() => I64.fromBytes([...Array(9).fill(0x80), 0x02]), /too large/);
-  assert.equal(I64.fromBytes([...Array(9).fill(0xff), 0x7f]), -1n);
-  assert.throws(() => S33.fromBytes([0x80, 0x80, 0x80, 0x80, 0x20]), /too large/);
-  assert.throws(() => U32.fromBytes([0x80]), /unexpected end/);
+  assert.equal(U32.fromBytes(new Uint8Array([0x80, 0x80, 0x80, 0x80, 0x00])), 0);
+  assert.equal(I32.fromBytes(new Uint8Array([0xff, 0xff, 0xff, 0xff, 0x7f])), -1);
+  assert.throws(
+    () => U32.fromBytes(new Uint8Array([0x80, 0x80, 0x80, 0x80, 0x80, 0x00])),
+    /too long/,
+  );
+  assert.throws(() => U32.fromBytes(new Uint8Array([0x80, 0x80, 0x80, 0x80, 0x70])), /too large/);
+  assert.throws(() => I32.fromBytes(new Uint8Array([0xff, 0xff, 0xff, 0xff, 0x4f])), /too large/);
+  assert.throws(() => I32.fromBytes(new Uint8Array([0x80, 0x80, 0x80, 0x80, 0x1f])), /too large/);
+  assert.throws(() => I64.fromBytes(new Uint8Array([...Array(9).fill(0x80), 0x02])), /too large/);
+  assert.equal(I64.fromBytes(new Uint8Array([...Array(9).fill(0xff), 0x7f])), -1n);
+  assert.throws(() => S33.fromBytes(new Uint8Array([0x80, 0x80, 0x80, 0x80, 0x20])), /too large/);
+  assert.throws(() => U32.fromBytes(new Uint8Array([0x80])), /unexpected end/);
 });
 
 test("names must be complete UTF-8, lanes are single bytes", () => {
   assert.equal(Name.fromBytes(Name.toBytes("héllo")), "héllo");
-  assert.throws(() => Name.fromBytes([2, 0xc3]), /unexpected end/);
-  assert.throws(() => Name.fromBytes([1, 0xff]), /malformed UTF-8/);
-  assert.deepEqual(U8.toBytes(200), [200]);
-  assert.equal(U8.fromBytes([200]), 200);
+  assert.throws(() => Name.fromBytes(new Uint8Array([2, 0xc3])), /unexpected end/);
+  assert.throws(() => Name.fromBytes(new Uint8Array([1, 0xff])), /malformed UTF-8/);
+  assert.deepEqual(U8.toBytes(200), new Uint8Array([200]));
+  assert.equal(U8.fromBytes(new Uint8Array([200])), 200);
 });
 
 test("integers encode like the reference encoder, also through the fast paths", () => {
@@ -46,7 +49,7 @@ test("integers encode like the reference encoder, also through the fast paths", 
       const byte = Number(x & 0x7fn);
       x >>= 7n;
       if ((x === 0n && (byte & 0x40) === 0) || (x === -1n && (byte & 0x40) !== 0))
-        return [...bytes, byte];
+        return new Uint8Array([...bytes, byte]);
       bytes.push(byte | 0x80);
     }
   };
@@ -65,20 +68,23 @@ test("integers encode like the reference encoder, also through the fast paths", 
 test("length prefixes take as many bytes as the length needs, also when the buffer grows", () => {
   const Bytes = withByteLength(RemainingBytes);
   for (const length of [0, 1, 127, 128, 5000, 16383, 16384, 70000]) {
-    const body = Array.from({ length }, (_, i) => i % 251);
-    const bytes = record({ before: Byte, value: Bytes, after: Byte }).encode({
+    const body = Uint8Array.from({ length }, (_, i) => i % 251);
+    const bytes = record({ before: Byte, value: Bytes, after: Byte }).toBytes({
       before: 1,
       value: body,
       after: 2,
     });
     const prefix = U32.toBytes(length);
     assert.equal(bytes.length, 2 + prefix.length + length);
-    assert.deepEqual([...bytes.subarray(1, 1 + prefix.length)], prefix);
+    assert.deepEqual(bytes.subarray(1, 1 + prefix.length), prefix);
     assert.equal(bytes[bytes.length - 1], 2);
     assert.deepEqual(Bytes.fromBytes(bytes.subarray(1, -1)), body);
   }
   // Nested prefixes, where the inner body moves twice.
   const Nested = withByteLength(withByteLength(RemainingBytes));
-  const body = Array.from({ length: 300 }, (_, i) => i % 256);
-  assert.deepEqual(Nested.toBytes(body), [...U32.toBytes(302), ...U32.toBytes(300), ...body]);
+  const body = Uint8Array.from({ length: 300 }, (_, i) => i % 256);
+  assert.deepEqual(
+    Nested.toBytes(body),
+    new Uint8Array([...U32.toBytes(302), ...U32.toBytes(300), ...body]),
+  );
 });
