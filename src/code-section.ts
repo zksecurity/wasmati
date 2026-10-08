@@ -1,34 +1,17 @@
-import { Binable, record, writeByteArray, writeUnsignedLEB } from "./binable.ts";
+import { RemainingBytes, record } from "./binable.ts";
 import { Locals } from "./func.ts";
 import { withByteLength } from "./immediate.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 import { Expression } from "./instruction/binable.ts";
 import type { ValueType } from "./types.ts";
 
-export { CodeEntry, encodedHints, type Code, type EncodedCode };
+export { CodeEntry, FunctionCode, type Code };
 
 /** A function's code: its locals and body. */
 type Code = { locals: ValueType[]; body: ResolvedInstruction[] };
 
-/**
- * A function's code that is encoded already: its locals and body, and the offsets of its branch
- * hints from the locals. Modules built here encode their functions while they build them.
- */
-type EncodedCode = { encoded: { bytes: Uint8Array; hints: { offset: number; likely: boolean }[] } };
+/** The encoding of a function's code, which is an entry of the code section. */
+const FunctionCode = record<Code>({ locals: Locals, body: Expression });
 
-const DecodedEntry = withByteLength(record({ locals: Locals, body: Expression }));
-
-/** An entry of the code section. Decoding gives locals and body; encoded code is written as is. */
-const CodeEntry = Binable<Code | EncodedCode>({
-  writeBytes(output, code) {
-    if (!("encoded" in code)) return DecodedEntry.writeBytes(output, code);
-    writeUnsignedLEB(output, code.encoded.bytes.length);
-    writeByteArray(output, code.encoded.bytes);
-  },
-  readBytes: DecodedEntry.readBytes,
-});
-
-/** Branch hints of encoded code, by their offset from the locals; undefined for other code. */
-function encodedHints(code: Code | EncodedCode) {
-  return "encoded" in code ? code.encoded.hints : undefined;
-}
+/** An entry of the code section: a function's encoded code, with its length. */
+const CodeEntry = withByteLength(RemainingBytes);

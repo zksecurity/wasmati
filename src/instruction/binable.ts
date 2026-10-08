@@ -6,7 +6,6 @@ import {
   record,
   withByteCode,
   writeByte,
-  writeByteArray,
   writeUnsignedLEB,
 } from "../binable.ts";
 import { S33, U32, vec } from "../immediate.ts";
@@ -19,7 +18,6 @@ export {
   Expression,
   END,
   ELSE,
-  rememberEncoding,
   ConstExpression,
   Block,
   IfBlock,
@@ -51,25 +49,9 @@ const Instruction = Binable<ResolvedInstruction>({
 
 const END = 0x0b;
 
-/**
- * Encodings of expressions that were encoded already, for the next encoding of the expression only:
- * function bodies, encoded to measure the offsets of branch hints, and constant expressions that
- * Module() links to bytes.
- */
-const encodings = new WeakMap<ResolvedInstruction[], Uint8Array>();
-
-function rememberEncoding(expression: ResolvedInstruction[], bytes: Uint8Array) {
-  encodings.set(expression, bytes);
-}
 type Expression = ResolvedInstruction[];
 const Expression = Binable<ResolvedInstruction[]>({
   writeBytes(output, t) {
-    let encoded = encodings.get(t);
-    if (encoded !== undefined) {
-      encodings.delete(t);
-      writeByteArray(output, encoded);
-      return;
-    }
     for (let i = 0; i < t.length; i++) Instruction.writeBytes(output, t[i]);
     writeByte(output, END);
   },

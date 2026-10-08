@@ -8,11 +8,11 @@ import {
 } from "./binable.ts";
 import { U32, vec } from "./immediate.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
-import { ELSE, END, Instruction, rememberEncoding } from "./instruction/binable.ts";
+import { ELSE, END, Instruction } from "./instruction/binable.ts";
+import { FunctionCode, type Code } from "./code-section.ts";
 import { Locals } from "./func.ts";
-import type { ValueType } from "./types.ts";
 
-export { encodeBranchHints, decodeBranchHints, branchHintSection };
+export { encodeBranchHints, decodeBranchHints, encodeCode, branchHintSection, type Hint };
 
 /**
  * Branch hints are code metadata: a custom section that refers to `if` and `br_if` instructions by
@@ -21,8 +21,9 @@ export { encodeBranchHints, decodeBranchHints, branchHintSection };
  */
 const branchHintSection = "metadata.code.branch_hint";
 
-type Code = { locals: ValueType[]; body: ResolvedInstruction[] };
-type FunctionHints = { func: number; hints: { offset: number; likely: boolean }[] };
+/** A branch hint, by the offset of its instruction from the start of the function's code. */
+type Hint = { offset: number; likely: boolean };
+type FunctionHints = { func: number; hints: Hint[] };
 
 const BranchHints = vec(
   Binable<FunctionHints>({
@@ -38,7 +39,7 @@ const BranchHints = vec(
 );
 
 /** A hint's payload is one byte: 1 if the branch is likely taken, 0 if not. */
-const Hint = Binable<{ offset: number; likely: boolean }>({
+const Hint = Binable<Hint>({
   writeBytes(output, { offset, likely }) {
     writeUnsignedLEB(output, offset);
     writeByte(output, 1);
@@ -55,35 +56,30 @@ const Hint = Binable<{ offset: number; likely: boolean }>({
 
 const Hints = vec(Hint);
 
-/**
- * The custom section of the functions' branch hints, if any; `firstFunc` is the first function's index.
- * Functions that are encoded already know their hints' offsets.
- */
-function encodeBranchHints<C>(
-  codes: C[],
-  firstFunc: number,
-  encoded: (code: C) => { offset: number; likely: boolean }[] | undefined,
-): Uint8Array | undefined {
-  let functions = codes.flatMap((entry, i): FunctionHints[] => {
-    let known = encoded(entry);
-    if (known !== undefined)
-      return known.length === 0 ? [] : [{ func: firstFunc + i, hints: known }];
-    let code = entry as Code;
-    if (!hasHints(code.body)) return [];
-    // Offsets are measured by encoding the function, and the code section reuses the encoding.
-    let { offsets, bytes } = encodeWithOffsets(
-      code,
-      (instruction) => instruction.likely !== undefined,
-    );
-    rememberEncoding(code.body, bytes);
-    let hints = offsets.map(([instruction, offset]) => {
-      if (instruction.name !== "if" && instruction.name !== "br_if")
-        throw Error(`branch hint on ${instruction.name}: only if and br_if take hints`);
-      return { offset, likely: instruction.likely! };
-    });
-    return [{ func: firstFunc + i, hints }];
-  });
+/** The custom section of the functions' branch hints, if any; `firstFunc` is the first function's index. */
+function encodeBranchHints(funcs: { hints: Hint[] }[], firstFunc: number): Uint8Array | undefined {
+  let functions = funcs.flatMap(({ hints }, i): FunctionHints[] =>
+    hints.length === 0 ? [] : [{ func: firstFunc + i, hints }],
+  );
   return functions.length === 0 ? undefined : BranchHints.toBytes(functions);
+}
+
+/**
+ * A function's encoded code, and the offsets of its branch hints from its start, which are recorded
+ * on its `if` and `br_if` instructions.
+ */
+function encodeCode(code: Code): { code: Uint8Array; hints: Hint[] } {
+  if (!hasHints(code.body)) return { code: FunctionCode.toBytes(code), hints: [] };
+  let { offsets, bytes } = encodeWithOffsets(
+    code,
+    (instruction) => instruction.likely !== undefined,
+  );
+  let hints = offsets.map(([instruction, offset]) => {
+    if (instruction.name !== "if" && instruction.name !== "br_if")
+      throw Error(`branch hint on ${instruction.name}: only if and br_if take hints`);
+    return { offset, likely: instruction.likely! };
+  });
+  return { code: bytes, hints };
 }
 
 /** Whether instructions, or those in their blocks, have branch hints. */
@@ -121,8 +117,8 @@ function decodeBranchHints(data: Uint8Array, codes: Code[], firstFunc: number) {
 }
 
 /**
- * The encoding of a function's body, and the selected instructions with their byte offsets from the
- * start of the locals.
+ * The encoding of a function's code, and the selected instructions with their byte offsets from its
+ * start, where its locals are.
  */
 function encodeWithOffsets(
   { locals, body }: Code,
@@ -133,7 +129,7 @@ function encodeWithOffsets(
 } {
   let offsets: [ResolvedInstruction, number][] = [];
   let output = byteCursor();
-  let start = Locals.toBytes(locals).length;
+  Locals.writeBytes(output, locals);
   // A block's header is its encoding with empty bodies, without the final `end`.
   const header = (instruction: ResolvedInstruction, empty: unknown) => {
     Instruction.writeBytes(output, {
@@ -144,7 +140,7 @@ function encodeWithOffsets(
   };
   const walk = (body: ResolvedInstruction[]) => {
     for (let instruction of body) {
-      if (select(instruction)) offsets.push([instruction, start + output.offset]);
+      if (select(instruction)) offsets.push([instruction, output.offset]);
       let { name, immediate } = instruction;
       if (name === "block" || name === "loop" || name === "try_table") {
         header(instruction, []);

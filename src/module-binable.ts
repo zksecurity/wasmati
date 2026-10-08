@@ -1,4 +1,10 @@
-import { branchHintSection, decodeBranchHints, encodeBranchHints } from "./branch-hints.ts";
+import {
+  branchHintSection,
+  decodeBranchHints,
+  encodeBranchHints,
+  encodeCode,
+  type Hint,
+} from "./branch-hints.ts";
 import {
   Binable,
   Byte,
@@ -10,12 +16,12 @@ import {
   withByteCode,
   withPreamble,
   withValidation,
-  type ByteCursor,
 } from "./binable.ts";
 import { Name, U32, vec, withByteLength } from "./immediate.ts";
 import { NameSection } from "./name-section.ts";
 import {
   FunctionIndex,
+  TypeIndex,
   FunctionType,
   isFunctionType,
   RecType,
@@ -27,12 +33,22 @@ import {
   type ValueTypeObject,
 } from "./types.ts";
 import { Export, type Import, Imports } from "./export.ts";
-import { Data, Elem, Global, Table } from "./memory-binable.ts";
+import {
+  type Data,
+  type Elem,
+  type Global,
+  type Table,
+  EncodedData,
+  EncodedElem,
+  EncodedGlobal,
+  EncodedTable,
+} from "./memory-binable.ts";
+import { Expression } from "./instruction/binable.ts";
 import type { FinalizedFunc } from "./func.ts";
-import { CodeEntry, type Code, type EncodedCode, encodedHints } from "./code-section.ts";
+import { CodeEntry, FunctionCode } from "./code-section.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 
-export { Module, type EncodableModule, type CustomSection };
+export { Module, EncodedModule, type EncodedFunc, type CustomSection };
 
 type CustomSection = {
   name: string;
@@ -62,9 +78,25 @@ type Module = {
   customSections?: CustomSection[];
 };
 
-/** A module to encode, whose functions may be encoded already. */
-type EncodableModule = Omit<Module, "funcs"> & {
-  funcs: (FinalizedFunc | (EncodedCode & { typeIdx: number }))[];
+/**
+ * A function whose code is encoded: its locals and body, as in the code section, and the offsets of
+ * the branch hints that the module writes for it, from the start of its code.
+ */
+type EncodedFunc = { typeIdx: TypeIndex; code: Uint8Array; hints: Hint[] };
+
+/**
+ * A module whose code is encoded: its functions, and the constant expressions of its globals, tables
+ * and segments. Its bytes encode and decode it directly. Decoding leaves a branch hint section among
+ * the custom sections; encoding writes one from the functions' hints.
+ */
+type EncodedModule = Omit<Module, "funcs" | "globals" | "tables" | "elems" | "datas"> & {
+  funcs: EncodedFunc[];
+  globals: EncodedGlobal[];
+  tables: EncodedTable[];
+  elems: EncodedElem[];
+  datas: EncodedData[];
+  /** The number of data segments in the data count section, which code that refers to them needs. */
+  dataCount?: number;
 };
 
 /** Split types into their recursion groups; without groups, each type forms a group of its own. */
@@ -96,8 +128,8 @@ type FuncSection = U32[];
 let FuncSection = section<FuncSection>(3, vec(U32));
 
 // 4: TableSection
-type TableSection = Table[];
-let TableSection = section<TableSection>(4, vec(Table));
+type TableSection = EncodedTable[];
+let TableSection = section<TableSection>(4, vec(EncodedTable));
 
 // 5: MemorySection
 type MemorySection = MemoryType[];
@@ -108,8 +140,8 @@ type TagSection = TagType[];
 let TagSection = section<TagSection>(13, vec(TagType));
 
 // 6: GlobalSection
-type GlobalSection = Global[];
-let GlobalSection = section<GlobalSection>(6, vec(Global));
+type GlobalSection = EncodedGlobal[];
+let GlobalSection = section<GlobalSection>(6, vec(EncodedGlobal));
 
 // 7: ExportSection
 type ExportSection = Export[];
@@ -120,16 +152,16 @@ type StartSection = U32;
 let StartSection = section<StartSection>(8, U32);
 
 // 9: ElementSection
-type ElemSection = Elem[];
-let ElemSection = section<ElemSection>(9, vec(Elem));
+type ElemSection = EncodedElem[];
+let ElemSection = section<ElemSection>(9, vec(EncodedElem));
 
 // 10: CodeSection
-type CodeSection = (Code | EncodedCode)[];
+type CodeSection = Uint8Array[];
 let CodeSection = section<CodeSection>(10, vec(CodeEntry));
 
 // 11: DataSection
-type DataSection = Data[];
-let DataSection = section<DataSection>(11, vec(Data));
+type DataSection = EncodedData[];
+let DataSection = section<DataSection>(11, vec(EncodedData));
 
 // 12: DataCountSection
 type DataCountSection = U32;
@@ -221,11 +253,6 @@ const ParsedModule = withValidation(
     }
     if (dataCountSection !== undefined && dataSection.length !== dataCountSection)
       throw Error("data section length does not match data count section");
-    if (
-      dataCountSection === undefined &&
-      codeSection.some((code) => "body" in code && usesDataIndex(code.body))
-    )
-      throw Error("data count section required");
   },
 );
 
@@ -243,8 +270,8 @@ function usesDataIndex(body: ResolvedInstruction[]): boolean {
   });
 }
 
-/** Modules as JSON: decoding gives it, and encoding takes it, with functions that may be encoded. */
-const ModuleCodec = iso(ParsedModule, {
+/** Modules whose functions are encoded, from and to their bytes. */
+const EncodedModule = iso(ParsedModule, {
   to({
     types,
     imports,
@@ -260,7 +287,8 @@ const ModuleCodec = iso(ParsedModule, {
     elems,
     names,
     customSections,
-  }: EncodableModule) {
+    dataCount,
+  }: EncodedModule) {
     const extras = (customSections ?? []).map(({ after, ...value }) => {
       const key = Object.entries(sectionIds).find(([, id]) => id === after)?.[0] as
         keyof Sections | undefined;
@@ -273,10 +301,9 @@ const ModuleCodec = iso(ParsedModule, {
       extras.push({ after: null, value: { name: "name", data: NameSection.toBytes(names) } });
     }
     let funcSection = funcs.map((f) => f.typeIdx);
-    // The functions themselves, whose bodies may be encoded already, and decoded only when read.
-    let codeSection: CodeSection = funcs;
+    let codeSection = funcs.map((f) => f.code);
     let importedFunctions = imports.filter((i) => i.description.kind === "function").length;
-    let hints = encodeBranchHints(codeSection, importedFunctions, encodedHints);
+    let hints = encodeBranchHints(funcs, importedFunctions);
     // Engines read branch hints before the code they refer to.
     if (hints !== undefined)
       extras.push({ after: "dataCountSection", value: { name: branchHintSection, data: hints } });
@@ -297,7 +324,7 @@ const ModuleCodec = iso(ParsedModule, {
           startSection: start,
           codeSection,
           dataSection: datas,
-          dataCountSection: datas.length,
+          dataCountSection: dataCount,
           elemSection: elems,
         },
       },
@@ -318,10 +345,11 @@ const ModuleCodec = iso(ParsedModule, {
         startSection,
         codeSection,
         dataSection,
+        dataCountSection,
         elemSection,
       },
     },
-  }): EncodableModule {
+  }): EncodedModule {
     const customSections = extras.map(({ after, value }) => ({
       ...value,
       after: after === undefined || after === null ? 0 : sectionIds[after],
@@ -337,33 +365,8 @@ const ModuleCodec = iso(ParsedModule, {
         // Invalid optional metadata remains an opaque custom section.
       }
     }
-    let importedFunctionsLength = importSection.filter(
-      (i) => i.description.kind === "function",
-    ).length;
-    const hintSections = customSections.filter(({ name }) => name === branchHintSection);
-    if (hintSections.length === 1) {
-      const section = hintSections[0];
-      try {
-        decodeBranchHints(section.data, codeSection as Code[], importedFunctionsLength);
-        customSections.splice(customSections.indexOf(section), 1);
-      } catch {
-        // Invalid optional metadata remains an opaque custom section.
-      }
-    }
     let types = typeSection.flat();
-    let funcs = funcSection.map((typeIdx, funcIdx) => {
-      let type = types[typeIdx];
-      if (type === undefined || !isFunctionType(type))
-        throw Error(`function ${funcIdx} does not have a function type`);
-      let { locals, body } = codeSection[funcIdx] as Code;
-      return {
-        funcIdx: importedFunctionsLength + funcIdx,
-        typeIdx,
-        type,
-        locals,
-        body,
-      };
-    });
+    let funcs = funcSection.map((typeIdx, i) => ({ typeIdx, code: codeSection[i], hints: [] }));
     let exports: Export[] = exportSection;
     return {
       types,
@@ -379,6 +382,7 @@ const ModuleCodec = iso(ParsedModule, {
       exports,
       start: startSection,
       datas: dataSection,
+      ...(dataCountSection === undefined ? {} : { dataCount: dataCountSection }),
       elems: elemSection,
       ...(names === undefined ? {} : { names }),
       ...(customSections.length === 0 ? {} : { customSections }),
@@ -386,11 +390,90 @@ const ModuleCodec = iso(ParsedModule, {
   },
 });
 
-/** Modules: decoding gives their JSON, encoding takes it, or a module whose functions are encoded. */
-const Module = ModuleCodec as Omit<Binable<EncodableModule>, "fromBytes" | "readBytes"> & {
-  fromBytes(bytes: Uint8Array): Module;
-  readBytes(input: ByteCursor): Module;
-};
+/**
+ * Modules as plain JS data: decoding decodes the functions' code and records the branch hint
+ * section's hints on their instructions, and encoding encodes the code with its hints.
+ */
+const Module = iso(EncodedModule, {
+  to({ funcs, globals, tables, elems, datas, ...module }: Module): EncodedModule {
+    return {
+      ...module,
+      funcs: funcs.map(({ typeIdx, locals, body }) => ({
+        typeIdx,
+        ...encodeCode({ locals, body }),
+      })),
+      ...segments({ globals, tables, elems, datas }, (expression) =>
+        Expression.toBytes(expression),
+      ),
+      dataCount: datas.length,
+    };
+  },
+  from({
+    funcs: encoded,
+    dataCount,
+    globals,
+    tables,
+    elems,
+    datas,
+    ...module
+  }: EncodedModule): Module {
+    let firstFunc = module.imports.filter((i) => i.description.kind === "function").length;
+    let funcs = encoded.map(({ typeIdx, code }, i): FinalizedFunc => {
+      let type = module.types[typeIdx];
+      if (type === undefined || !isFunctionType(type))
+        throw Error(`function ${i} does not have a function type`);
+      let { locals, body } = FunctionCode.fromBytes(code);
+      return { funcIdx: firstFunc + i, typeIdx, type, locals, body };
+    });
+    if (dataCount === undefined && funcs.some(({ body }) => usesDataIndex(body)))
+      throw Error("data count section required");
+    let customSections = module.customSections;
+    const hintSections = customSections?.filter(({ name }) => name === branchHintSection) ?? [];
+    if (hintSections.length === 1) {
+      const section = hintSections[0];
+      try {
+        decodeBranchHints(section.data, funcs, firstFunc);
+        customSections = customSections!.filter((custom) => custom !== section);
+      } catch {
+        // Invalid optional metadata remains an opaque custom section.
+      }
+    }
+    let { customSections: _, ...rest } = module;
+    return {
+      ...rest,
+      funcs,
+      ...segments({ globals, tables, elems, datas }, (bytes) => Expression.fromBytes(bytes)),
+      ...(customSections === undefined || customSections.length === 0 ? {} : { customSections }),
+    };
+  },
+});
+
+/** Globals, tables and segments, with their constant expressions converted. */
+function segments<A, B>(
+  {
+    globals,
+    tables,
+    elems,
+    datas,
+  }: { globals: Global<A>[]; tables: Table<A>[]; elems: Elem<A>[]; datas: Data<A>[] },
+  convert: (expression: A) => B,
+): { globals: Global<B>[]; tables: Table<B>[]; elems: Elem<B>[]; datas: Data<B>[] } {
+  return {
+    globals: globals.map(({ type, init }) => ({ type, init: convert(init) })),
+    tables: tables.map(({ init, ...table }) =>
+      init === undefined ? table : { ...table, init: convert(init) },
+    ),
+    elems: elems.map(({ type, init, mode }) => ({
+      type,
+      init: init.map(convert),
+      mode: typeof mode === "string" ? mode : { table: mode.table, offset: convert(mode.offset) },
+    })),
+    datas: datas.map(({ init, mode }) => ({
+      init,
+      mode: mode === "passive" ? mode : { memory: mode.memory, offset: convert(mode.offset) },
+    })),
+  };
+}
 
 // validation context according to spec.. may remain unused
 type ValidationContext = {

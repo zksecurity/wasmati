@@ -3,13 +3,12 @@ import { fromJSONValue, toJSONValue, type JSONValue } from "./json.ts";
 import * as Dependency from "./dependency.ts";
 import { Export, Import } from "./export.ts";
 import type { JSFunction } from "./func.ts";
-import type { ResolvedInstruction } from "./instruction/base.ts";
-import { END, Expression, rememberEncoding } from "./instruction/binable.ts";
+import { END } from "./instruction/binable.ts";
 import { byteCursor, writeByte, writtenBytes } from "./binable.ts";
 import { link, type Linker } from "./code.ts";
 import { Locals } from "./func.ts";
-import { Module as BinableModule, type EncodableModule } from "./module-binable.ts";
-import { Data, Elem, Global, Table } from "./memory-binable.ts";
+import { Module as BinableModule, EncodedModule } from "./module-binable.ts";
+import type { EncodedData, EncodedElem, EncodedGlobal, EncodedTable } from "./memory-binable.ts";
 import {
   FunctionType,
   functionTypeEquals,
@@ -217,22 +216,11 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   };
   let writer = byteCursor();
   let value = <T extends ValueType>(type: T): T => registry.value(type);
-  let constant = (constant: Dependency.Constant): ResolvedInstruction[] => {
+  let constant = (constant: Dependency.Constant): Uint8Array => {
     writer.offset = 0;
     link(constant.code, writer, linker);
     writeByte(writer, END);
-    // Encoded already, so encoding the module writes the bytes as they are.
-    let expression: ResolvedInstruction[] = [];
-    rememberEncoding(expression, writtenBytes(writer));
-    return expression;
-  };
-  // Element segments of function references encode compactly, which their encoding finds out from
-  // the instructions.
-  let decodedConstant = (constant: Dependency.Constant): ResolvedInstruction[] => {
-    writer.offset = 0;
-    link(constant.code, writer, linker);
-    writeByte(writer, END);
-    return Expression.fromBytes(writtenBytes(writer));
+    return writtenBytes(writer);
   };
   // Functions are encoded once, here, from their code.
   let funcs = funcs0.map(({ typeIdx, type, locals, code }) => {
@@ -241,20 +229,20 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     Locals.writeBytes(writer, locals.map(value));
     let hints = link(code, writer, linker, 0);
     writeByte(writer, END);
-    return { typeIdx, encoded: { bytes: writtenBytes(writer), hints } };
+    return { typeIdx, code: writtenBytes(writer), hints };
   });
-  let globals: Global[] = dependencyByKind.global.map(({ type, init }) => ({
+  let globals: EncodedGlobal[] = dependencyByKind.global.map(({ type, init }) => ({
     type: { ...type, value: value(type.value) },
     init: constant(init),
   }));
-  let tables: Table[] = dependencyByKind.table.map(({ type, init }) => ({
+  let tables: EncodedTable[] = dependencyByKind.table.map(({ type, init }) => ({
     ...type,
     type: value(type.type),
     ...(init === undefined ? {} : { init: constant(init) }),
   }));
-  let elems: Elem[] = dependencyByKind.elem.map(({ type, init, mode }) => ({
+  let elems: EncodedElem[] = dependencyByKind.elem.map(({ type, init, mode }) => ({
     type: value(type),
-    init: init.map(decodedConstant),
+    init: init.map(constant),
     mode:
       typeof mode === "object"
         ? { table: depToIndex.get(mode.table)!, offset: constant(mode.offset) }
@@ -264,7 +252,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   checkDefaultMemory(dependencyByKind);
   let memories = dependencyByKind.memory.map(({ type }) => type);
   // finalize datas: without a memory, active segments use the default memory
-  let datas: Data[] = dependencyByKind.data.map(({ init, mode }) => ({
+  let datas: EncodedData[] = dependencyByKind.data.map(({ init, mode }) => ({
     init,
     mode:
       mode === "passive"
@@ -349,13 +337,14 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   if (Object.keys(typeNames).length > 0) mergedNames.types = { ...typeNames, ...mergedNames.types };
   if (Object.keys(fieldNames).length > 0)
     mergedNames.fields = { ...fieldNames, ...mergedNames.fields };
-  let binableModule: EncodableModule = {
+  let encoded: EncodedModule = {
     types: registry.types,
     ...(registry.groups.some((size) => size !== 1) ? { recGroups: registry.groups } : {}),
     funcs,
     imports,
     exports,
     datas,
+    dataCount: datas.length,
     elems,
     tables,
     globals,
@@ -365,7 +354,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(BinableModule.toBytes(binableModule), importMap, {
+  return createModule<Exports>(EncodedModule.toBytes(encoded), importMap, {
     asyncExports,
     importDependencies,
   });
