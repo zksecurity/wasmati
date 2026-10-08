@@ -240,7 +240,7 @@ function getFrameFromLabel(ctx: LocalContext, label: Label | number): [number, C
 }
 
 /** Stack values are instances of a class, which tells them apart from other operands quickly. */
-class StackValue<T> {
+class Value<T> {
   get kind() {
     return "stack-var" as const;
   }
@@ -249,6 +249,15 @@ class StackValue<T> {
     this.type = type;
   }
 }
+
+/**
+ * The class of stack values, which all copies of wasmati in a JS realm share through a global
+ * symbol: values of one copy are operands of another, like `$` imported by a library that bundles its
+ * own wasmati. The symbol's version changes where stack values change.
+ */
+const StackValue: typeof Value = ((globalThis as Record<symbol, unknown>)[
+  Symbol.for("wasmati.StackValue@2")
+] ??= Value) as typeof Value;
 
 /** Push the result of an instruction. */
 function pushResult<T extends StackType>(ctx: LocalContext, type: T): StackVar<T> {

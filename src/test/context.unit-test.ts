@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { cp, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   Module,
   block,
@@ -192,4 +196,28 @@ test("locals are checked against their type in the function that uses them", () 
     () => func({ in: [{ y: i64 }], out: [] }, () => local.set(saved!, 1)),
     /Unsupported input for type i64/,
   );
+});
+
+test("stack values of another copy of wasmati are operands, like `$` of a library that bundles its own", async () => {
+  // A second copy of the package, as a library that bundles wasmati brings along
+  const directory = await mkdtemp(join(tmpdir(), "wasmati-copy-"));
+  try {
+    await cp(fileURLToPath(new URL("..", import.meta.url)), join(directory, "src"), {
+      recursive: true,
+      filter: (path) => !path.includes("/test"),
+    });
+    const other: typeof import("../index.ts") = await import(
+      pathToFileURL(join(directory, "src/index.ts")).href
+    );
+    assert.notEqual(other.func, func);
+    const addOne = (w: Wasmati) => w.i32.add(other.$, 1);
+    const f = func({ in: [], out: [i32] }, () => {
+      i32.const(41);
+      addOne(wasmati);
+    });
+    const { instance } = await Module({ exports: { f } }).instantiate();
+    assert.equal(instance.exports.f(), 42);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
