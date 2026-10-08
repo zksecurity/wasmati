@@ -77,42 +77,47 @@ function func<
   const args = createParameters<Args>(entries);
   ctx.stack = [];
   const { names: argNames, types: argsArray } = args;
-  const localEntries = Object.entries(locals);
-  const flatLocals = localEntries.flatMap(([name, declaration]) =>
-    declaration.kind === "local-array"
-      ? Array.from({ length: declaration.length }, (_, index) => ({
-          name: `${name}[${index}]`,
-          type: declaration.type.kind,
-        }))
-      : [{ name, type: declaration.kind }],
-  );
-  const localsArray = flatLocals.map(({ type }) => type);
+  const nArgs = argsArray.length;
+  // Locals in declaration order, with an entry per element of arrays of locals. Loops, which code
+  // that runs for the first time runs faster than callbacks.
+  const flatNames: string[] = [];
+  const localsArray: ValueType[] = [];
+  for (const key in locals) {
+    const declaration = locals[key];
+    if (declaration.kind === "local-array") {
+      for (let i = 0; i < declaration.length; i++) {
+        flatNames.push(`${key}[${i}]`);
+        localsArray.push(declaration.type.kind);
+      }
+    } else {
+      flatNames.push(key);
+      localsArray.push(declaration.kind);
+    }
+  }
   const resultsArray = valueTypeLiterals<Results>(results);
   const type = { args: argsArray, results: resultsArray };
-  const nArgs = argsArray.length;
-  const argsInput = Object.fromEntries(
-    argNames.map((name, index) => [
-      name,
-      { kind: "local", type: argsArray[index], index } satisfies Local,
-    ]),
-  ) as ToLocal<ParameterValues<ParameterSchema<Args>>>;
+  const argsInput: Record<string, Local> = {};
+  const localNames: Record<number, string> = {};
+  for (let index = 0; index < nArgs; index++) {
+    argsInput[argNames[index]] = { kind: "local", type: argsArray[index], index };
+    localNames[index] = argNames[index];
+  }
   const { sortedLocals, localIndices } = sortLocals(localsArray, nArgs);
-  let offset = 0;
-  const localsInput = Object.fromEntries(
-    localEntries.map(([name, declaration]) => {
-      const isArray = declaration.kind === "local-array";
-      const length = isArray ? declaration.length : 1;
-      const values = Array.from({ length }, () => {
-        const j = offset++;
-        return { kind: "local", type: localsArray[j], index: localIndices[j] } satisfies Local;
-      });
-      return [name, isArray ? values : values[0]];
-    }),
-  ) as NamedLocals<Locals>;
-  const localNames = Object.fromEntries([
-    ...argNames.map((name, index) => [index, name]),
-    ...flatLocals.map(({ name }, j) => [localIndices[j], name]),
-  ]);
+  const localsInput: Record<string, Local | Local[]> = {};
+  let j = 0;
+  for (const key in locals) {
+    const declaration = locals[key];
+    if (declaration.kind === "local-array") {
+      const values: Local[] = [];
+      for (let i = 0; i < declaration.length; i++, j++)
+        values.push({ kind: "local", type: localsArray[j], index: localIndices[j] });
+      localsInput[key] = values;
+    } else {
+      localsInput[key] = { kind: "local", type: localsArray[j], index: localIndices[j] };
+      j++;
+    }
+  }
+  for (let j = 0; j < flatNames.length; j++) localNames[localIndices[j]] = flatNames[j];
   const name = signature.name ?? (run.name || undefined);
   let stack: StackVar<ValueType>[] = [];
   let code = new Code();
@@ -140,7 +145,11 @@ function func<
       ],
     },
     () => {
-      run(argsInput, localsInput, ctx);
+      run(
+        argsInput as ToLocal<ParameterValues<ParameterSchema<Args>>>,
+        localsInput as NamedLocals<Locals>,
+        ctx,
+      );
       // The function's results must be all that is left on the stack.
       const end = `end of function${name === undefined ? "" : ` ${name}`}`;
       popStack(ctx, resultsArray, end);
@@ -259,20 +268,26 @@ function sortLocals(locals: ValueType[], offset: number) {
   let count: number[] = [];
   let groups: number[] = [];
   let offsetWithin: number[] = [];
-  for (let local of locals) {
-    let i = types.findIndex((type) => typeEquals(type, local));
-    if (i === -1) i = types.push(local) - 1;
-    count[i] ??= 0;
+  for (let j = 0; j < locals.length; j++) {
+    let local = locals[j];
+    let i = 0;
+    while (i < types.length && types[i] !== local && !typeEquals(types[i], local)) i++;
+    if (i === types.length) {
+      types.push(local);
+      count.push(0);
+    }
     groups.push(i);
-    offsetWithin.push(count[i]);
-    count[i]++;
+    offsetWithin.push(count[i]++);
   }
-  let typeOffset: number[] = Array(count.length).fill(0);
-  for (let i = 1; i < count.length; i++) {
-    typeOffset[i] = count[i - 1] + typeOffset[i - 1];
+  let typeOffset: number[] = [];
+  let sortedLocals: ValueType[] = [];
+  for (let i = 0; i < types.length; i++) {
+    typeOffset.push(sortedLocals.length);
+    for (let k = 0; k < count[i]; k++) sortedLocals.push(types[i]);
   }
-  let localIndices = locals.map((_, j) => offset + typeOffset[groups[j]] + offsetWithin[j]);
-  let sortedLocals: ValueType[] = types.flatMap((type, i) => Array(count[i]).fill(type));
+  let localIndices: number[] = [];
+  for (let j = 0; j < locals.length; j++)
+    localIndices.push(offset + typeOffset[groups[j]] + offsetWithin[j]);
   return { sortedLocals, localIndices };
 }
 
