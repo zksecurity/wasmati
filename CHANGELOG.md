@@ -2,24 +2,34 @@
 
 ## Unreleased
 
+wasmati 2.0 writes every instruction as bytes the moment it is called, so building a module is up to 16 times faster and there is no separate encoding step. `npm run benchmark` builds 250 KB of field arithmetic in 19 ms instead of 155 the first time, and in 4 ms instead of 67 after that; `WebAssembly.instantiate()` of it takes 0.5 ms instead of 25, which went to encoding.
+
 ### Breaking changes
 
-- **Functions and constants hold their code as bytes.** Instructions are encoded when they are created, and `Module()` fills in the indices they refer to. `Func` and `Constant` dependencies have `code` in place of `body`, functions list the functions they call in `calls`, and the `DependencyInstruction` type is gone.
+- **Numbers, locals and globals must come after instruction results among an instruction's operands.** Operands are written where they are passed, and wasmati no longer moves them below results that were computed first. `i32.sub(5, i32.mul(x, 2))` throws; write `i32.sub(i32.const(5), i32.mul(x, 2))`. Operands in order, like `i32.sub(i32.mul(x, 2), 5)` or `i64.add(local.get(t), i64.mul(a, b))`, work as before, and so does `$`. Common cases to migrate:
+  - Commutative operations can swap their operands: `i32.add(x, i32.mul(y, 2))` becomes `i32.add(i32.mul(y, 2), x)`.
+  - A store whose value is computed before the call pushes its address first: `i32.store({}, local.get(ptr), value())`, where helpers that took a computed value take a callback instead.
+  - Code that pushed new values below `$`, like `i64.sub128(0n, 0n, $, $)`, pushes them before the values on the stack are computed.
+
+  [montgomery#37](https://github.com/mitschabaude/montgomery/pull/37) migrates a large code base, about 150 call sites.
 - **Modules are their bytes.** `module.toBytes()` returns them, and `Module.fromBytes(bytes)` checks that they are well-formed and takes them; `module.module` is gone. `module.toJSON()` decodes a module, and `Module.fromJSON(json)` encodes one. Modules compile with the options of JS string builtins, which do not affect modules that do not import them.
+- **Functions and constants hold their code as bytes.** `Module()` fills in the indices that instructions refer to. `Func` and `Constant` dependencies have `code` in place of `body`, functions list the functions they call in `calls`, and the `DependencyInstruction` type is gone.
+- **Bodies must be synchronous**: a function, block or constant whose body returns a promise throws. Instructions after an `await` would go into whatever is being built at that time. Builders that await between functions, as with `Promise.all`, are fine.
+- **Instructions throw where no function or constant is being built**, instead of writing their code nowhere.
+- **`defaultCtx` is not exported**; `isolatedWasmati()` gives builder state of its own.
 - **`StackVar` has no `id`**: instruction results are told apart by identity.
-- **`defaultCtx` is no longer exported.** `isolatedWasmati()` gives builder state of its own instead.
-- **Instructions throw where no function or constant is being built**, instead of writing code nowhere.
-- **Numbers, locals and globals are not inserted below instruction results.** Operands are computed where they are passed, so new values must come after the instruction results among the operands: `i32.sub(5, i32.mul(x, 2))` throws, and becomes `i32.sub(i32.const(5), i32.mul(x, 2))`. `i32.sub(i32.mul(x, 2), 5)` is unchanged. Inserting them cost every instruction the bookkeeping of where its values were computed and which locals it wrote.
 
 ### Changes
 
-- **Faster builds and encoding**: building montgomery's Pallas field module, 245 KB of code, takes 51 ms instead of 139 the first time, and about 24 ms instead of 90 after that. Encoding it, `module.toBytes()`, copies the code that building wrote: 0.5 ms instead of 55 once warm, and about 4 ms instead of 70 the first time. Modules encode into one growable byte buffer instead of nested arrays, and integers avoid BigInt where they fit. Codecs (`Binable`) have `write` and `encode` methods. `npm run benchmark` measures a module of field arithmetic.
-- **No side effects**: the package declares `sideEffects: false`, so bundlers leave wasmati out where it is imported but unused.
+- **Faster builds**: instructions are written as bytes when they are called, through flat fast paths for most instructions, and `Module()` links and encodes the functions once. Modules encode into one growable byte buffer instead of nested arrays, and integers avoid BigInt where they fit. Codecs (`Binable`) have `write` and `encode` methods.
+- **`isolatedWasmati()`** returns an independent instance of the builder API (`func`, `constant`, `declareFunc` and all instructions) with build state of its own, typed `Wasmati`. Separate instances build functions independently, even interleaved, and helper libraries can take the instance to emit into; the package's exports are the default instance.
 - **`Module({ skipDebugNames: true })`** leaves parameter and local names out of the name section, which makes modules a few percent smaller and faster to build. Function names stay.
 - **Instance types have only the module's exports**: `instance.exports.missing` is a type error, and exported globals are typed as `WebAssembly.Global`s with typed values, so exports can be imports of other modules. `TypedInstance`, `ExportInput` and `AsyncExport` are exported, so that libraries can emit declarations of builders that are generic in their exports.
-- **Fixed**: a function built in the middle of another function's body lost the values on the outer function's stack.
-- **Bodies must be synchronous**: a function, block or constant whose body returns a promise throws. Instructions after an `await` would have gone into whatever was being built at that time. Async builders that await between functions, as with `Promise.all`, build the same modules as they would one after another.
-- **`isolatedWasmati()`** returns an independent instance of the builder API (`func`, `constant`, `declareFunc` and all instructions) with build state of its own, typed `Wasmati`. Separate instances build functions independently, even interleaved, and helper libraries can take the instance to emit into; the package's exports are the default instance.
+- **No side effects**: the package declares `sideEffects: false`, so bundlers leave wasmati out where it is imported but unused.
+
+### Fixes
+
+- A function, constant or module built in the middle of another function's body no longer loses the values on the outer function's stack.
 
 ## 1.0.0
 
