@@ -146,7 +146,7 @@ instance.exports.run(); // 120
 - **Locals** are a function's variables: its parameters, and the `locals` it declares, which start at zero, or null for references. Locals of non-null reference types must be set before they are read. `local.get`, `local.set` and `local.tee` (set, and keep the value on the stack) read and write them. `localArray(type, n)` declares several locals of one type.
 - **Calls**: `call(f, { name: value })` passes arguments by parameter name; `call(f)` takes them from the stack.
 - **Results** are the values left on the stack; `return_()` returns early.
-- Function names come from the `name` option, a named callback, or the export key. They, and parameter and local names, go into the module's name section, so they show up in stack traces and in the text format.
+- Function names come from the `name` option, a named callback, or the export key. They, and parameter and local names, go into the module's name section, so they show up in stack traces and in the text format. `Module({ ..., skipDebugNames: true })` leaves out parameter and local names, for smaller modules that build a little faster.
 
 ## Generating code
 

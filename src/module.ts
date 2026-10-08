@@ -47,6 +47,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   customSections,
   dependencies: inputDependencies = [],
   declareReferences = true,
+  skipDebugNames = false,
 }: {
   exports: Exports;
   /**
@@ -66,6 +67,12 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
    * segments declare them. The decompiler turns this off to reproduce modules without it faithfully.
    */
   declareReferences?: boolean;
+  /**
+   * Leave out the names of parameters and locals, which the module otherwise contains in its name
+   * section, so that debuggers and printed WAT show them. Building is a few percent faster, and the
+   * module a few percent smaller. Function names stay, for stack traces; entries of `names` stay too.
+   */
+  skipDebugNames?: boolean;
 }) {
   // collect all dependencies (by kind)
   let dependencies = new Set<Dependency.t>();
@@ -282,11 +289,13 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   const generated: NameSection = name === undefined ? {} : { module: name };
   for (const func of funcs0) {
     if (func.name !== undefined) (generated.functions ??= {})[func.funcIdx] = func.name;
-    if (func.localNames !== undefined) (generated.locals ??= {})[func.funcIdx] = func.localNames;
+    if (!skipDebugNames && func.localNames !== undefined)
+      (generated.locals ??= {})[func.funcIdx] = func.localNames;
   }
   dependencyByKind.importFunction.forEach((func, index) => {
     const debugName = func.name ?? func.field;
     if (debugName !== undefined) (generated.functions ??= {})[index] = debugName;
+    if (skipDebugNames) return;
     (generated.locals ??= {})[index] = Object.fromEntries(
       func.params.names.map((name, index) => [index, name]),
     );

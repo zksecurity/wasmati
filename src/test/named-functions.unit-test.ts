@@ -116,6 +116,25 @@ test("explicit metadata overrides individual inferred names without mutating fun
   });
 });
 
+test("skipDebugNames leaves out parameter and local names, but keeps function names", () => {
+  const log = importFunc({ field: "log", in: [{ value: i32 }], out: [] }, () => {});
+  const add = func(
+    { name: "add", in: [{ x: i32 }], locals: { y: i32 }, out: [i32] },
+    ({ x }, { y }) => {
+      call(log, { value: x });
+      i32.add(x, y);
+    },
+  );
+  const module = Module({ exports: { add }, skipDebugNames: true });
+  assert.deepEqual(module.toJSON().names, { functions: { 0: "log", 1: "add" } });
+  const named = Module({
+    exports: { add },
+    skipDebugNames: true,
+    names: { locals: { 1: { 0: "x" } } },
+  });
+  assert.deepEqual(named.toJSON().names?.locals, { 1: { 0: "x" } });
+});
+
 test("local arrays retain their groups and names across type-based reordering", async () => {
   const dynamicLength: number = 2;
   const grouped = func(
