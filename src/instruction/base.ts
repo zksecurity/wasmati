@@ -2,6 +2,7 @@ import { Binable, Undefined } from "../binable.ts";
 import type { Code, Immediate } from "../code.ts";
 import type * as Dependency from "../dependency.ts";
 import {
+  checkSynchronous,
   formatStack,
   type LocalContext,
   popStack,
@@ -420,7 +421,9 @@ function runBlock(
     unreachable: false,
     stack,
   };
-  let inner = withContext(ctx, { stack, frames: [frame, ...ctx.frames] }, () => run(label));
+  let inner = withContext(ctx, { stack, frames: [frame, ...ctx.frames] }, () =>
+    checkSynchronous(run(label), name),
+  );
   popStack(inner, results);
   if (stack.length !== 0)
     throw Error(`expected stack to be empty at the end of block, got ${formatStack(stack)}`);

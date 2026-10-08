@@ -30,6 +30,7 @@ export {
   isVectorType,
   isSameType,
   formatStack,
+  checkSynchronous,
 };
 
 /** The type of a value in unreachable code, which matches any type (the spec's "bottom"). */
@@ -257,6 +258,17 @@ function stackVars(types: ValueType[]) {
 }
 
 // helpers
+
+/**
+ * Bodies of functions, blocks and constants run synchronously, in the context of what they build.
+ * Instructions after an `await` would go into whatever is being built at that time.
+ */
+function checkSynchronous(result: unknown, what: string) {
+  if (result instanceof Promise)
+    throw Error(
+      `${what}: the body returned a promise. Bodies must be synchronous; instructions after an \`await\` would go into whatever is being built at that time.`,
+    );
+}
 
 function isNumberType(type: ValueType | Unknown) {
   return type === "i32" || type === "i64" || type === "f32" || type === "f64" || type === Unknown;

@@ -16,6 +16,7 @@
 - **`Module({ skipDebugNames: true })`** leaves parameter and local names out of the name section, which makes modules a few percent smaller and faster to build. Function names stay.
 - **Instance types have only the module's exports**: `instance.exports.missing` is a type error, and exported globals are typed as `WebAssembly.Global`s with typed values, so exports can be imports of other modules. `TypedInstance`, `ExportInput` and `AsyncExport` are exported, so that libraries can emit declarations of builders that are generic in their exports.
 - **Fixed**: a function built in the middle of another function's body lost the values on the outer function's stack.
+- **Bodies must be synchronous**: a function, block or constant whose body returns a promise throws. Instructions after an `await` would have gone into whatever was being built at that time. Async builders that await between functions, as with `Promise.all`, build the same modules as they would one after another.
 
 ## 1.0.0
 

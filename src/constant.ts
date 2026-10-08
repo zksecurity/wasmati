@@ -1,6 +1,7 @@
 import { Code } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
 import {
+  checkSynchronous,
   emptyContext,
   formatStack,
   type LocalContext,
@@ -75,7 +76,7 @@ function constant<T extends ValueType = ValueType>(
       ],
     },
     () => {
-      run();
+      checkSynchronous(run(), "constant");
       if (ctx.stack.length !== 1 || ctx.stack[0].type === Unknown)
         throw Error(`constant: expected one value on the stack, got ${formatStack(ctx.stack)}`);
       type = ctx.stack[0].type;

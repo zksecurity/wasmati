@@ -6,6 +6,7 @@ import type { ResolvedInstruction } from "./instruction/base.ts";
 import {
   type LocalContext,
   StackVar,
+  checkSynchronous,
   formatStack,
   popStack,
   withContext,
@@ -144,10 +145,13 @@ function func<
       ],
     },
     () => {
-      run(
-        argsInput as ToLocal<ParameterValues<ParameterSchema<Args>>>,
-        localsInput as NamedLocals<Locals>,
-        ctx,
+      checkSynchronous(
+        run(
+          argsInput as ToLocal<ParameterValues<ParameterSchema<Args>>>,
+          localsInput as NamedLocals<Locals>,
+          ctx,
+        ),
+        `func${name === undefined ? "" : ` ${name}`}`,
       );
       // The function's results must be all that is left on the stack.
       const end = `end of function${name === undefined ? "" : ` ${name}`}`;
