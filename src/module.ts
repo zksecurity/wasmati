@@ -3,7 +3,7 @@ import * as Dependency from "./dependency.ts";
 import { Export, Import } from "./export.ts";
 import type { JSFunction } from "./func.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
-import { END, Expression } from "./instruction/binable.ts";
+import { END, rememberEncoding } from "./instruction/binable.ts";
 import { Writer } from "./binable.ts";
 import { link, type Linker } from "./code.ts";
 import { Locals } from "./func.ts";
@@ -220,7 +220,10 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     writer.length = 0;
     link(constant.code, writer, linker);
     writer.byte(END);
-    return Expression.readBytes(writer.buffer as unknown as number[], 0)[0];
+    // Encoded already, so encoding the module writes the bytes as they are.
+    let expression: ResolvedInstruction[] = [];
+    rememberEncoding(expression, writer.result());
+    return expression;
   };
   // Functions are encoded once, here, from their code.
   let funcs = funcs0.map(({ typeIdx, type, locals, code }) => {

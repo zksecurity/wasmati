@@ -48,8 +48,9 @@ const Instruction = Binable<ResolvedInstruction>({
 const END = 0x0b;
 
 /**
- * Encodings of expressions that were encoded already, to measure the offsets of branch hints, for
- * the next encoding of the expression only.
+ * Encodings of expressions that were encoded already, for the next encoding of the expression only:
+ * function bodies, encoded to measure the offsets of branch hints, and constant expressions that
+ * Module() links to bytes.
  */
 const encodings = new WeakMap<ResolvedInstruction[], Uint8Array>();
 
