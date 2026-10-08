@@ -32,6 +32,7 @@ import {
   StackVar,
   type StackType,
   Unknown,
+  missingLocal,
 } from "../local-context.ts";
 import { globalGet, localGet } from "./variable-get.ts";
 import {
@@ -55,17 +56,17 @@ export {
 const localOps = {
   get: localGet,
   set: baseInstruction("local.set", LocalIndex, {
-    create({ locals }, x: Local) {
-      let local = locals[x.index];
-      if (local === undefined) throw Error(`local with index ${x.index} not available`);
+    create(ctx, x: Local) {
+      let local = ctx.locals[x.index];
+      if (local === undefined) throw missingLocal(ctx, x.index);
       return { in: [local], out: [] };
     },
     resolve: (_, x: Local) => x.index,
   }),
   tee: baseInstruction("local.tee", LocalIndex, {
-    create({ locals }, x: Local) {
-      let type = locals[x.index];
-      if (type === undefined) throw Error(`local with index ${x.index} not available`);
+    create(ctx, x: Local) {
+      let type = ctx.locals[x.index];
+      if (type === undefined) throw missingLocal(ctx, x.index);
       return { in: [type], out: [type] };
     },
     resolve: (_, x: Local) => x.index,
@@ -99,9 +100,9 @@ function writeLocal(
   return type;
 }
 
-function localType({ locals }: LocalContext, x: Local) {
-  let type = locals[x.index];
-  if (type === undefined) throw Error(`local with index ${x.index} not available`);
+function localType(ctx: LocalContext, x: Local) {
+  let type = ctx.locals[x.index];
+  if (type === undefined) throw missingLocal(ctx, x.index);
   return type;
 }
 

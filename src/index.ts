@@ -27,11 +27,7 @@ import { array as arrayType, struct as structType } from "./type-definitions.ts"
 import { emptyContext, type LocalContext, type Label, StackVar, Unknown } from "./local-context.ts";
 import type { Tuple } from "./util.ts";
 import {
-  f32t,
-  f64t,
-  i32t,
-  i64t,
-  v128t,
+  valueType,
   funcref,
   externref,
   exnref,
@@ -162,7 +158,7 @@ export {
 };
 
 // other public API
-export { defaultCtx };
+export { isolatedWasmati, type Wasmati };
 export { declareFunc, func, type Func, importFunc, type ImportFunc, type AnyFunc, constant };
 export { asyncExport as async };
 export { importTable, importTag, tagConstructor as tag };
@@ -236,32 +232,31 @@ type f32 = "f32";
 type f64 = "f64";
 type v128 = "v128";
 
-const defaultCtx = emptyContext();
-const declareFunc = removeContext(defaultCtx, originalDeclareFunc);
-const constant = removeContext(defaultCtx, constantExpression);
-
-const instructions = createInstructions(defaultCtx);
+// The default instance of the builder API, which the package exports.
+const wasmati = createWasmati(emptyContext());
 
 // Value types that are also instruction namespaces have names, which inferred types use.
-type Instructions = ReturnType<typeof createInstructions>;
-type I32Namespace = Instructions["i32"];
-type I64Namespace = Instructions["i64"];
-type F32Namespace = Instructions["f32"];
-type F64Namespace = Instructions["f64"];
-type V128Namespace = Instructions["v128"];
+type Namespaces = ReturnType<typeof createNamespaces>;
+type I32Namespace = Namespaces["i32"];
+type I64Namespace = Namespaces["i64"];
+type F32Namespace = Namespaces["f32"];
+type F64Namespace = Namespaces["f64"];
+type V128Namespace = Namespaces["v128"];
 interface I32 extends I32Namespace {}
 interface I64 extends I64Namespace {}
 interface F32 extends F32Namespace {}
 interface F64 extends F64Namespace {}
 interface V128 extends V128Namespace {}
-const i32: I32 = instructions.i32;
-const i64: I64 = instructions.i64;
-const f32: F32 = instructions.f32;
-const f64: F64 = instructions.f64;
-const v128: V128 = instructions.v128;
 
 const {
+  i32,
+  i64,
+  f32,
+  f64,
+  v128,
   func,
+  declareFunc,
+  constant,
   local,
   global,
   ref,
@@ -284,18 +279,15 @@ const {
   i31,
   any,
   extern,
-} = instructions;
-
-let {
   nop,
   unreachable,
   block,
   loop,
-  if: if_,
+  if_,
   br,
   br_if,
   br_table,
-  return: return_,
+  return_,
   call,
   call_indirect,
   call_ref,
@@ -304,16 +296,68 @@ let {
   return_call_ref,
   br_on_null,
   br_on_non_null,
-  throw: throw_,
+  throw_,
   throw_ref,
   try_table,
   br_on_cast,
   br_on_cast_fail,
-} = control;
+} = wasmati;
+
+/**
+ * An independent instance of the builder API: functions, constants and instructions with build state
+ * of their own. Builds that use separate instances can't interfere, so that builds may run
+ * concurrently, and helper libraries write into the instance they are handed. The package's exports
+ * are the default instance, which is a `Wasmati` too. Declarations, types and `Module()` are shared.
+ */
+function isolatedWasmati(): Wasmati {
+  return createWasmati(emptyContext());
+}
+
+type WasmatiMembers = ReturnType<typeof createWasmati>;
+/** The builder API: functions, constants and instructions, bound to the state of one instance. */
+interface Wasmati extends WasmatiMembers {}
+
+function createWasmati(ctx: LocalContext) {
+  const namespaces = createNamespaces(ctx);
+  const { control } = namespaces;
+  return {
+    ...namespaces,
+    i32: namespaces.i32 as I32,
+    i64: namespaces.i64 as I64,
+    f32: namespaces.f32 as F32,
+    f64: namespaces.f64 as F64,
+    v128: namespaces.v128 as V128,
+    declareFunc: removeContext(ctx, originalDeclareFunc),
+    constant: removeContext(ctx, constantExpression),
+    nop: control.nop,
+    unreachable: control.unreachable,
+    block: control.block,
+    loop: control.loop,
+    if_: control.if,
+    br: control.br,
+    br_if: control.br_if,
+    br_table: control.br_table,
+    return_: control.return,
+    call: control.call,
+    call_indirect: control.call_indirect,
+    call_ref: control.call_ref,
+    return_call: control.return_call,
+    return_call_indirect: control.return_call_indirect,
+    return_call_ref: control.return_call_ref,
+    br_on_null: control.br_on_null,
+    br_on_non_null: control.br_on_non_null,
+    throw_: control.throw,
+    throw_ref: control.throw_ref,
+    try_table: control.try_table,
+    br_on_cast: control.br_on_cast,
+    br_on_cast_fail: control.br_on_cast_fail,
+  };
+}
 
 const $: StackVar<any> = StackVar(Unknown);
 
-function createInstructions(ctx: LocalContext) {
+/** Instruction namespaces bound to a context. Namespaces that are also types or declarations are new objects. */
+function createNamespaces(ctx: LocalContext) {
   const func = removeContext(ctx, originalFunc);
 
   const atomic = removeContexts(ctx, atomicOps);
@@ -341,21 +385,21 @@ function createInstructions(ctx: LocalContext) {
     rmw32: i64AtomicRmw32,
   });
 
-  const i32 = Object.assign(i32t, removeContexts(ctx, i32Ops), {
+  const i32 = Object.assign(valueType("i32"), removeContexts(ctx, i32Ops), {
     atomic: i32Atomic,
   });
-  const i64 = Object.assign(i64t, removeContexts(ctx, i64Ops), {
+  const i64 = Object.assign(valueType("i64"), removeContexts(ctx, i64Ops), {
     atomic: i64Atomic,
   });
-  const f32 = Object.assign(f32t, removeContexts(ctx, f32Ops));
-  const f64 = Object.assign(f64t, removeContexts(ctx, f64Ops));
+  const f32 = Object.assign(valueType("f32"), removeContexts(ctx, f32Ops));
+  const f64 = Object.assign(valueType("f64"), removeContexts(ctx, f64Ops));
 
   const local = bindLocalOps(ctx);
-  const global = Object.assign(globalConstructor, bindGlobalOps(ctx));
+  const global = Object.assign(globalConstructor.bind(undefined), bindGlobalOps(ctx));
   const ref = removeContexts(ctx, { ...refOps, ...gcRefOps });
 
-  const struct = Object.assign(structType, removeContexts(ctx, structOps));
-  const array = Object.assign(arrayType, removeContexts(ctx, arrayOps));
+  const struct = Object.assign(structType.bind(undefined), removeContexts(ctx, structOps));
+  const array = Object.assign(arrayType.bind(undefined), removeContexts(ctx, arrayOps));
   const i31 = removeContexts(ctx, i31Ops);
   const any = removeContexts(ctx, anyOps);
   const extern = removeContexts(ctx, externOps);
@@ -370,15 +414,15 @@ function createInstructions(ctx: LocalContext) {
 
   const { drop, select_poly, select_t } = removeContexts(ctx, parametric);
 
-  const memory = Object.assign(memoryConstructor, removeContexts(ctx, memoryOps), {
+  const memory = Object.assign(memoryConstructor.bind(undefined), removeContexts(ctx, memoryOps), {
     atomic: memoryAtomic,
   });
-  const data = Object.assign(dataConstructor, removeContexts(ctx, dataOps));
-  const table = Object.assign(tableConstructor, removeContexts(ctx, tableOps));
-  const elem = Object.assign(elemConstructor, removeContexts(ctx, elemOps));
+  const data = Object.assign(dataConstructor.bind(undefined), removeContexts(ctx, dataOps));
+  const table = Object.assign(tableConstructor.bind(undefined), removeContexts(ctx, tableOps));
+  const elem = Object.assign(elemConstructor.bind(undefined), removeContexts(ctx, elemOps));
 
   const v128_ = removeContexts(ctx, v128Ops);
-  const v128 = Object.assign(v128t, {
+  const v128 = Object.assign(valueType("v128"), {
     ...v128_,
     const: wrapConst(v128_.const),
   });

@@ -7,6 +7,8 @@
 - **Functions and constants hold their code as bytes.** Instructions are encoded when they are created, and `Module()` fills in the indices they refer to. `Func` and `Constant` dependencies have `code` in place of `body`, functions list the functions they call in `calls`, and the `DependencyInstruction` type is gone.
 - **Modules are their bytes.** `module.toBytes()` returns them, and `Module.fromBytes(bytes)` checks that they are well-formed and takes them; `module.module` is gone. `module.toJSON()` decodes a module, and `Module.fromJSON(json)` encodes one. Modules compile with the options of JS string builtins, which do not affect modules that do not import them.
 - **`StackVar` has no `id`**: instruction results are told apart by identity.
+- **`defaultCtx` is no longer exported.** `isolatedWasmati()` gives builder state of its own instead.
+- **Instructions throw where no function or constant is being built**, instead of writing code nowhere.
 - **Numbers, locals and globals are not inserted below instruction results.** Operands are computed where they are passed, so new values must come after the instruction results among the operands: `i32.sub(5, i32.mul(x, 2))` throws, and becomes `i32.sub(i32.const(5), i32.mul(x, 2))`. `i32.sub(i32.mul(x, 2), 5)` is unchanged. Inserting them cost every instruction the bookkeeping of where its values were computed and which locals it wrote.
 
 ### Changes
@@ -17,6 +19,7 @@
 - **Instance types have only the module's exports**: `instance.exports.missing` is a type error, and exported globals are typed as `WebAssembly.Global`s with typed values, so exports can be imports of other modules. `TypedInstance`, `ExportInput` and `AsyncExport` are exported, so that libraries can emit declarations of builders that are generic in their exports.
 - **Fixed**: a function built in the middle of another function's body lost the values on the outer function's stack.
 - **Bodies must be synchronous**: a function, block or constant whose body returns a promise throws. Instructions after an `await` would have gone into whatever was being built at that time. Async builders that await between functions, as with `Promise.all`, build the same modules as they would one after another.
+- **`isolatedWasmati()`** returns an independent instance of the builder API (`func`, `constant`, `declareFunc` and all instructions) with build state of its own, typed `Wasmati`. Separate instances build functions independently, even interleaved, and helper libraries can take the instance to emit into; the package's exports are the default instance.
 
 ## 1.0.0
 

@@ -175,6 +175,8 @@ instance.exports.pow13(2n); // 8192n
 
 Libraries generate whole families of functions this way, from parameters like a modulus or a size. Generated code avoids calls but makes the module bigger; to share code at runtime instead, define a `func` and call it.
 
+The builder API keeps the state of the function being built. Builders that only `await` between functions can share it, even concurrently. `isolatedWasmati()` returns an instance of the builder API with state of its own, `{ func, constant, i32, local, block, ... }`, for builds that must not share state, and helpers that take a `Wasmati` parameter emit into the instance they are handed. Function bodies run synchronously, and instructions throw where their instance builds nothing.
+
 ## Linear memory
 
 A **memory** is a resizable array of bytes, which code reads and writes with load and store instructions at numeric addresses. Its size is counted in pages of 64 KiB. JS sees it as an `ArrayBuffer`, which makes memory the way to exchange bulk data with JS.

@@ -193,8 +193,14 @@ test("GC instructions take operands as arguments, and struct fields by name", as
   );
   const { instance } = await Module({ exports: { f } }).instantiate();
   assert.equal(instance.exports.f(-2), -1);
-  // @ts-expect-error a field is missing
-  assert.throws(() => struct.new(point, { x: 1 }), /Unsupported input|Expected/);
+  assert.throws(
+    () =>
+      func({ in: [], out: [] }, () => {
+        // @ts-expect-error a field is missing
+        struct.new(point, { x: 1 });
+      }),
+    /Unsupported input|Expected/,
+  );
 });
 
 test("named operands keep their values, and instruction results must come in order", async () => {

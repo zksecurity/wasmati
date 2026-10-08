@@ -24,7 +24,7 @@ import {
   func, declareFunc, importFunc, importGlobal, importMemory, importTable, importTag, i32, i64, f64,
   global, constant, memory, table, data, elem, funcref, externref, struct, array, mut, i8, rec,
   refType, funcType, tag, Module, localArray, async, call, block, if_, jsString, stringConstant,
-  v128,
+  v128, isolatedWasmati, type Wasmati, type Input,
 } from "wasmati";
 import { unary } from "./unary.mjs";
 
@@ -67,6 +67,11 @@ export const module = Module({ exports: { add, load, getX, mul, length, run: asy
 export function createModule() {
   return Module({ exports: { add, mul, unary: unary() } });
 }
+export const isolated = isolatedWasmati();
+export function addOne({ i32 }: Wasmati, x: Input<"i32">) {
+  return i32.add(x, 1);
+}
+export const addOneIsolated = isolated.func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => addOne(isolated, x));
 export function withExports<E extends Record<string, ReturnType<typeof unary> | ReturnType<typeof async>>>(exports: E) {
   return Module({ exports: { ...exports, add } });
 }

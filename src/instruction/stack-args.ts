@@ -11,6 +11,7 @@ import {
   StackVar,
   type StackType,
   Unknown,
+  missingLocal,
 } from "../local-context.ts";
 import {
   isSubtype,
@@ -408,7 +409,7 @@ function writeOperand(ctx: LocalContext, string: string, type: ValueType, x: Inp
       throw Error(
         `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
       );
-    if (ctx.locals[x.index] === undefined) throw Error(`local with index ${x.index} not available`);
+    if (ctx.locals[x.index] === undefined) throw missingLocal(ctx, x.index);
     code.indexed(0x20, x.index);
   } else if (isGlobal(x)) {
     if (!isSubtype(x.type.value, type))

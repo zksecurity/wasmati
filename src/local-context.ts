@@ -31,6 +31,7 @@ export {
   isSameType,
   formatStack,
   checkSynchronous,
+  missingLocal,
 };
 
 /** The type of a value in unreachable code, which matches any type (the spec's "bottom"). */
@@ -67,10 +68,28 @@ type LocalContext = {
   allowed?: Set<string>;
 };
 
+const idle =
+  "no function or constant is being built with this instance of the builder API. Call instructions in the body of func() or constant(), with the instance that builds it.";
+
+/** The code of an instance that builds nothing, which instructions can't write to. */
+class IdleCode extends Code {
+  constructor() {
+    super(0);
+  }
+  reserve(): void {
+    throw Error(idle);
+  }
+}
+
+/** A local that is not among the function's locals, or used where no function is being built. */
+function missingLocal(ctx: LocalContext, index: number) {
+  return Error(ctx.frames.length === 0 ? idle : `local with index ${index} not available`);
+}
+
 function emptyContext(): LocalContext {
   return {
     locals: [],
-    code: new Code(64),
+    code: new IdleCode(),
     deps: new Set(),
     calls: new Set(),
     return: [],
