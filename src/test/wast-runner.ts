@@ -20,6 +20,7 @@ import {
   exnref,
 } from "../index.ts";
 import type { Module as ModuleValue } from "../module-binable.ts";
+import type { ExportInput, TypedInstance } from "../index.ts";
 import {
   type DefinedType,
   type FieldType,
@@ -56,7 +57,7 @@ type Failure = { command: number; line: number; kind: string; message: string };
 /** Valid modules beyond the engine's implementation limits, which the spec permits, and unsupported legacy features are skipped. */
 type Result = { passed: number; failures: Failure[]; skipped: Failure[] };
 
-type Instance = { instance: WebAssembly.Instance; module: ModuleValue };
+type Instance = { instance: TypedInstance<Record<string, ExportInput>>; module: ModuleValue };
 type Factory = Awaited<ReturnType<typeof loadTextFactory>>;
 
 /**
@@ -153,7 +154,9 @@ async function runCommands(
           break;
         }
         case "register":
-          registered[command.name] = target(command.module).instance.exports;
+          // TypeScript's import values leave out tags.
+          registered[command.name] = target(command.module).instance
+            .exports as WebAssembly.ModuleImports;
           break;
         case "action":
           await perform(command.action);

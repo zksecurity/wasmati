@@ -135,6 +135,21 @@ test("skipDebugNames leaves out parameter and local names, but keeps function na
   assert.deepEqual(named.toJSON().names?.locals, { 1: { 0: "x" } });
 });
 
+test("typed instances have only their exports, which other modules can import", async () => {
+  const counter = global(
+    constant(() => i32.const(7)),
+    { mutable: true },
+  );
+  const read = func({ in: [], out: [i32] }, () => global.get(counter));
+  const { instance } = await Module({ exports: { read, counter } }).instantiate();
+  instance.exports.counter.value satisfies number;
+  instance.exports satisfies WebAssembly.ModuleImports;
+  // @ts-expect-error only the module's exports exist
+  instance.exports.missing;
+  assert.equal(instance.exports.counter.value, 7);
+  assert.equal(instance.exports.read(), 7);
+});
+
 test("local arrays retain their groups and names across type-based reordering", async () => {
   const dynamicLength: number = 2;
   const grouped = func(

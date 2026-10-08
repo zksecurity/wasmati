@@ -67,6 +67,9 @@ export const module = Module({ exports: { add, load, getX, mul, length, run: asy
 export function createModule() {
   return Module({ exports: { add, mul, unary: unary() } });
 }
+export function withExports<E extends Record<string, ReturnType<typeof unary> | ReturnType<typeof async>>>(exports: E) {
+  return Module({ exports: { ...exports, add } });
+}
 `;
 
 test("libraries built on wasmati can emit declarations of inferred types", async () => {

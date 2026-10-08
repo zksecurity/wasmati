@@ -30,7 +30,7 @@ import { TypeRegistry } from "./type-registry.ts";
 import type { NameMap, NameSection } from "./name-section.ts";
 import type { CustomSection } from "./module-binable.ts";
 
-export { Module, type ModuleExport, type ModuleInstance };
+export { Module, type ModuleExport, type ModuleInstance, type ExportInput, type TypedInstance };
 
 type Module = ReturnType<typeof ModuleConstructor>;
 
@@ -476,8 +476,11 @@ function withAsyncExports(instance: WebAssembly.Instance, asyncExports: string[]
   return Object.create(instance, { exports: { value: exports } }) as WebAssembly.Instance;
 }
 
-/** An instance with the inferred types of a module's exports. */
-type TypedInstance<Exports extends Record<string, ExportInput>> = WebAssembly.Instance & {
+/** An instance with the inferred types of a module's exports, and no others. */
+type TypedInstance<Exports extends Record<string, ExportInput>> = Omit<
+  WebAssembly.Instance,
+  "exports"
+> & {
   exports: { [K in keyof Exports]: ModuleExport<Exports[K]> };
 };
 
@@ -493,7 +496,7 @@ type ModuleExport<Export extends ExportInput> =
     : Export extends Dependency.AnyFunc
       ? JSFunction<Export>
       : Export extends Dependency.AnyGlobal
-        ? {
+        ? Omit<WebAssembly.Global, "value" | "valueOf"> & {
             value: JSValue<Export["type"]["value"]>;
             valueOf(): JSValue<Export["type"]["value"]>;
           }
