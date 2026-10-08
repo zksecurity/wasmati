@@ -1,7 +1,7 @@
-import "../index.ts";
 import { Byte, Undefined } from "../binable.ts";
 import { F32, F64, I32, I64, U8, type U64 } from "../immediate.ts";
-import { lookupInstruction, type ResolvedInstruction } from "../instruction/base.ts";
+import type { ResolvedInstruction } from "../instruction/base.ts";
+import { lookupInstruction } from "../instruction/all.ts";
 import { Block, type Catch, IfBlock, TryTable } from "../instruction/binable.ts";
 import {
   type AbstractHeapType,

@@ -6,35 +6,50 @@ import {
   type V128,
   type VectorShape,
 } from "../v128.ts";
-import { baseInstruction } from "./base.ts";
+import { checkAllowed, define, withPublicSignature } from "./base.ts";
 import { i32t, i64t, f32t, f64t, v128t } from "../types.ts";
 import { memoryLaneInstruction as mli, memoryInstruction as mi } from "./memory.ts";
 import { array, Byte } from "../binable.ts";
 import type { TupleN } from "../util.ts";
-import type { LocalContext } from "../local-context.ts";
-import { instruction as i, instructionWithArg as iarg } from "./stack-args.ts";
+import { type LocalContext, pushResult, type StackVar } from "../local-context.ts";
+import { fixed as i, fixedWithImmediate as iarg, writeOpcode } from "./stack-args.ts";
 
-export { v128Ops, i8x16Ops, i16x8Ops, i32x4Ops, i64x2Ops, f32x4Ops, f64x2Ops, wrapConst };
+export {
+  v128Ops,
+  i8x16Ops,
+  i16x8Ops,
+  i32x4Ops,
+  i64x2Ops,
+  f32x4Ops,
+  f64x2Ops,
+  v128ConstInstruction,
+};
 
 const V128 = array(Byte, 16);
 
-function wrapConst<R>(const_: (...createArgs: V128) => R) {
-  return function <Shape extends VectorShape>(
-    shape: Shape,
-    value: TupleN<ShapeType[Shape], ShapeLength[Shape]>,
-  ) {
-    return const_(...([shape, value] as V128));
-  };
+const v128ConstInstruction = define("v128.const", V128);
+
+/** A vector constant, from the lanes of a shape. */
+function v128Const<Shape extends VectorShape>(
+  ctx: LocalContext,
+  shape: Shape,
+  value: TupleN<ShapeType[Shape], ShapeLength[Shape]>,
+) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "v128.const");
+  writeOpcode(ctx.code, v128ConstInstruction.opcodeBytes);
+  V128.writeBytes(ctx.code, toV128Bytes(...([shape, value] as V128)));
+  return pushResult(ctx, "v128");
 }
 
 const v128Ops = {
   // const
-  const: baseInstruction("v128.const", V128, {
-    create(_: LocalContext, ...v: V128) {
-      let v128Bytes = toV128Bytes(...v);
-      return { in: [], out: ["v128"], resolveArgs: [v128Bytes] };
-    },
-  }),
+  const:
+    withPublicSignature<
+      <Shape extends VectorShape>(
+        shape: Shape,
+        value: TupleN<ShapeType[Shape], ShapeLength[Shape]>,
+      ) => StackVar<"v128">
+    >()(v128Const),
 
   // memory
   load: mi("v128.load", 128, [i32t], [v128t]),

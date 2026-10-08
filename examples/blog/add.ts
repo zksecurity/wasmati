@@ -45,7 +45,7 @@ const add = func(
       // perform carry on zi and store in z[i];
       // carry bit is left on the stack for next i
       if (i < n - 1) i32.shr_s(zi, w);
-      storeLimb(z, i, i32.and(zi, wordMax));
+      storeLimb(z, i, () => i32.and(zi, wordMax));
     }
 
     // if (z < p) return;
@@ -62,7 +62,7 @@ const add = func(
       // perform carry on zi and store in z[i];
       // carry "bit" (0 or -1) is left on the stack for next i
       if (i < n - 1) i32.shr_s(zi, w);
-      storeLimb(z, i, i32.and(zi, wordMax));
+      storeLimb(z, i, () => i32.and(zi, wordMax));
     }
   },
 );
@@ -71,8 +71,9 @@ function loadLimb(x: Local<i32>, i: number) {
   return i32.load({ offset: 4 * i }, x);
 }
 
-function storeLimb(x: Local<i32>, i: number, s: Input<i32>) {
-  return i32.store({ offset: 4 * i }, x, s);
+/** The address is pushed before the value, which `s` computes. */
+function storeLimb(x: Local<i32>, i: number, s: () => Input<i32>) {
+  return i32.store({ offset: 4 * i }, local.get(x), s());
 }
 
 // compile and use wasm code

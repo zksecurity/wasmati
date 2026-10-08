@@ -37,7 +37,7 @@ async function rebuild(wat: string, imports: WebAssembly.Imports = {}, debugName
 async function rebuildBytes(bytes: Uint8Array, imports: WebAssembly.Imports = {}) {
   const source = decompile(bytes, { importPath });
   assert.equal(source, decompile(bytes, { importPath }), "source is deterministic");
-  assert.doesNotMatch(source, /fromBytes|resolveArgs|defaultCtx|as any/);
+  assert.doesNotMatch(source, /fromBytes|as any/);
   const directory = await mkdtemp(join(tmpdir(), "wasmati-decompile-"));
   try {
     const path = join(directory, "generated.mts");
@@ -96,7 +96,7 @@ test("decompiles forward calls, self recursion, mutual recursion and unused func
   assert.match(result.source, /declareFunc\(/);
   assert.match(result.source, /local.get\(n/);
   assert.match(result.source, /call\(factorial\)/);
-  assert.equal(result.module.module.funcs.length, 5);
+  assert.equal(result.module.toObject().funcs.length, 5);
   for (let n = 0; n < 9; n++) {
     assert.equal(invoke(result.instance, "factorial", n), invoke(result.original, "factorial", n));
     assert.equal(invoke(result.instance, "even", n), invoke(result.original, "even", n));
@@ -251,8 +251,8 @@ test("decompiles SIMD immediates, floats, missing names and hostile debug/export
     }).toBytes(),
   );
   assert.equal(invoke(named.instance, 'strange"\n', 20, 22), 42);
-  assert.equal(named.module.module.names?.functions?.[0], 'bad-name"\n');
-  assert.deepEqual(named.module.module.customSections?.[0].data, new Uint8Array([0, 255]));
+  assert.equal(named.module.toObject().names?.functions?.[0], 'bad-name"\n');
+  assert.deepEqual(named.module.toObject().customSections?.[0].data, new Uint8Array([0, 255]));
 });
 
 test("decompiles wide arithmetic through the public API", async () => {
@@ -282,7 +282,7 @@ test("function declarations require a definition, preserve identity and cannot b
     call(f);
   });
   assert.equal(g.deps[0], f);
-  assert.equal(Module({ exports: {}, dependencies: [f, g] }).module.funcs.length, 2);
+  assert.equal(Module({ exports: {}, dependencies: [f, g] }).toObject().funcs.length, 2);
 });
 
 test("decompiles memory alignment, SIMD memory lanes, reference selects and atomic RMW", async () => {

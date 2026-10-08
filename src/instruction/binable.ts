@@ -6,32 +6,24 @@ import {
   record,
   withByteCode,
   writeByte,
-  writeByteArray,
   writeUnsignedLEB,
 } from "../binable.ts";
 import { S33, U32, vec } from "../immediate.ts";
 import { ValueType } from "../types.ts";
-import {
-  type BaseInstruction,
-  isInstruction,
-  lookupInstruction,
-  lookupOpcode,
-  lookupSubcode,
-  type ResolvedInstruction,
-} from "./base.ts";
+import type { BaseInstruction, ResolvedInstruction } from "./base.ts";
+import { isInstruction, lookupInstruction, lookupOpcode, lookupSubcode } from "./all.ts";
 
 export {
   Instruction,
   Expression,
   END,
   ELSE,
-  rememberEncoding,
   ConstExpression,
   Block,
   IfBlock,
   TryTable,
-  type Catch,
-  type BlockType,
+  Catch,
+  BlockType,
 };
 
 const Instruction = Binable<ResolvedInstruction>({
@@ -57,24 +49,9 @@ const Instruction = Binable<ResolvedInstruction>({
 
 const END = 0x0b;
 
-/**
- * Encodings of expressions that were encoded already, to measure the offsets of branch hints, for
- * the next encoding of the expression only.
- */
-const encodings = new WeakMap<ResolvedInstruction[], Uint8Array>();
-
-function rememberEncoding(expression: ResolvedInstruction[], bytes: Uint8Array) {
-  encodings.set(expression, bytes);
-}
 type Expression = ResolvedInstruction[];
 const Expression = Binable<ResolvedInstruction[]>({
   writeBytes(output, t) {
-    let encoded = encodings.get(t);
-    if (encoded !== undefined) {
-      encodings.delete(t);
-      writeByteArray(output, encoded);
-      return;
-    }
     for (let i = 0; i < t.length; i++) Instruction.writeBytes(output, t[i]);
     writeByte(output, END);
   },

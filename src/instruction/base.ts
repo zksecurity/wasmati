@@ -1,10 +1,11 @@
-import { Binable, Undefined } from "../binable.ts";
+import { Binable, Undefined, writeByte, writeByteArray } from "../binable.ts";
+import { type Code, type Immediate, addHole } from "../code.ts";
 import type * as Dependency from "../dependency.ts";
 import {
+  checkSynchronous,
   formatStack,
   type LocalContext,
   popStack,
-  pushInstruction,
   type RandomLabel,
   StackVar,
   stackVars,
@@ -18,25 +19,21 @@ import {
   ValueType,
   valueTypeLiterals,
   type ValueTypeObject,
-  type ValueTypeObjects,
 } from "../types.ts";
-import type { Tuple } from "../util.ts";
 import { type InstructionName, nameToOpcode } from "./opcodes.ts";
 
 export {
   withPublicSignature,
   type WithPublicSignature,
-  baseInstructionWithImmediate,
-  baseInstruction,
+  define,
   type BaseInstruction,
   type ResolvedInstruction,
-  resolveInstruction,
-  resolveExpression,
-  createExpressionWithType,
+  writeInstruction,
+  emitInstruction,
+  runBlock,
+  checkAllowed,
+  hasDefinedType,
   type FunctionTypeInput,
-  lookupInstruction,
-  lookupOpcode,
-  lookupSubcode,
   typeFromInput,
   functionTypeOf,
   type FunctionTypeReference,
@@ -57,97 +54,118 @@ function withPublicSignature<Signature>() {
   return <F>(instruction: F) => instruction as F & WithPublicSignature<Signature>;
 }
 
-const nameToInstruction: Record<string, BaseInstruction> = {};
-const opcodeToInstruction: Record<number, BaseInstruction | Record<number, BaseInstruction>> = {};
-
-type BaseInstruction = {
-  string: string;
+type BaseInstruction = Immediate & {
   opcode: number | [number, number];
   immediate: Binable<any> | undefined;
-  resolve: (deps: number[], ...args: any) => any;
+  /** The opcode's encoding: for opcodes with a prefix, the prefix byte and the LEB128 subcode. */
+  opcodeBytes: number[];
+  /** Whether the immediate may contain defined types, which Module() replaces by their indices. */
+  typed: boolean;
+  /** Whether the instruction calls a function directly, which async exports must know. */
+  directCall: boolean;
 };
+
+/** Instructions whose immediates may contain defined types, which `TypeRegistry.immediate()` replaces. */
+const typedInstructions = new Set([
+  "ref.null",
+  "ref.test",
+  "ref.test_null",
+  "ref.cast",
+  "ref.cast_null",
+  "br_on_cast",
+  "br_on_cast_fail",
+  "select_t",
+]);
+
 /** An instruction with its immediate; `if` and `br_if` may carry a branch hint. */
 type ResolvedInstruction = { name: string; immediate: any; likely?: boolean };
 
 /**
- * Most general function to create instructions
+ * An instruction's definition: its name, opcode and immediate, which encoding, decoding and lookups by
+ * name or opcode use. `resolve` gives the immediate from the indices of the instruction's
+ * dependencies, which Module() knows, and further arguments; by default, it is the first argument.
  */
-function baseInstruction<
-  Immediate,
-  CreateArgs extends Tuple<any>,
-  ResolveArgs extends Tuple<any>,
-  Args extends Tuple<ValueType> | ValueType[],
-  Results extends Tuple<ValueType> | ValueType[],
->(
+function define(
   string: InstructionName,
-  immediate: Binable<Immediate> | undefined = undefined,
-  {
-    create,
-    resolve,
-  }: {
-    create(
-      ctx: LocalContext,
-      ...args: CreateArgs
-    ): {
-      in: Args;
-      out: Results;
-      deps?: Dependency.t[];
-      resolveArgs?: ResolveArgs;
-      likely?: boolean;
-    };
-    resolve?(deps: number[], ...args: ResolveArgs): Immediate;
-  },
-): ((ctx: LocalContext, ...createArgs: CreateArgs) => Instruction_<Args, Results>) & {
-  create(ctx: LocalContext, ...createArgs: CreateArgs): Dependency.Instruction;
-} {
-  resolve ??= noResolve;
+  immediate?: Binable<any>,
+  resolve: (deps: number[], ...args: any) => any = noResolve,
+): BaseInstruction {
   let opcode = nameToOpcode[string];
-  let instruction = { string, opcode, immediate, resolve };
-  nameToInstruction[string] = instruction;
-  if (typeof opcode === "number") {
-    opcodeToInstruction[opcode] = instruction;
-  } else {
-    opcodeToInstruction[opcode[0]] ??= {} as Record<number, BaseInstruction>;
-    (opcodeToInstruction[opcode[0]] as Record<number, BaseInstruction>)[opcode[1]] = instruction;
-  }
+  // A prefix byte and an unsigned LEB128 subcode, below 2^14 for all instructions.
+  let opcodeBytes =
+    typeof opcode === "number"
+      ? [opcode]
+      : opcode[1] < 0x80
+        ? [opcode[0], opcode[1]]
+        : [opcode[0], (opcode[1] & 0x7f) | 0x80, opcode[1] >> 7];
+  return {
+    string,
+    opcode,
+    opcodeBytes,
+    immediate: immediate === Undefined ? undefined : immediate,
+    resolve,
+    typed: typedInstructions.has(string),
+    directCall: string === "call" || string === "return_call",
+  };
+}
 
-  function wrapCreate(ctx: LocalContext, ...createArgs: CreateArgs): Dependency.Instruction {
-    let {
-      in: args,
-      out: results,
-      deps = [],
-      resolveArgs = createArgs,
-      likely,
-    } = create(ctx, ...createArgs);
-    return {
-      string,
-      deps,
-      type: { args, results },
-      resolveArgs,
-      ...hint(likely),
-    };
+/**
+ * Write an instruction: its opcode, and its immediate, or a hole for it if it refers to other
+ * definitions by index. Memory 0 and function references have no index of their own.
+ */
+function writeInstruction(
+  code: Code,
+  instruction: BaseInstruction,
+  deps: Dependency.t[],
+  args: any[],
+  likely?: boolean,
+) {
+  if (likely !== undefined) code.hints.push({ position: code.offset, likely });
+  let { opcodeBytes, immediate } = instruction;
+  if (opcodeBytes.length === 1) writeByte(code, opcodeBytes[0]);
+  else writeByteArray(code, opcodeBytes);
+  if (immediate !== undefined) {
+    if (deps.length > 0 && deps.some(hasIndex)) addHole(code, instruction, deps, args);
+    else {
+      let value = instruction.resolve(deps.length === 0 ? noDeps : deps.map(noIndex), ...args);
+      if (instruction.typed && hasDefinedType(value)) addHole(code, instruction, deps, args);
+      else immediate.writeBytes(code, value);
+    }
   }
+}
 
-  /**
-   * "Calling" an instruction does two different things:
-   * - creates a `Dependency.Instruction` (that represents the instruction before resolving dependencies)
-   *   - how to this is defined by the input `create()` function
-   * - applies the instruction to the current stack/ctx, and validates stack types
-   *
-   * If you only want creation, use `instruction.create()` instead of `instruction()`
-   * (this is currently not exposed to the public API)
-   */
-  return Object.assign(
-    function instruction(ctx: LocalContext, ...createArgs: CreateArgs) {
-      let instr = wrapCreate(ctx, ...createArgs);
-      // The results are the stack entries, so that operands can be checked to be where they are.
-      let results = pushInstruction(ctx, instr);
-      return (
-        results.length === 0 ? undefined : results.length === 1 ? results[0] : results
-      ) as Instruction_<Args, Results>;
-    },
-    { create: wrapCreate },
-  );
+/**
+ * Write an instruction, with its immediate, or a hole for it where it refers to other definitions, and
+ * record its dependencies and the function it calls directly.
+ */
+function emitInstruction(
+  ctx: LocalContext,
+  instruction: BaseInstruction,
+  deps: Dependency.t[],
+  args: unknown[],
+) {
+  for (let i = 0; i < deps.length; i++) ctx.deps.add(deps[i]);
+  if (instruction.directCall) ctx.calls.add(deps[0] as Dependency.AnyFunc);
+  writeInstruction(ctx.code, instruction, deps, args);
+}
+
+/** Constant expressions allow only some instructions. */
+function checkAllowed(ctx: LocalContext, name: string) {
+  if (ctx.allowed !== undefined && !ctx.allowed.has(name))
+    throw Error(`constant: ${name} is not a constant instruction`);
+}
+
+function hasIndex(dep: Dependency.t) {
+  return dep.kind !== "hasMemory" && dep.kind !== "hasRefTo";
+}
+const noIndex = () => 0;
+const noDeps: number[] = [];
+
+/** Whether a value contains defined types, which Module() replaces by their indices. */
+function hasDefinedType(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if ((value as { kind?: unknown }).kind === "type") return true;
+  return Object.values(value).some(hasDefinedType);
 }
 
 function isInstruction(
@@ -165,61 +183,6 @@ type Instruction_<Args, Results> = Results extends []
   : Results extends [ValueType]
     ? StackVar<Results[0]>
     : Instruction<Args, Results>;
-
-/**
- * Instruction of constant type without dependencies,
- * but with an immediate argument.
- *
- * Allows passing a validation callback for the immediate value.
- */
-function baseInstructionWithImmediate<
-  Args extends Tuple<ValueType>,
-  Results extends Tuple<ValueType>,
-  Immediate extends any,
->(
-  name: InstructionName,
-  immediate: Binable<Immediate> | undefined,
-  args: ValueTypeObjects<Args>,
-  results: ValueTypeObjects<Results>,
-  validateImmediate?: (immediate: Immediate) => void,
-) {
-  immediate = immediate === Undefined ? undefined : immediate;
-  type CreateArgs = Immediate extends undefined ? [] : [immediate: Immediate];
-  let instr = {
-    in: valueTypeLiterals<Args>(args),
-    out: valueTypeLiterals<Results>(results),
-  };
-
-  return baseInstruction<Immediate, CreateArgs, CreateArgs, Args, Results>(name, immediate, {
-    create:
-      // validate immediate if we have a validation callback
-      validateImmediate && immediate !== undefined
-        ? (_ctx, ...args) => {
-            validateImmediate(args[0] as Immediate);
-            return instr;
-          }
-        : () => instr,
-  });
-}
-
-function resolveInstruction(
-  { string: name, deps, resolveArgs, likely }: Dependency.Instruction,
-  depToIndex: Map<Dependency.t, number>,
-): ResolvedInstruction {
-  let instr = lookupInstruction(name);
-  let depIndices: number[] = [];
-  for (let dep of deps) {
-    let index = depToIndex.get(dep);
-    if (index === undefined) {
-      if (dep.kind === "hasRefTo") index = 0;
-      else if (dep.kind === "hasMemory") index = 0;
-      else throw Error("bug: no index for dependency");
-    }
-    depIndices.push(index);
-  }
-  let immediate = instr.resolve(depIndices, ...resolveArgs);
-  return { name, immediate, ...hint(likely) };
-}
 
 const noResolve = (_: number[], ...args: any) => args[0];
 
@@ -251,77 +214,32 @@ function typeFromInput(type: FunctionTypeInput): FunctionType {
   };
 }
 
-function createExpressionWithType(
-  name: LocalContext["frames"][number]["opcode"],
+let labels = 0;
+
+/**
+ * Run the body of a block of the given type, whose code follows in place, in a frame of its own. Its
+ * results must be all that its body leaves on its stack.
+ */
+function runBlock(
   ctx: LocalContext,
-  type: FunctionTypeInput,
+  name: LocalContext["frames"][number]["opcode"],
+  { args, results }: FunctionType,
   run: (label: RandomLabel) => void,
-): {
-  body: Dependency.Instruction[];
-  type: FunctionType;
-  deps: Dependency.t[];
-} {
-  let args = valueTypeLiterals(type?.in ?? []);
-  let results = valueTypeLiterals(type?.out ?? []);
+) {
   let stack = stackVars(args);
-  let label = String(Math.random()) as RandomLabel;
-  let subCtx = withContext(
-    ctx,
-    {
-      body: [],
-      stack,
-      frames: [
-        {
-          label,
-          opcode: name,
-          startTypes: args,
-          endTypes: results,
-          unreachable: false,
-          stack,
-        },
-        ...ctx.frames,
-      ],
-    },
-    () => run(label),
+  let label: RandomLabel = `0.${labels++}`;
+  let frame = {
+    label,
+    opcode: name,
+    startTypes: args,
+    endTypes: results,
+    unreachable: false,
+    stack,
+  };
+  let inner = withContext(ctx, { stack, frames: [frame, ...ctx.frames] }, () =>
+    checkSynchronous(run(label), name),
   );
-  popStack(subCtx, results);
+  popStack(inner, results);
   if (stack.length !== 0)
     throw Error(`expected stack to be empty at the end of block, got ${formatStack(stack)}`);
-  let { body } = subCtx;
-  return { body, type: { args, results }, deps: body.flatMap((i) => i.deps) };
-}
-
-/** Branch hints are recorded only where given. */
-function hint(likely: boolean | undefined): { likely?: boolean } {
-  return likely === undefined ? {} : { likely };
-}
-
-function resolveExpression(deps: number[], body: Dependency.Instruction[]) {
-  let instructions: ResolvedInstruction[] = [];
-  let offset = 0;
-  for (let instr of body) {
-    let n = instr.deps.length;
-    let myDeps = deps.slice(offset, offset + n);
-    let immediate = lookupInstruction(instr.string).resolve(myDeps, ...instr.resolveArgs);
-    instructions.push({ name: instr.string, immediate, ...hint(instr.likely) });
-    offset += n;
-  }
-  return instructions;
-}
-
-function lookupInstruction(name: string) {
-  let instr = nameToInstruction[name];
-  if (instr === undefined) throw Error(`invalid instruction name "${name}"`);
-  return instr;
-}
-function lookupOpcode(opcode: number) {
-  let instr = opcodeToInstruction[opcode];
-  if (instr === undefined) throw Error(`invalid opcode "${opcode}"`);
-  return instr;
-}
-
-function lookupSubcode(opcode: number, subcode: number, codes: Record<number, BaseInstruction>) {
-  let instr = codes[subcode];
-  if (instr === undefined) throw Error(`invalid opcode (${opcode}, ${subcode})`);
-  return instr;
 }

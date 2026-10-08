@@ -32,7 +32,7 @@ const hi = func({ in: [], out: [externref] }, () => {
 test("JS string builtins and string constants are provided by the engine", async () => {
   const module = Module({ exports: { greet, length, hi } });
   assert.deepEqual(
-    module.module.imports.map(({ module, name }) => [module, name]),
+    module.toObject().imports.map(({ module, name }) => [module, name]),
     [
       ["wasm:js-string", "concat"],
       ["wasm:js-string", "length"],

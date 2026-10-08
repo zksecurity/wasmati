@@ -1,3 +1,4 @@
+import { type Code, createCode } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
 import type { InstructionName } from "./instruction/opcodes.ts";
 import { isSubtype, printValueType, typeEquals, ValueType } from "./types.ts";
@@ -6,28 +7,31 @@ export {
   type LocalContext,
   type StackType,
   StackVar,
+  StackValue,
+  popOne,
+  isStackVar,
+  pushResult,
   type StackVars,
   stackVars,
   Unknown,
   type Label,
   type RandomLabel,
   popStack,
+  popTypes,
   popUnknown,
   checkStack,
   pushStack,
   setUnreachable,
   labelTypes,
   getFrameFromLabel,
-  pushInstruction,
   emptyContext,
   withContext,
   isNumberType,
   isVectorType,
   isSameType,
   formatStack,
-  placeOf,
-  place,
-  shiftPlaces,
+  checkSynchronous,
+  missingLocal,
 };
 
 /** The type of a value in unreachable code, which matches any type (the spec's "bottom"). */
@@ -38,7 +42,6 @@ type RandomLabel = `0.${string}`;
 type Label = "top" | RandomLabel;
 
 type StackVar<T> = {
-  id: number;
   kind: "stack-var";
   type: T;
 };
@@ -50,27 +53,45 @@ type ControlFrame = {
   endTypes: ValueType[];
   unreachable: boolean;
   stack: StackVar<StackType>[];
-  /** The start of the earliest value popped by the instruction being created, see `starts`. */
-  popsFrom?: number;
 };
 
 type LocalContext = {
   locals: ValueType[];
-  deps: Dependency.t[];
-  body: Dependency.Instruction[];
+  deps: Set<Dependency.t>;
+  /** Functions that the code calls directly. */
+  calls: Set<Dependency.AnyFunc>;
+  code: Code;
   stack: StackVar<StackType>[]; // === frames[0].stack
   frames: ControlFrame[];
   return: ValueType[] | null;
+  /** The instructions that the code may use, if not all, as in constant expressions. */
+  allowed?: Set<string>;
 };
+
+const idle =
+  "no function or constant is being built with this instance of the builder API. Call instructions in the body of func() or constant(), with the instance that builds it.";
+
+/** The code of an instance that builds nothing, without room that instructions could write to. */
+function idleCode(): Code {
+  return { ...createCode(0), fixed: idle };
+}
+
+/** A local that is not among the function's locals, or used where no function is being built. */
+function missingLocal(ctx: LocalContext, index: number) {
+  return Error(ctx.frames.length === 0 ? idle : `local with index ${index} not available`);
+}
 
 function emptyContext(): LocalContext {
   return {
     locals: [],
-    body: [],
-    deps: [],
+    code: idleCode(),
+    deps: new Set(),
+    calls: new Set(),
     return: [],
     stack: [],
     frames: [],
+    // Present, so that contexts that restrict instructions restore it.
+    allowed: undefined,
   };
 }
 
@@ -95,29 +116,6 @@ function withContext(
   return resultCtx;
 }
 
-/** Apply an instruction to the stack, and return its results, which are the new stack entries. */
-function pushInstruction(ctx: LocalContext, instr: Dependency.Instruction): StackVar<StackType>[] {
-  let { body, deps, stack } = ctx;
-  popStack(ctx, instr.type.args, instr.string);
-  let results = pushStack(ctx, instr.type.results);
-  let frame: ControlFrame | undefined = ctx.frames[0];
-  let start = Math.min(frame?.popsFrom ?? body.length, body.length);
-  if (frame !== undefined) frame.popsFrom = undefined;
-  body.push(instr);
-  // Values that the instruction pushed or passed through follow it.
-  for (let i = stack.length - 1; i >= 0 && placed(stack[i]).end < 0; i--) {
-    let value = placed(stack[i]);
-    value.end = body.length;
-    if (value.start < 0) value.start = start;
-  }
-  for (let dep of instr.deps) {
-    if (!deps.includes(dep)) {
-      deps.push(dep);
-    }
-  }
-  return results;
-}
-
 /**
  * Pop values of the given types and return the types actually popped. In unreachable code, popping
  * below the frame yields Unknown, and Unknown matches any type.
@@ -127,7 +125,7 @@ function popStack(ctx: LocalContext, values: StackType[], instruction?: string):
   let { frames } = ctx;
   let popped: StackType[] = [];
   for (let i = values.length - 1; i >= 0; i--) {
-    let stackValue = popValue(ctx);
+    let stackValue = ctx.stack.pop();
     let value = values[i];
     if (
       (stackValue === undefined && !frames[0].unreachable) ||
@@ -143,6 +141,47 @@ function popStack(ctx: LocalContext, values: StackType[], instruction?: string):
 }
 
 /**
+ * Pop values of the given types, like `popStack`, without returning their types, or of the first
+ * `count` types. Errors name the instruction, if given.
+ */
+function popTypes(
+  ctx: LocalContext,
+  values: StackType[],
+  instruction?: string,
+  count = values.length,
+) {
+  let { stack } = ctx;
+  let frame: ControlFrame | undefined = ctx.frames[0];
+  for (let i = count - 1; i >= 0; i--) {
+    let value = stack.pop();
+    let expected = values[i];
+    if (value === undefined) {
+      if (frame?.unreachable) continue;
+      throw Error(
+        `${instruction === undefined ? "" : `${instruction}: `}expected ${format(expected)} on the stack, got nothing`,
+      );
+    }
+    let { type } = value;
+    if (type !== expected && !isAssignable(type, expected))
+      throw Error(
+        `${instruction === undefined ? "" : `${instruction}: `}expected ${format(expected)} on the stack, got ${format(type)}`,
+      );
+  }
+}
+
+/** Pop one value of the given type. */
+function popOne(ctx: LocalContext, expected: StackType, instruction: string) {
+  let value = ctx.stack.pop();
+  if (value === undefined) {
+    if (ctx.frames[0]?.unreachable) return;
+    throw Error(`${instruction}: expected ${format(expected)} on the stack, got nothing`);
+  }
+  let { type } = value;
+  if (type !== expected && !isAssignable(type, expected))
+    throw Error(`${instruction}: expected ${format(expected)} on the stack, got ${format(type)}`);
+}
+
+/**
  * Check that the stack has values of the given types, and leave them in place, as the same values. In
  * unreachable code, missing values become values of Unknown type.
  */
@@ -150,24 +189,12 @@ function checkStack(ctx: LocalContext, values: StackType[]) {
   let kept = ctx.stack.slice(Math.max(0, ctx.stack.length - values.length));
   let popped = popStack(ctx, values);
   pushStack(ctx, popped.slice(0, popped.length - kept.length));
-  // The values pass through the instruction, so they follow it.
-  kept.forEach((value) => (placed(value).end = -1));
   ctx.stack.push(...kept);
-}
-
-/** Pop a value, which the instruction being created computes from. */
-function popValue(ctx: LocalContext): StackVar<StackType> | undefined {
-  let value = ctx.stack.pop();
-  let start = value && placed(value).start;
-  let frame: ControlFrame | undefined = ctx.frames[0];
-  if (start !== undefined && start >= 0 && frame !== undefined)
-    frame.popsFrom = Math.min(frame.popsFrom ?? start, start);
-  return value;
 }
 
 function popUnknown(ctx: LocalContext): ValueType | Unknown {
   let { frames } = ctx;
-  let stackValue = popValue(ctx);
+  let stackValue = ctx.stack.pop();
   if (stackValue === undefined && frames[0].unreachable) {
     return Unknown;
   }
@@ -178,9 +205,13 @@ function popUnknown(ctx: LocalContext): ValueType | Unknown {
 }
 
 function pushStack({ stack }: LocalContext, values: StackType[]): StackVar<StackType>[] {
-  let stackVars = values.map(StackVar);
-  stack.push(...stackVars);
-  return stackVars;
+  let pushed: StackVar<StackType>[] = new Array(values.length);
+  for (let i = 0; i < values.length; i++) {
+    let value = StackVar(values[i]);
+    pushed[i] = value;
+    stack.push(value);
+  }
+  return pushed;
 }
 
 /** Called while creating the instruction that ends reachability, before it is in the body. */
@@ -205,15 +236,39 @@ function getFrameFromLabel(ctx: LocalContext, label: Label | number): [number, C
   }
 }
 
-function StackVar<T extends ValueType | Unknown>(type: T): StackVar<T> {
-  let value: StackVar<T> & { start: number; end: number } = {
-    kind: "stack-var",
-    id: id(),
-    type,
-    start: -1,
-    end: -1,
-  };
+/** Stack values are instances of a class, which tells them apart from other operands quickly. */
+class Value<T> {
+  get kind() {
+    return "stack-var" as const;
+  }
+  type: T;
+  constructor(type: T) {
+    this.type = type;
+  }
+}
+
+/**
+ * The class of stack values, which all copies of wasmati in a JS realm share through a global
+ * symbol: values of one copy are operands of another, like `$` imported by a library that bundles its
+ * own wasmati. The symbol's version changes where stack values change.
+ */
+const StackValue: typeof Value = ((globalThis as Record<symbol, unknown>)[
+  Symbol.for("wasmati.StackValue@2")
+] ??= Value) as typeof Value;
+
+/** Push the result of an instruction. */
+function pushResult<T extends StackType>(ctx: LocalContext, type: T): StackVar<T> {
+  let value = new StackValue(type);
+  ctx.stack.push(value);
   return value;
+}
+
+function StackVar<T extends ValueType | Unknown>(type: T): StackVar<T> {
+  return new StackValue(type);
+}
+
+function isStackVar(x: unknown): x is StackVar<StackType> {
+  return x instanceof StackValue;
 }
 
 type StackVars<Results extends readonly ValueType[]> = {
@@ -222,50 +277,21 @@ type StackVars<Results extends readonly ValueType[]> = {
 
 /** The parameters of a block, which are on its stack at the start of its body. */
 function stackVars(types: ValueType[]) {
-  let values = types.map(StackVar);
-  values.forEach((value) => place(value, 0, 0));
-  return values;
-}
-
-/**
- * Where each stack value is computed in the body of its block: from `start`, where the stack has the
- * values below it, to `end`, right after the instruction that pushed it or last passed it through.
- * Instructions inserted at `start` compute a value between the value and the ones below. Both are -1
- * until the instruction is in the body. They are properties of the values, but not of their type.
- */
-type Placed = StackVar<StackType> & { start: number; end: number };
-
-function placed(value: StackVar<StackType>): Placed {
-  return value as Placed;
-}
-
-function placeOf(value: StackVar<StackType>): { start: number; end: number } {
-  let { start, end } = placed(value);
-  if (start < 0 || end < 0)
-    throw Error("invariant violation: stack value without a place in the body");
-  return { start, end };
-}
-
-/** Place a value, by default one computed by an instruction inserted at `start`. */
-function place(value: StackVar<StackType>, start: number, end = start + 1) {
-  Object.assign(placed(value), { start, end });
-}
-
-/** Values computed from `position` on move by one, after an instruction is inserted there. */
-function shiftPlaces(ctx: LocalContext, position: number) {
-  for (let value of ctx.stack) {
-    let { start, end } = placeOf(value);
-    if (start >= position) placed(value).start = start + 1;
-    if (end > position) placed(value).end = end + 1;
-  }
-}
-
-let i = 0;
-function id() {
-  return i++;
+  return types.map(StackVar);
 }
 
 // helpers
+
+/**
+ * Bodies of functions, blocks and constants run synchronously, in the context of what they build.
+ * Instructions after an `await` would go into whatever is being built at that time.
+ */
+function checkSynchronous(result: unknown, what: string) {
+  if (result instanceof Promise)
+    throw Error(
+      `${what}: the body returned a promise. Bodies must be synchronous; instructions after an \`await\` would go into whatever is being built at that time.`,
+    );
+}
 
 function isNumberType(type: ValueType | Unknown) {
   return type === "i32" || type === "i64" || type === "f32" || type === "f64" || type === Unknown;

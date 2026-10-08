@@ -125,10 +125,11 @@ const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y })
 });
 ```
 
+- **Performance.** Turning builder code into Wasm bytecode is cheap: every instruction is written as bytes the moment you call it, so there is no separate encoding step. A module of 250 KB of field arithmetic builds in about 16 ms, while V8 takes 12 ms to compile it with its optimizing compiler. Run `npm run benchmark`.
+
 - Great composability and IO
-  - Internal representation of modules / funcs / etc is a readable JSON object
-    - close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
+  - Convert to/from a readable JS object with `module.toObject()`, `Module.fromObject(object)`, close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary), or to/from JSON with `module.toJSON()`, `Module.fromJSON(json)`, which `JSON.stringify(module)` uses
   - Convert to/from WAT text format with `module.toWat()`, `Module.fromWat(text)`, preserving variable and function names
   - Generate wasmati TS from Wasm with `decompile(bytesOrWat)` or `wasmati decompile input.wasm -o output.ts` (omit `-o` to write to stdout). The generated default export builds a `Module` from a `WebAssembly.Imports` object.
   - Convert between wasm and wat with `wasmati wat input.wasm` and `wasmati wasm input.wat -o output.wasm`.

@@ -21,6 +21,7 @@ import {
   ValueType,
 } from "./types.ts";
 import type { Parameters } from "./parameters.ts";
+import type { Code } from "./code.ts";
 import { Byte } from "./binable.ts";
 import type { F32, F64 } from "./immediate.ts";
 import {
@@ -60,7 +61,6 @@ export {
   type AnyImport,
   type ImportPath,
   type Offset,
-  type Instruction,
   type Constant,
 };
 export { hasRefTo, hasMemory, dependencyKinds, kindToExportKind, typeOf };
@@ -106,8 +106,10 @@ type Func = {
   /** An explicit type, such as a subtype or a type of a recursion group. */
   definedType?: DefinedType;
   locals: ValueType[];
-  body: Instruction[];
+  code: Code;
   deps: t[];
+  /** Functions that the code calls directly. */
+  calls: AnyFunc[];
   defined: boolean;
 };
 type HasRefTo = { kind: "hasRefTo"; value: AnyFunc; deps: [] };
@@ -251,21 +253,10 @@ const kindToExportKind: Record<
   importTable: "table",
 };
 
-// general instruction
-
-type Instruction = {
-  string: string;
-  type: FunctionType;
-  deps: t[];
-  resolveArgs: any[];
-  /** A branch hint, on `if` and `br_if`. */
-  likely?: boolean;
-};
-
 /** A constant expression: instructions that produce one value, such as a global's initializer. */
 type Constant<T extends ValueType = ValueType> = {
   kind: "constant";
   type: T;
-  body: Instruction[];
+  code: Code;
   deps: t[];
 };

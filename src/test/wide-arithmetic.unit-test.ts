@@ -47,11 +47,11 @@ test("wide arithmetic encodes and decodes the proposal opcodes", () => {
       0x0b,
     ];
     // Name metadata follows the code section; inspect code without that metadata.
-    const codeOnly = Module.fromBytes(bytes);
-    delete codeOnly.module.names;
+    const { names, ...rest } = single.toObject();
+    const codeOnly = Module.fromObject(rest);
     assert.deepEqual([...codeOnly.toBytes().slice(-body.length)], body);
     const recovered = Module.fromBytes(bytes);
-    assert.deepEqual(recovered.module, single.module);
+    assert.deepEqual(recovered.toObject(), single.toObject());
     assert.deepEqual(recovered.toBytes(), bytes);
   }
 });
@@ -126,11 +126,13 @@ test("wide results compose with locals, constants, globals and stack operands", 
     i64.mul_wide_u(a, b);
     i64.add128($, $, 1n, 0n);
   });
-  const stackBelowConstants = func(
+  const constantsBelowStack = func(
     { in: [{ a: i64 }, { b: i64 }], out: [i64, i64] },
     ({ a, b }) => {
+      i64.const(0n);
+      i64.const(0n);
       i64.mul_wide_u(a, b);
-      i64.sub128(0n, 0n, $, $);
+      i64.sub128();
     },
   );
   const chained = func(
@@ -142,13 +144,13 @@ test("wide results compose with locals, constants, globals and stack operands", 
     },
   );
   const { instance } = await Module({
-    exports: { multiplyAdd, stackAdd, stackBelowConstants, chained },
+    exports: { multiplyAdd, stackAdd, constantsBelowStack, chained },
   }).instantiate();
   for (const a of limbs)
     for (const b of limbs) {
       assert.deepEqual(instance.exports.multiplyAdd(a, b), pair(a * b + 1n));
       assert.deepEqual(instance.exports.stackAdd(a, b), pair(a * b + 1n));
-      assert.deepEqual(instance.exports.stackBelowConstants(a, b), pair(-a * b));
+      assert.deepEqual(instance.exports.constantsBelowStack(a, b), pair(-a * b));
       assert.deepEqual(instance.exports.chained(a, b, b, a), pair(2n * a * b));
     }
 });
@@ -167,23 +169,7 @@ test("decoded wide arithmetic modules execute", async () => {
   assert.deepEqual(instance.exports.mulWideU(-1n, -1n), [1n, -2n]);
 });
 
-test("wide arithmetic validates operand counts, operand types and both results", () => {
-  assert.throws(
-    () =>
-      func({ in: [], out: [i64, i64] }, () => {
-        // @ts-expect-error widening multiply requires either zero or two operands
-        i64.mul_wide_u(1n);
-      }),
-    /Expected 0 or 2 arguments/,
-  );
-  assert.throws(
-    () =>
-      func({ in: [], out: [i64, i64] }, () => {
-        // @ts-expect-error 128-bit addition requires either zero or four operands
-        i64.add128(1n, 2n);
-      }),
-    /Expected 0 or 4 arguments/,
-  );
+test("wide arithmetic validates operand types and both results", () => {
   assert.throws(
     () =>
       func({ in: [{ x: i32 }], out: [i64, i64] }, ({ x }) => {

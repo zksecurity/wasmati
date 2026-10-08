@@ -1,4 +1,4 @@
-import { record, tuple, Undefined } from "../binable.ts";
+import { lazy, record, tuple, writeByte, writeByteArray, writeIndexed } from "../binable.ts";
 import * as Dependency from "../dependency.ts";
 import type { AnyFunc } from "../func-types.ts";
 import { vec } from "../immediate.ts";
@@ -17,6 +17,8 @@ import {
   isVectorType,
   isSameType,
   type LocalContext,
+  popOne,
+  pushResult,
 } from "../local-context.ts";
 import {
   FunctionIndex,
@@ -37,32 +39,43 @@ import {
   type ValueTypeObject,
 } from "../types.ts";
 import {
-  baseInstruction,
-  createExpressionWithType,
+  type BaseInstruction,
+  checkAllowed,
+  define,
+  emitInstruction,
   type FunctionTypeInput,
   type FunctionTypeReference,
   functionTypeOf,
-  resolveExpression,
-  baseInstructionWithImmediate,
+  hasDefinedType,
+  runBlock,
   typeFromInput,
   type Instruction_,
 } from "./base.ts";
-import { Block, type BlockType, type Catch, IfBlock, TryTable } from "./binable.ts";
-import { type Input, namedInputs, processStackArgs } from "./stack-args.ts";
+import { Block, BlockType, Catch, ELSE, END, IfBlock, TryTable } from "./binable.ts";
+import { type Immediate, addHole } from "../code.ts";
+import {
+  fixed,
+  type Input,
+  namedInputs,
+  pushResults,
+  takeOperands,
+  typedByImmediates,
+  writeOpcode,
+} from "./stack-args.ts";
 
-export { control, bindControlOps, parametric };
+export { control, bindControlOps, parametric, instructions };
 
 // control instructions
 
-const nop = baseInstructionWithImmediate("nop", Undefined, [], []);
+const nop = fixed("nop", [], []);
 
-const unreachable = baseInstruction("unreachable", Undefined, {
-  create(ctx) {
-    setUnreachable(ctx);
-    return { in: [], out: [] };
-  },
-  resolve: () => undefined,
-});
+const unreachableInstruction = define("unreachable");
+
+function unreachable(ctx: LocalContext) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "unreachable");
+  setUnreachable(ctx);
+  writeOpcode(ctx.code, unreachableInstruction.opcodeBytes);
+}
 
 /** The body of a block, which may branch to the block's label. */
 type Body = (label: RandomLabel) => void;
@@ -80,7 +93,7 @@ function withOptions<Options, Bodies extends unknown[]>(
 
 /**
  * A block type: empty or a single result where possible, otherwise the index of its function type,
- * which is then the block's first dependency.
+ * which is then the block's dependency.
  */
 function blockType(type: FunctionType): { deps: Dependency.t[]; abbreviated?: BlockType } {
   if (type.args.length === 0 && type.results.length <= 1)
@@ -88,32 +101,50 @@ function blockType(type: FunctionType): { deps: Dependency.t[]; abbreviated?: Bl
   return { deps: [Dependency.type(type)] };
 }
 
-/** The resolved block type and the dependencies of the block's contents. */
-function resolveBlockType(
-  deps: number[],
-  abbreviated: BlockType | undefined,
-): [BlockType, number[]] {
-  return abbreviated === undefined ? [deps[0], deps.slice(1)] : [abbreviated, deps];
+/** A block type that refers to a type by index, or to a defined type in a reference type. */
+const blockTypeImmediate: Immediate = {
+  string: "blocktype",
+  immediate: lazy(() => BlockType),
+  resolve: (deps: number[], abbreviated: BlockType | undefined) => abbreviated ?? deps[0],
+};
+
+/** A block's header: its opcode and block type, and catch clauses for try_table. */
+function writeHeader(ctx: LocalContext, instruction: BaseInstruction, type: FunctionType) {
+  let { code } = ctx;
+  checkAllowed(ctx, instruction.string);
+  writeByteArray(code, instruction.opcodeBytes);
+  let { deps, abbreviated } = blockType(type);
+  if (abbreviated === undefined) {
+    ctx.deps.add(deps[0]);
+    addHole(code, blockTypeImmediate, deps, [undefined]);
+  } else if (hasDefinedType(abbreviated)) addHole(code, blockTypeImmediate, [], [abbreviated]);
+  else BlockType.writeBytes(code, abbreviated);
+}
+
+/** After a block's code: take its parameters from the stack, and push its results. */
+function endBlock<Args, Results>(ctx: LocalContext, name: string, { args, results }: FunctionType) {
+  writeByte(ctx.code, END);
+  popStack(ctx, args, name);
+  let pushed = pushStack(ctx, results);
+  return (
+    pushed.length === 0 ? undefined : pushed.length === 1 ? pushed[0] : pushed
+  ) as Instruction_<Args, Results>;
 }
 
 function blockInstruction(name: "block" | "loop") {
-  return baseInstruction(name, Block, {
-    create(ctx, ...args: BlockArgs) {
-      let [options, run] = withOptions<BlockOptions, [Body]>(args, 1);
-      let { type, body, deps } = createExpressionWithType(name, ctx, options, run);
-      let { deps: typeDeps, abbreviated } = blockType(type);
-      return {
-        in: type.args,
-        out: type.results,
-        deps: [...typeDeps, ...deps],
-        resolveArgs: [body, abbreviated],
-      };
-    },
-    resolve(deps, body: Dependency.Instruction[], abbreviated: BlockType | undefined) {
-      let [blockType, rest] = resolveBlockType(deps, abbreviated);
-      return { blockType, instructions: resolveExpression(rest, body) };
-    },
-  });
+  // The instruction's codec decodes and encodes blocks of modules that are not built here.
+  let instruction = define(
+    name,
+    lazy(() => Block),
+  );
+  let block = function (ctx: LocalContext, ...args: BlockArgs) {
+    let [options, run] = withOptions<BlockOptions, [Body]>(args, 1);
+    let type = typeFromInput(options);
+    writeHeader(ctx, instruction, type);
+    runBlock(ctx, name, type, run);
+    return endBlock(ctx, name, type);
+  };
+  return Object.assign(block, { instruction });
 }
 
 const block = blockInstruction("block");
@@ -124,110 +155,125 @@ type BranchHint = { likely?: boolean };
 type IfOptions = BlockOptions & BranchHint;
 type IfArgs = [then: Body, otherwise?: Body] | [options: IfOptions, then: Body, otherwise?: Body];
 
-const if_ = baseInstruction("if", IfBlock, {
-  create(ctx, ...args: IfArgs) {
-    let bodies = typeof args[0] === "function" ? args.length : args.length - 1;
-    let [options, runIf, runElse] = withOptions<IfOptions, [Body, Body?]>(args, bodies);
-    popStack(ctx, ["i32"]);
-    let { type, body, deps } = createExpressionWithType("if", ctx, options, runIf);
-    let ifArgs = [...type.args, "i32"] as [...ValueType[], "i32"];
-    let elseExpr =
-      runElse === undefined ? undefined : createExpressionWithType("else", ctx, options, runElse);
-    pushStack(ctx, ["i32"]);
-    let { deps: typeDeps, abbreviated } = blockType(type);
-    return {
-      in: ifArgs,
-      out: type.results,
-      deps: [...typeDeps, ...deps, ...(elseExpr?.deps ?? [])],
-      resolveArgs: [body, elseExpr?.body, abbreviated],
-      likely: options.likely,
-    };
-  },
-  resolve(
-    allDeps,
-    ifBody: Dependency.Instruction[],
-    elseBody: Dependency.Instruction[] | undefined,
-    abbreviated: BlockType | undefined,
-  ) {
-    let [blockType, deps] = resolveBlockType(allDeps, abbreviated);
-    let ifDepsLength = ifBody.reduce((acc, i) => acc + i.deps.length, 0);
-    let if_ = resolveExpression(deps.slice(0, ifDepsLength), ifBody);
-    let else_ = elseBody && resolveExpression(deps.slice(ifDepsLength), elseBody);
-    return { blockType, instructions: { if: if_, else: else_ } };
-  },
-});
+const ifInstruction = define(
+  "if",
+  lazy(() => IfBlock),
+);
+function if_(ctx: LocalContext, ...args: IfArgs) {
+  let bodies = typeof args[0] === "function" ? args.length : args.length - 1;
+  let [options, runIf, runElse] = withOptions<IfOptions, [Body, Body?]>(args, bodies);
+  let { code } = ctx;
+  popStack(ctx, ["i32"]);
+  let type = typeFromInput(options);
+  if (options.likely !== undefined)
+    code.hints.push({ position: code.offset, likely: options.likely });
+  writeHeader(ctx, ifInstruction, type);
+  runBlock(ctx, "if", type, runIf);
+  if (runElse !== undefined) {
+    writeByte(code, ELSE);
+    runBlock(ctx, "else", type, runElse);
+  }
+  // The condition was taken before the branches; the parameters are below it.
+  pushStack(ctx, ["i32"]);
+  return endBlock(ctx, "if", { args: [...type.args, "i32"], results: type.results });
+}
 
-const br = baseInstruction("br", LabelIndex, {
-  create(ctx, label: Label | number) {
-    let [i, frame] = getFrameFromLabel(ctx, label);
-    let types = labelTypes(frame);
-    popStack(ctx, types);
-    setUnreachable(ctx);
-    return { in: [], out: [], resolveArgs: [i] };
-  },
-});
+const brInstruction = define("br", LabelIndex);
 
-const br_if = baseInstruction("br_if", LabelIndex, {
-  create(ctx, label: Label | number, { likely }: BranchHint = {}) {
-    let [i, frame] = getFrameFromLabel(ctx, label);
-    let types = labelTypes(frame);
-    return { in: [...types, "i32"], out: types, resolveArgs: [i], likely };
-  },
-});
+/** Branch to a label, with the values it takes. */
+function br(ctx: LocalContext, label: Label | number) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "br");
+  let [i, frame] = getFrameFromLabel(ctx, label);
+  popStack(ctx, labelTypes(frame));
+  setUnreachable(ctx);
+  writeIndexed(ctx.code, brInstruction.opcodeBytes[0], i);
+}
+
+const brIfInstruction = define("br_if", LabelIndex);
+
+/** Branch to a label if the i32 on the stack is nonzero; the label's values stay otherwise. */
+function br_if(ctx: LocalContext, label: Label | number, { likely }: BranchHint = {}) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "br_if");
+  let [i, frame] = getFrameFromLabel(ctx, label);
+  let types = labelTypes(frame);
+  popOne(ctx, "i32", "br_if");
+  if (types.length > 0) checkStack(ctx, types);
+  let { code } = ctx;
+  if (likely !== undefined) code.hints.push({ position: code.offset, likely });
+  writeIndexed(code, brIfInstruction.opcodeBytes[0], i);
+}
 
 const LabelTable = record({ indices: vec(LabelIndex), defaultIndex: LabelIndex });
-const br_table = baseInstruction("br_table", LabelTable, {
-  create(ctx, labels: (Label | number)[], defaultLabel: Label | number) {
-    popStack(ctx, ["i32"]);
-    let [defaultIndex, defaultFrame] = getFrameFromLabel(ctx, defaultLabel);
-    let types = labelTypes(defaultFrame);
-    let arity = types.length;
-    let indices: number[] = [];
-    for (let label of labels) {
-      let [j, frame] = getFrameFromLabel(ctx, label);
-      indices.push(j);
-      let types = labelTypes(frame);
-      if (types.length !== arity)
-        throw Error("inconsistent length of block label types in br_table");
-      checkStack(ctx, types);
-    }
-    popStack(ctx, types);
-    setUnreachable(ctx);
-    pushStack(ctx, ["i32"]);
-    return { in: ["i32"], out: [], resolveArgs: [{ indices, defaultIndex }] };
-  },
-});
+const brTableInstruction = define("br_table", LabelTable);
 
-const return_ = baseInstruction("return", Undefined, {
-  create(ctx) {
-    let type = ctx.return;
-    // TODO: do we need this for const expressions?
-    if (type === null) throw Error("bug: called return outside a function");
-    popStack(ctx, type);
-    setUnreachable(ctx);
-    return { in: [], out: [] };
-  },
-  resolve: () => undefined,
-});
+/** Branch to the label at the index on the stack, or to the default label beyond the labels. */
+function br_table(ctx: LocalContext, labels: (Label | number)[], defaultLabel: Label | number) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "br_table");
+  popStack(ctx, ["i32"]);
+  let [defaultIndex, defaultFrame] = getFrameFromLabel(ctx, defaultLabel);
+  let types = labelTypes(defaultFrame);
+  let arity = types.length;
+  let indices: number[] = [];
+  for (let label of labels) {
+    let [j, frame] = getFrameFromLabel(ctx, label);
+    indices.push(j);
+    let types = labelTypes(frame);
+    if (types.length !== arity) throw Error("inconsistent length of block label types in br_table");
+    checkStack(ctx, types);
+  }
+  popStack(ctx, types);
+  setUnreachable(ctx);
+  writeOpcode(ctx.code, brTableInstruction.opcodeBytes);
+  LabelTable.writeBytes(ctx.code, { indices, defaultIndex });
+}
 
-const call = baseInstruction("call", FunctionIndex, {
-  create(_, func: Dependency.AnyFunc) {
-    return { in: func.type.args, out: func.type.results, deps: [func] };
-  },
-  resolve: ([funcIndex]) => funcIndex,
-});
+const returnInstruction = define("return");
 
-const call_indirect = baseInstruction("call_indirect", tuple([TypeIndex, TableIndex]), {
-  create(_, table: Dependency.AnyTable, reference: FunctionTypeReference) {
+/** Return from the function, with its results. */
+function return_(ctx: LocalContext) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "return");
+  let type = ctx.return;
+  if (type === null) throw Error("bug: called return outside a function");
+  popStack(ctx, type);
+  setUnreachable(ctx);
+  writeOpcode(ctx.code, returnInstruction.opcodeBytes);
+}
+
+const callInstruction = define("call", FunctionIndex, ([index]: number[]) => index);
+
+/** Call a function with its parameters, given by name, or from the stack. */
+function call<F extends AnyFunc<any, any>>(
+  ctx: LocalContext,
+  func: F,
+  args?: { [K in keyof F["params"]["values"]]: Input<F["params"]["values"][K]> },
+): Instruction_<F["type"]["args"], F["type"]["results"]> {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "call");
+  let operands = args === undefined ? noOperands : namedInputs(func.params.names, args);
+  takeOperands(ctx, "call", func.type.args, operands);
+  emitInstruction(ctx, callInstruction, [func], []);
+  return pushResults(ctx, func.type.results) as Instruction_<
+    F["type"]["args"],
+    F["type"]["results"]
+  >;
+}
+const noOperands: unknown[] = [];
+
+const call_indirect = typedByImmediates(
+  define("call_indirect", tuple([TypeIndex, TableIndex]), ([typeIdx, tableIdx]: number[]) => [
+    typeIdx,
+    tableIdx,
+  ]),
+  2,
+  (table: Dependency.AnyTable, reference: FunctionTypeReference) => {
     let { type, defined } = functionTypeOf(reference);
     return {
       in: [...type.args, addressType(table.type.limits)],
       out: type.results,
       deps: [defined, table],
+      args: [],
     };
   },
-  resolve: ([typeIdx, tableIdx]) => [typeIdx, tableIdx],
-});
+);
 
 /** A tail call returns the callee's results from the current function, so they must fit its results. */
 function tailCall(ctx: LocalContext, type: FunctionType, operands: ValueType[]) {
@@ -240,48 +286,58 @@ function tailCall(ctx: LocalContext, type: FunctionType, operands: ValueType[]) 
   setUnreachable(ctx);
 }
 
-const return_call = baseInstruction("return_call", FunctionIndex, {
-  create(ctx, func: Dependency.AnyFunc) {
-    tailCall(ctx, func.type, []);
-    return { in: [], out: [], deps: [func] };
-  },
-  resolve: ([funcIndex]) => funcIndex,
-});
+const returnCallInstruction = define("return_call", FunctionIndex, ([index]: number[]) => index);
 
-const return_call_indirect = baseInstruction(
+function return_call(ctx: LocalContext, func: Dependency.AnyFunc) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "return_call");
+  tailCall(ctx, func.type, []);
+  emitInstruction(ctx, returnCallInstruction, [func], []);
+}
+
+const returnCallIndirectInstruction = define(
   "return_call_indirect",
   tuple([TypeIndex, TableIndex]),
-  {
-    create(ctx, table: Dependency.AnyTable, reference: FunctionTypeReference) {
-      let { type, defined } = functionTypeOf(reference);
-      tailCall(ctx, type, [addressType(table.type.limits)]);
-      return { in: [], out: [], deps: [defined, table] };
-    },
-    resolve: ([typeIdx, tableIdx]) => [typeIdx, tableIdx],
-  },
+  ([typeIdx, tableIdx]: number[]) => [typeIdx, tableIdx],
 );
 
+function return_call_indirect(
+  ctx: LocalContext,
+  table: Dependency.AnyTable,
+  reference: FunctionTypeReference,
+) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "return_call_indirect");
+  let { type, defined } = functionTypeOf(reference);
+  tailCall(ctx, type, [addressType(table.type.limits)]);
+  emitInstruction(ctx, returnCallIndirectInstruction, [defined, table], []);
+}
+
 /** Call a function reference of the given type. */
-const call_ref = baseInstruction("call_ref", TypeIndex, {
-  create(_, reference: FunctionTypeReference) {
+const call_ref = typedByImmediates(
+  define("call_ref", TypeIndex, ([typeIdx]: number[]) => typeIdx),
+  1,
+  (reference: FunctionTypeReference) => {
     let { type, defined } = functionTypeOf(reference);
     return {
       in: [...type.args, refType(defined, true)],
       out: type.results,
       deps: [defined],
+      args: [],
     };
   },
-  resolve: ([typeIdx]) => typeIdx,
-});
+);
 
-const return_call_ref = baseInstruction("return_call_ref", TypeIndex, {
-  create(ctx, reference: FunctionTypeReference) {
-    let { type, defined } = functionTypeOf(reference);
-    tailCall(ctx, type, [refType(defined, true)]);
-    return { in: [], out: [], deps: [defined] };
-  },
-  resolve: ([typeIdx]) => typeIdx,
-});
+const returnCallRefInstruction = define(
+  "return_call_ref",
+  TypeIndex,
+  ([typeIdx]: number[]) => typeIdx,
+);
+
+function return_call_ref(ctx: LocalContext, reference: FunctionTypeReference) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "return_call_ref");
+  let { type, defined } = functionTypeOf(reference);
+  tailCall(ctx, type, [refType(defined, true)]);
+  emitInstruction(ctx, returnCallRefInstruction, [defined], []);
+}
 
 /** Pop a reference, which may be unknown in unreachable code. */
 function popReference(ctx: LocalContext): RefType | Unknown {
@@ -295,54 +351,56 @@ function nonNull(type: RefType | Unknown): ValueType | Unknown {
   return type === Unknown ? Unknown : refType(referenced(type).ref, false);
 }
 
+const brOnNullInstruction = define("br_on_null", LabelIndex);
+
 /** Branch if the reference is null; otherwise continue with it as non-null. */
-const br_on_null = baseInstruction("br_on_null", LabelIndex, {
-  create(ctx, label: Label | number) {
-    let [i, frame] = getFrameFromLabel(ctx, label);
-    let reference = popReference(ctx);
-    checkStack(ctx, labelTypes(frame));
-    pushStack(ctx, [nonNull(reference)]);
-    return { in: [], out: [], resolveArgs: [i] };
-  },
-});
+function br_on_null(ctx: LocalContext, label: Label | number) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "br_on_null");
+  let [i, frame] = getFrameFromLabel(ctx, label);
+  let reference = popReference(ctx);
+  checkStack(ctx, labelTypes(frame));
+  pushStack(ctx, [nonNull(reference)]);
+  writeIndexed(ctx.code, brOnNullInstruction.opcodeBytes[0], i);
+}
+
+const brOnNonNullInstruction = define("br_on_non_null", LabelIndex);
 
 /** Branch with the reference if it is not null; otherwise continue without it. */
-const br_on_non_null = baseInstruction("br_on_non_null", LabelIndex, {
-  create(ctx, label: Label | number) {
-    let [i, frame] = getFrameFromLabel(ctx, label);
-    let types = labelTypes(frame);
-    let target = types.at(-1);
-    if (target === undefined || !isRefType(target))
-      throw Error("br_on_non_null: the label's last type must be a reference");
-    let reference = nonNull(popReference(ctx));
-    if (reference !== Unknown && !isSubtype(reference, target))
-      throw Error(
-        `br_on_non_null: expected ${printValueType(target)}, got ${printValueType(reference)}`,
-      );
-    checkStack(ctx, types.slice(0, -1));
-    return { in: [], out: [], resolveArgs: [i] };
-  },
-});
+function br_on_non_null(ctx: LocalContext, label: Label | number) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "br_on_non_null");
+  let [i, frame] = getFrameFromLabel(ctx, label);
+  let types = labelTypes(frame);
+  let target = types.at(-1);
+  if (target === undefined || !isRefType(target))
+    throw Error("br_on_non_null: the label's last type must be a reference");
+  let reference = nonNull(popReference(ctx));
+  if (reference !== Unknown && !isSubtype(reference, target))
+    throw Error(
+      `br_on_non_null: expected ${printValueType(target)}, got ${printValueType(reference)}`,
+    );
+  checkStack(ctx, types.slice(0, -1));
+  writeIndexed(ctx.code, brOnNonNullInstruction.opcodeBytes[0], i);
+}
+
+const throwInstruction = define("throw", TagIndex, ([tagIdx]: number[]) => tagIdx);
 
 /** Throw an exception with the tag's values from the stack. */
-const throw_ = baseInstruction("throw", TagIndex, {
-  create(ctx, tag: Dependency.AnyTag) {
-    popStack(ctx, tag.type.args);
-    setUnreachable(ctx);
-    return { in: [], out: [], deps: [tag] };
-  },
-  resolve: ([tagIdx]) => tagIdx,
-});
+function throw_(ctx: LocalContext, tag: Dependency.AnyTag) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "throw");
+  popStack(ctx, tag.type.args);
+  setUnreachable(ctx);
+  emitInstruction(ctx, throwInstruction, [tag], []);
+}
+
+const throwRefInstruction = define("throw_ref");
 
 /** Rethrow a caught exception. */
-const throw_ref = baseInstruction("throw_ref", Undefined, {
-  create(ctx) {
-    popStack(ctx, ["exnref"]);
-    setUnreachable(ctx);
-    return { in: [], out: [] };
-  },
-  resolve: () => undefined,
-});
+function throw_ref(ctx: LocalContext) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "throw_ref");
+  popStack(ctx, ["exnref"]);
+  setUnreachable(ctx);
+  writeOpcode(ctx.code, throwRefInstruction.opcodeBytes);
+}
 
 /**
  * A catch clause: exceptions with the tag, or any exception without one, branch to the label with the
@@ -351,68 +409,62 @@ const throw_ref = baseInstruction("throw_ref", Undefined, {
 type CatchInput = { tag?: Dependency.AnyTag; ref?: boolean; label: Label | number };
 type TryTableOptions = BlockOptions & { catches?: CatchInput[] };
 
-/** A block whose exceptions are caught by its catch clauses, which branch to enclosing labels. */
-const try_table = baseInstruction("try_table", TryTable, {
-  create(ctx, ...args: [body: Body] | [options: TryTableOptions, body: Body]) {
-    let [options, run] = withOptions<TryTableOptions, [Body]>(args, 1);
-    // Catch clauses branch from outside the block.
-    let clauses = (options.catches ?? []).map(({ tag, ref = false, label }) => {
-      let [depth, frame] = getFrameFromLabel(ctx, label);
-      let values = [...(tag?.type.args ?? []), ...(ref ? [refType("exn", false)] : [])];
-      let types = labelTypes(frame);
-      if (values.length !== types.length || values.some((v, i) => !isSubtype(v, types[i])))
-        throw Error(
-          `try_table: catch clause provides [${values.map(printValueType)}], label expects [${types.map(printValueType)}]`,
-        );
-      let kind =
-        `${tag === undefined ? "catch_all" : "catch"}${ref ? "_ref" : ""}` as Catch["kind"];
-      return { kind, tag, label: depth };
-    });
-    let { type, body, deps } = createExpressionWithType("try_table", ctx, options, run);
-    let tags = clauses.flatMap(({ tag }) => (tag === undefined ? [] : [tag]));
-    let { deps: typeDeps, abbreviated } = blockType(type);
-    return {
-      in: type.args,
-      out: type.results,
-      deps: [...typeDeps, ...tags, ...deps],
-      resolveArgs: [clauses.map(({ kind, label }) => ({ kind, label })), body, abbreviated],
-    };
-  },
-  resolve(
-    allDeps,
-    clauses: { kind: Catch["kind"]; label: number }[],
-    body: Dependency.Instruction[],
-    abbreviated: BlockType | undefined,
-  ) {
-    let [blockType, deps] = resolveBlockType(allDeps, abbreviated);
-    let tagged = clauses.filter(({ kind }) => kind === "catch" || kind === "catch_ref").length;
-    let tags = deps.slice(0, tagged);
+/** Catch clauses whose tags are referred to by index. */
+const catchesImmediate: Immediate = {
+  string: "catches",
+  immediate: lazy(() => vec(Catch)),
+  resolve(tags: number[], clauses: { kind: Catch["kind"]; label: number; tagged: boolean }[]) {
     let next = 0;
-    let catches = clauses.map((clause) =>
-      clause.kind === "catch" || clause.kind === "catch_ref"
-        ? { ...clause, tag: tags[next++] }
-        : clause,
-    ) as Catch[];
-    return { blockType, catches, instructions: resolveExpression(deps.slice(tagged), body) };
+    return clauses.map(({ kind, label, tagged }) =>
+      tagged ? { kind, tag: tags[next++], label } : { kind, label },
+    );
   },
-});
+};
+
+const tryTableInstruction = define(
+  "try_table",
+  lazy(() => TryTable),
+);
+
+/** A block whose exceptions are caught by its catch clauses, which branch to enclosing labels. */
+function try_table(
+  ctx: LocalContext,
+  ...args: [body: Body] | [options: TryTableOptions, body: Body]
+) {
+  let [options, run] = withOptions<TryTableOptions, [Body]>(args, 1);
+  // Catch clauses branch from outside the block.
+  let clauses = (options.catches ?? []).map(({ tag, ref = false, label }) => {
+    let [depth, frame] = getFrameFromLabel(ctx, label);
+    let values = [...(tag?.type.args ?? []), ...(ref ? [refType("exn", false)] : [])];
+    let types = labelTypes(frame);
+    if (values.length !== types.length || values.some((v, i) => !isSubtype(v, types[i])))
+      throw Error(
+        `try_table: catch clause provides [${values.map(printValueType)}], label expects [${types.map(printValueType)}]`,
+      );
+    let kind = `${tag === undefined ? "catch_all" : "catch"}${ref ? "_ref" : ""}` as Catch["kind"];
+    return { kind, tag, label: depth };
+  });
+  let type = typeFromInput(options);
+  let { code } = ctx;
+  writeHeader(ctx, tryTableInstruction, type);
+  let tags = clauses.flatMap(({ tag }) => (tag === undefined ? [] : [tag]));
+  let resolved = clauses.map(({ kind, label, tag }) => ({
+    kind,
+    label,
+    tagged: tag !== undefined,
+  }));
+  for (let tag of tags) ctx.deps.add(tag);
+  addHole(code, catchesImmediate, tags, [resolved]);
+  runBlock(ctx, "try_table", type, run);
+  return endBlock(ctx, "try_table", type);
+}
 
 function bindControlOps(ctx: LocalContext) {
   return {
     call: <F extends AnyFunc<any, any>>(
       func: F,
       args?: { [K in keyof F["params"]["values"]]: Input<F["params"]["values"][K]> },
-    ): Instruction_<F["type"]["args"], F["type"]["results"]> => {
-      if (args !== undefined) {
-        processStackArgs(
-          ctx,
-          "call",
-          func.type.args,
-          namedInputs(func.params.names, args) as Input<ValueType>[],
-        );
-      }
-      return call(ctx, func) as any;
-    },
+    ) => call(ctx, func, args),
   };
 }
 
@@ -441,40 +493,72 @@ const control = {
 
 // parametric instructions
 
-const drop = baseInstruction("drop", Undefined, {
-  create(ctx: LocalContext) {
-    popUnknown(ctx);
-    // TODO represent "unknown" in possible input types and remove this hack
-    return { in: [] as any as [ValueType], out: [] };
-  },
-  resolve: () => undefined,
-});
+const dropInstruction = define("drop");
 
-const select_poly = baseInstruction("select", Undefined, {
-  create(ctx: LocalContext) {
-    popStack(ctx, ["i32"]);
-    let t1 = popUnknown(ctx);
-    let t2 = popUnknown(ctx);
-    if (!((isNumberType(t1) && isNumberType(t2)) || (isVectorType(t1) && isVectorType(t2)))) {
-      throw Error(
-        `select: polymorphic select can only be applied to number or vector types, got ${t1} and ${t2}.`,
-      );
-    }
-    if (!isSameType(t1, t2)) {
-      throw Error(`select: types must be equal, got ${t1} and ${t2}.`);
-    }
-    // In unreachable code both operands may be unknown, and so is the result.
-    let t = t1 !== Unknown ? t1 : t2;
-    // The operands were popped above.
-    return { in: [] as any as ["i32", ValueType], out: [t as ValueType] };
-  },
-  resolve: () => undefined,
-});
-const select_t = baseInstruction("select_t", vec(ValueType), {
-  create(_: LocalContext, t: ValueTypeObject) {
-    let t_ = valueTypeLiteral(t);
-    return { in: [t_, t_, "i32"], out: [t_], resolveArgs: [[t_]] };
-  },
-});
+/** Drop the value on the stack, of any type. */
+function drop(ctx: LocalContext) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "drop");
+  popUnknown(ctx);
+  writeOpcode(ctx.code, dropInstruction.opcodeBytes);
+}
+
+const selectInstruction = define("select");
+
+/** One of two numbers or vectors of the same type: the first if the i32 on the stack is nonzero. */
+function select_poly(ctx: LocalContext) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "select");
+  popStack(ctx, ["i32"]);
+  let t1 = popUnknown(ctx);
+  let t2 = popUnknown(ctx);
+  if (!((isNumberType(t1) && isNumberType(t2)) || (isVectorType(t1) && isVectorType(t2)))) {
+    throw Error(
+      `select: polymorphic select can only be applied to number or vector types, got ${t1} and ${t2}.`,
+    );
+  }
+  if (!isSameType(t1, t2)) {
+    throw Error(`select: types must be equal, got ${t1} and ${t2}.`);
+  }
+  writeOpcode(ctx.code, selectInstruction.opcodeBytes);
+  // In unreachable code both operands may be unknown, and so is the result.
+  return pushResult(ctx, (t1 !== Unknown ? t1 : t2) as ValueType);
+}
+
+const selectTInstruction = define("select_t", vec(ValueType));
+
+/** Like polymorphic `select`, for values of the given type, which may be references. */
+function select_t(ctx: LocalContext, t: ValueTypeObject) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "select_t");
+  let type = valueTypeLiteral(t);
+  popOne(ctx, "i32", "select");
+  popOne(ctx, type, "select");
+  popOne(ctx, type, "select");
+  // Defined types in the immediate are a hole, which Module() fills in with their indices.
+  emitInstruction(ctx, selectTInstruction, [], [[type]]);
+  return pushResult(ctx, type);
+}
 
 const parametric = { drop, select_t, select_poly };
+
+/** Instructions that the operations above write themselves, which lookups by name or opcode find. */
+const instructions = [
+  unreachableInstruction,
+  block,
+  loop,
+  ifInstruction,
+  brInstruction,
+  brIfInstruction,
+  brTableInstruction,
+  returnInstruction,
+  callInstruction,
+  returnCallInstruction,
+  returnCallIndirectInstruction,
+  returnCallRefInstruction,
+  brOnNullInstruction,
+  brOnNonNullInstruction,
+  throwInstruction,
+  throwRefInstruction,
+  tryTableInstruction,
+  dropInstruction,
+  selectInstruction,
+  selectTInstruction,
+];

@@ -57,7 +57,7 @@ let myFunc = func(
     i64.trunc_sat_f64_s(1.125);
     call(consoleLog64);
     i32.add(x, 0);
-    i32.add(y, $);
+    i32.add($, y);
     block({ in: [i32], out: [i32] }, ($block) => {
       local.tee(tmp, $);
       call(consoleLog);
@@ -146,7 +146,7 @@ let exportedFunc = func(
     drop();
 
     // move int32 at location 4 to location 0
-    i32.store({}, 0, i32.load({ offset: 4 }, 0));
+    i32.store({}, i32.const(0), i32.load({ offset: 4 }, 0));
 
     // test i64
     call(consoleLog64, { value: 64n });
@@ -192,13 +192,13 @@ let module = Module({
   start: startFunc,
 });
 
-console.dir(module.module, { depth: Infinity });
+console.dir(module.toObject(), { depth: Infinity });
 
 // create byte code and check roundtrip
 let wasmByteCode = module.toBytes();
 console.log(`wasm size: ${wasmByteCode.length} byte`);
 let recoveredModule = Module.fromBytes(wasmByteCode);
-assert.deepStrictEqual(recoveredModule.module, module.module);
+assert.deepStrictEqual(recoveredModule.toObject(), module.toObject());
 
 // write wat file for comparison
 await writeFile(import.meta.url.slice(7).replace(".ts", ".wat"), module.toWat());

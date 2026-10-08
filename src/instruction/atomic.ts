@@ -1,9 +1,12 @@
-import { Byte } from "../binable.ts";
+import { Byte, writeByte } from "../binable.ts";
 import { i32t, i64t } from "../types.ts";
-import { baseInstruction } from "./base.ts";
+import { checkAllowed, define } from "./base.ts";
+import type { LocalContext } from "../local-context.ts";
+import { writeOpcode } from "./stack-args.ts";
 import { memoryInstruction as mi } from "./memory.ts";
 
 export {
+  atomicFenceInstruction,
   memoryAtomicOps,
   atomicOps,
   i32AtomicOps,
@@ -25,12 +28,17 @@ const memoryAtomicOps = {
 };
 
 // atomic.X
+const atomicFenceInstruction = define("atomic.fence", Byte);
+
+/** Order memory accesses; its immediate is reserved, and 0. */
+function atomicFence(ctx: LocalContext) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "atomic.fence");
+  writeOpcode(ctx.code, atomicFenceInstruction.opcodeBytes);
+  writeByte(ctx.code, 0);
+}
+
 const atomicOps = {
-  fence: baseInstruction("atomic.fence", Byte, {
-    create() {
-      return { in: [], out: [], deps: [], resolveArgs: [0] };
-    },
-  }),
+  fence: atomicFence,
 };
 
 // i32.atomic.X

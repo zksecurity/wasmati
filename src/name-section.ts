@@ -1,11 +1,14 @@
 import {
-  type Binable,
+  Binable,
   Byte,
-  RemainingBytes,
-  iso,
   record,
+  RemainingBytes,
   sequence,
   withValidation,
+  writeByte,
+  writeByteArray,
+  writeUnsignedLEB,
+  writeWithLength,
 } from "./binable.ts";
 import { Name, U32, vec, withByteLength } from "./immediate.ts";
 
@@ -31,14 +34,19 @@ type NameSection = {
 };
 
 function indices(map: Record<number, unknown>) {
-  const indices = Object.keys(map)
-    .map(Number)
-    .sort((a, b) => a - b);
-  for (const index of indices) {
-    if (!Number.isInteger(index) || index < 0 || index > 0xffff_ffff || !(String(index) in map)) {
-      throw Error(`invalid name index: ${index}`);
+  // Keys that are array indices come in increasing order, so sorting is rarely needed.
+  const keys = Object.keys(map);
+  const indices: number[] = [];
+  let sorted = true;
+  for (let i = 0; i < keys.length; i++) {
+    const index = Number(keys[i]);
+    if (!Number.isInteger(index) || index < 0 || index > 0xffff_ffff || String(index) !== keys[i]) {
+      throw Error(`invalid name index: ${keys[i]}`);
     }
+    if (i > 0 && index < indices[i - 1]) sorted = false;
+    indices.push(index);
   }
+  if (!sorted) indices.sort((a, b) => a - b);
   return indices;
 }
 
@@ -55,9 +63,19 @@ function indexed<T>(value: Binable<T>): Binable<Record<number, T>> {
       previous = index;
     }
   });
-  return iso(entries, {
-    to: (map: Record<number, T>) => indices(map).map((index) => ({ index, value: map[index] })),
-    from: (entries) => Object.fromEntries(entries.map(({ index, value }) => [index, value])),
+  return Binable({
+    writeBytes(output, map: Record<number, T>) {
+      let keys = indices(map);
+      writeUnsignedLEB(output, keys.length);
+      for (let index of keys) {
+        writeUnsignedLEB(output, index);
+        value.writeBytes(output, map[index]);
+      }
+    },
+    readBytes(input) {
+      let list = entries.readBytes(input);
+      return Object.fromEntries(list.map(({ index, value }) => [index, value]));
+    },
   });
 }
 
@@ -90,35 +108,46 @@ const Subsections = withValidation(sequence(Subsection), (sections) => {
 });
 
 // Payload only: the enclosing custom section supplies the "name" string.
-const NameSection = iso(Subsections, {
-  to(names: NameSection) {
-    const sections: { id: number; data: Uint8Array }[] = [];
-    for (const [id, [key, codec]] of subsections.entries()) {
+function fromSubsections(sections: { id: number; data: Uint8Array }[]): NameSection {
+  const names: NameSection = {};
+  for (const { id, data } of sections) {
+    const subsection = subsections[id];
+    if (subsection === undefined) {
+      (names.unknown ??= []).push({ id, data });
+    } else {
+      const [key, codec] = subsection;
+      const value = codec.fromBytes(data);
+      // The subsection pairs each key with its codec; TS loses that correlation.
+      (names as Record<typeof key, typeof value>)[key] = value;
+    }
+  }
+  return names;
+}
+
+const NameSection = Binable<NameSection>({
+  // Subsections are written in place, in the order of their ids; unknown ones come last.
+  writeBytes(output, names) {
+    for (let id = 0; id < subsections.length; id++) {
+      const [key, codec] = subsections[id];
       const value = names[key];
-      if (value !== undefined) sections.push({ id, data: (codec as Binable<any>).toBytes(value) });
+      if (value === undefined) continue;
+      writeByte(output, id);
+      writeWithLength(output, () => (codec as Binable<any>).writeBytes(output, value));
     }
-    for (const section of names.unknown ?? []) {
-      if (!Number.isInteger(section.id) || section.id < subsections.length || section.id > 255) {
-        throw Error(`invalid unknown name subsection id: ${section.id}`);
-      }
-      sections.push(section);
+    const unknown = [...(names.unknown ?? [])].sort((a, b) => a.id - b.id);
+    let previous = -1;
+    for (const { id, data } of unknown) {
+      if (!Number.isInteger(id) || id < subsections.length || id > 255)
+        throw Error(`invalid unknown name subsection id: ${id}`);
+      if (id === previous)
+        throw Error("name subsections must be unique and increasing (no duplicates)");
+      previous = id;
+      writeByte(output, id);
+      writeUnsignedLEB(output, data.length);
+      writeByteArray(output, data);
     }
-    sections.sort((a, b) => a.id - b.id);
-    return sections;
   },
-  from(sections): NameSection {
-    const names: NameSection = {};
-    for (const { id, data } of sections) {
-      const subsection = subsections[id];
-      if (subsection === undefined) {
-        (names.unknown ??= []).push({ id, data });
-      } else {
-        const [key, codec] = subsection;
-        const value = codec.fromBytes(data);
-        // The subsection pairs each key with its codec; TS loses that correlation.
-        (names as Record<typeof key, typeof value>)[key] = value;
-      }
-    }
-    return names;
+  readBytes(input) {
+    return fromSubsections(Subsections.readBytes(input));
   },
 });

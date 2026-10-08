@@ -1,5 +1,7 @@
+import { createCode } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
 import {
+  checkSynchronous,
   emptyContext,
   formatStack,
   type LocalContext,
@@ -50,12 +52,16 @@ function constant<T extends ValueType = ValueType>(
 ): Dependency.Constant<T> {
   let stack: StackVar<StackType>[] = [];
   let type: StackType | undefined;
-  let { body, deps } = withContext(
+  let code = createCode(16);
+  let deps = new Set<Dependency.t>();
+  withContext(
     ctx,
     {
       locals: [],
-      body: [],
-      deps: [],
+      code,
+      deps,
+      calls: new Set(),
+      allowed: constantInstructions,
       stack,
       return: null,
       frames: [
@@ -70,16 +76,13 @@ function constant<T extends ValueType = ValueType>(
       ],
     },
     () => {
-      run();
+      checkSynchronous(run(), "constant");
       if (ctx.stack.length !== 1 || ctx.stack[0].type === Unknown)
         throw Error(`constant: expected one value on the stack, got ${formatStack(ctx.stack)}`);
       type = ctx.stack[0].type;
     },
   );
-  for (let instruction of body)
-    if (!constantInstructions.has(instruction.string))
-      throw Error(`constant: ${instruction.string} is not a constant instruction`);
-  return { kind: "constant", type: type as T, body, deps };
+  return { kind: "constant", type: type as T, code, deps: [...deps] };
 }
 
 /** Where constants are expected, numbers and functions stand for simple constants. */

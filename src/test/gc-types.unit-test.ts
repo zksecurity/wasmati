@@ -37,7 +37,7 @@ test("recursive types refer to their group by name, and keys name the types and 
     { in: [{ n: refType(node, { nullable: true }) }], out: [refType(node, { nullable: true })] },
     ({ n }) => local.get(n),
   );
-  const { module } = Module({ exports: { keep } });
+  const module = Module({ exports: { keep } }).toObject();
   assert.deepEqual(module.types[0], {
     struct: [
       { type: "i32", mutable: true },
@@ -59,7 +59,7 @@ test("equivalent recursion groups are one group, and groups precede the types re
   const b = group();
   const bytes = array(mut(i8));
   const pair = struct({ first: refType(a.even), second: refType(b.even), data: refType(bytes) });
-  const { module } = Module({ exports: {}, dependencies: [pair] });
+  const module = Module({ exports: {}, dependencies: [pair] }).toObject();
   assert.deepEqual(module.recGroups, [2, 1, 1]);
   assert.deepEqual(
     (module.types[3] as { struct: { type: unknown }[] }).struct.map((f) => f.type),
@@ -106,7 +106,7 @@ test("functions and indirect calls may use defined function types", async () => 
     call_indirect(t, base);
   });
   const module = Module({ exports: { call } });
-  const types = module.module.types;
+  const types = module.toObject().types;
   const baseIndex = types.findIndex((t) => t.final === false);
   assert.deepEqual(types[baseIndex], { args: ["i32"], results: ["i32"], final: false });
   assert.ok(types.some((t) => t.supertype === baseIndex));
@@ -139,8 +139,8 @@ test("GC types roundtrip through text, binary and decompiled builders", async ()
   assert.deepEqual(BinaryModule.toBytes(BinaryModule.fromBytes(bytes)), bytes);
   assert.match(decompileModule(parsed), /const \{ list, labeled \} = rec\(\(types\) => \(\{/);
   const rebuilt = await buildTextModule(parsed);
-  assert.deepEqual(rebuilt.module.types, parsed.types);
-  assert.deepEqual(rebuilt.module.recGroups, parsed.recGroups);
+  assert.deepEqual(rebuilt.toObject().types, parsed.types);
+  assert.deepEqual(rebuilt.toObject().recGroups, parsed.recGroups);
   await rebuilt.instantiate();
 });
 
@@ -152,7 +152,7 @@ test("locals of distinct defined types with the same printed name keep their typ
   const f = func({ in: [], locals: { a: ra, b: rb, c: ra }, out: [rb] }, (_, { b }) =>
     local.get(b),
   );
-  const { module } = Module({ exports: { f } });
+  const module = Module({ exports: { f } }).toObject();
   assert.equal(module.funcs[0].locals.length, 3);
   assert.notDeepEqual(module.funcs[0].locals[0], module.funcs[0].locals[2]);
 });

@@ -1,13 +1,15 @@
 import {
+  type BaseInstruction,
   type Instruction_,
-  baseInstruction,
+  checkAllowed,
+  define,
   withPublicSignature,
   type WithPublicSignature,
 } from "./base.ts";
 import * as Dependency from "../dependency.ts";
 import type { LocalContext, StackVar } from "../local-context.ts";
 import { U32, U64, U8, uint64 } from "../immediate.ts";
-import { Binable, record, tuple } from "../binable.ts";
+import { Binable, record, tuple, writeUnsignedLEB } from "../binable.ts";
 import {
   type AddressType,
   DataIndex,
@@ -20,7 +22,16 @@ import {
 } from "../types.ts";
 import type { Tuple } from "../util.ts";
 import type { InstructionName } from "./opcodes.ts";
-import { type Input, processStackArgs } from "./stack-args.ts";
+import {
+  type Input,
+  pushResults,
+  takeOne,
+  takeOperands,
+  takeTwo,
+  typedByImmediates,
+  writeOpcode,
+} from "./stack-args.ts";
+import { addHole } from "../code.ts";
 
 export { memoryOps, dataOps, tableOps, elemOps, memoryInstruction, memoryLaneInstruction };
 
@@ -44,47 +55,48 @@ type SizeSignature = <A extends AddressType = "i32">(
   ...memory: [] | [memory: Dependency.AnyMemory<A>]
 ) => StackVar<A>;
 
+const resolveIndex = ([index]: number[]) => index;
+const resolveIndices = ([first, second]: number[]) => [first, second];
+
 const memorySize = withPublicSignature<SizeSignature>()(
-  baseInstruction("memory.size", MemoryIndex, {
-    create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
+  typedByImmediates(
+    define("memory.size", MemoryIndex, resolveIndex),
+    1,
+    (memory?: Dependency.AnyMemory) => {
       const { address, deps } = memoryUse(memory);
-      return { in: [], out: [address], deps };
+      return { in: [], out: [address], deps, args: [] };
     },
-    resolve: ([memoryIdx]) => memoryIdx,
-  }),
+  ),
 );
 const memoryGrow = withPublicSignature<SizeSignature>()(
-  baseInstruction("memory.grow", MemoryIndex, {
-    create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
+  typedByImmediates(
+    define("memory.grow", MemoryIndex, resolveIndex),
+    1,
+    (memory?: Dependency.AnyMemory) => {
       const { address, deps } = memoryUse(memory);
-      return { in: [address], out: [address], deps };
+      return { in: [address], out: [address], deps, args: [] };
     },
-    resolve: ([memoryIdx]) => memoryIdx,
-  }),
+  ),
 );
 
 const memoryOps = {
   size: memorySize,
   grow: memoryGrow,
-  init: baseInstruction("memory.init", tuple([DataIndex, MemoryIndex]), {
-    create(
-      _: LocalContext,
-      data: Dependency.Data,
-      ...[memory]: [] | [memory: Dependency.AnyMemory]
-    ) {
+  init: typedByImmediates(
+    define("memory.init", tuple([DataIndex, MemoryIndex]), resolveIndices),
+    2,
+    (data: Dependency.Data, memory?: Dependency.AnyMemory) => {
       const { address, deps } = memoryUse(memory);
-      return { in: [address, "i32", "i32"], out: [], deps: [data, ...deps] };
+      return { in: [address, "i32", "i32"], out: [], deps: [data, ...deps], args: [] };
     },
-    resolve: ([dataIdx, memoryIdx]) => [dataIdx, memoryIdx],
-  }),
-  copy: baseInstruction("memory.copy", tuple([MemoryIndex, MemoryIndex]), {
-    create(
-      _: LocalContext,
-      ...[destination, source = destination]:
-        | []
-        | [memory: Dependency.AnyMemory]
-        | [destination: Dependency.AnyMemory, source: Dependency.AnyMemory]
-    ) {
+  ),
+  copy: typedByImmediates(
+    define("memory.copy", tuple([MemoryIndex, MemoryIndex]), resolveIndices),
+    2,
+    (
+      destination?: Dependency.AnyMemory,
+      source: Dependency.AnyMemory | undefined = destination,
+    ) => {
       const target = memoryUse(destination);
       const origin = memoryUse(source);
       const length = minAddress(target.address, origin.address);
@@ -92,30 +104,26 @@ const memoryOps = {
         in: [target.address, origin.address, length],
         out: [],
         deps: [...target.deps, ...origin.deps],
+        args: [],
       };
     },
-    resolve: ([destinationIdx, sourceIdx]) => [destinationIdx, sourceIdx],
-  }),
-  fill: baseInstruction("memory.fill", MemoryIndex, {
-    create(_: LocalContext, ...[memory]: [] | [memory: Dependency.AnyMemory]) {
+  ),
+  fill: typedByImmediates(
+    define("memory.fill", MemoryIndex, resolveIndex),
+    1,
+    (memory?: Dependency.AnyMemory) => {
       const { address, deps } = memoryUse(memory);
-      return { in: [address, "i32", address], out: [], deps };
+      return { in: [address, "i32", address], out: [], deps, args: [] };
     },
-    resolve: ([memoryIdx]) => memoryIdx,
-  }),
+  ),
 };
 
 const dataOps = {
-  drop: baseInstruction("data.drop", DataIndex, {
-    create(_: LocalContext, data: Dependency.Data) {
-      return {
-        in: [],
-        out: [],
-        deps: [data],
-      };
-    },
-    resolve: ([dataIdx]) => dataIdx,
-  }),
+  drop: typedByImmediates(
+    define("data.drop", DataIndex, resolveIndex),
+    1,
+    (data: Dependency.Data) => ({ in: [], out: [], deps: [data], args: [] }),
+  ),
 };
 
 const tableAddress = (table: Dependency.AnyTable) => table.address;
@@ -124,71 +132,85 @@ const tableAddress = (table: Dependency.AnyTable) => table.address;
 type TableSizeSignature = <A extends AddressType>(table: Dependency.AnyTable<A>) => StackVar<A>;
 
 const tableGrow = withPublicSignature<TableSizeSignature>()(
-  baseInstruction("table.grow", TableIndex, {
-    create(_: LocalContext, table: Dependency.AnyTable) {
+  typedByImmediates(
+    define("table.grow", TableIndex, resolveIndex),
+    1,
+    (table: Dependency.AnyTable) => {
       const address = tableAddress(table);
-      return { in: [table.type.type, address], out: [address], deps: [table] };
+      return { in: [table.type.type, address], out: [address], deps: [table], args: [] };
     },
-    resolve: ([tableIdx]) => tableIdx,
-  }),
+  ),
 );
 const tableSize = withPublicSignature<TableSizeSignature>()(
-  baseInstruction("table.size", TableIndex, {
-    create(_: LocalContext, table: Dependency.AnyTable) {
-      return { in: [], out: [tableAddress(table)], deps: [table] };
-    },
-    resolve: ([tableIdx]) => tableIdx,
-  }),
+  typedByImmediates(
+    define("table.size", TableIndex, resolveIndex),
+    1,
+    (table: Dependency.AnyTable) => ({
+      in: [],
+      out: [tableAddress(table)],
+      deps: [table],
+      args: [],
+    }),
+  ),
 );
 
 const tableOps = {
   size: tableSize,
   grow: tableGrow,
-  get: baseInstruction("table.get", TableIndex, {
-    create(_: LocalContext, table: Dependency.AnyTable) {
-      return { in: [tableAddress(table)], out: [table.type.type], deps: [table] };
-    },
-    resolve: ([tableIdx]) => tableIdx,
-  }),
-  set: baseInstruction("table.set", TableIndex, {
-    create(_: LocalContext, table: Dependency.AnyTable) {
-      return { in: [tableAddress(table), table.type.type], out: [], deps: [table] };
-    },
-    resolve: ([tableIdx]) => tableIdx,
-  }),
-  init: baseInstruction("table.init", tuple([ElemIndex, TableIndex]), {
-    create(_: LocalContext, table: Dependency.AnyTable, elem: Dependency.Elem) {
-      return { in: [tableAddress(table), "i32", "i32"], out: [], deps: [elem, table] };
-    },
-    resolve: ([elemIdx, tableIdx]) => [elemIdx, tableIdx],
-  }),
-  copy: baseInstruction("table.copy", tuple([TableIndex, TableIndex]), {
-    create(_: LocalContext, table1: Dependency.AnyTable, table2: Dependency.AnyTable) {
+  get: typedByImmediates(
+    define("table.get", TableIndex, resolveIndex),
+    1,
+    (table: Dependency.AnyTable) => ({
+      in: [tableAddress(table)],
+      out: [table.type.type],
+      deps: [table],
+      args: [],
+    }),
+  ),
+  set: typedByImmediates(
+    define("table.set", TableIndex, resolveIndex),
+    1,
+    (table: Dependency.AnyTable) => ({
+      in: [tableAddress(table), table.type.type],
+      out: [],
+      deps: [table],
+      args: [],
+    }),
+  ),
+  init: typedByImmediates(
+    define("table.init", tuple([ElemIndex, TableIndex]), resolveIndices),
+    2,
+    (table: Dependency.AnyTable, elem: Dependency.Elem) => ({
+      in: [tableAddress(table), "i32", "i32"],
+      out: [],
+      deps: [elem, table],
+      args: [],
+    }),
+  ),
+  copy: typedByImmediates(
+    define("table.copy", tuple([TableIndex, TableIndex]), resolveIndices),
+    2,
+    (table1: Dependency.AnyTable, table2: Dependency.AnyTable) => {
       const [a1, a2] = [tableAddress(table1), tableAddress(table2)];
-      return { in: [a1, a2, minAddress(a1, a2)], out: [], deps: [table1, table2] };
+      return { in: [a1, a2, minAddress(a1, a2)], out: [], deps: [table1, table2], args: [] };
     },
-    resolve: ([tableIdx1, tableIdx2]) => [tableIdx1, tableIdx2],
-  }),
-  fill: baseInstruction("table.fill", TableIndex, {
-    create(_: LocalContext, table: Dependency.AnyTable) {
+  ),
+  fill: typedByImmediates(
+    define("table.fill", TableIndex, resolveIndex),
+    1,
+    (table: Dependency.AnyTable) => {
       const address = tableAddress(table);
-      return { in: [address, table.type.type, address], out: [], deps: [table] };
+      return { in: [address, table.type.type, address], out: [], deps: [table], args: [] };
     },
-    resolve: ([tableIdx]) => tableIdx,
-  }),
+  ),
 };
 
 const elemOps = {
-  drop: baseInstruction("elem.drop", ElemIndex, {
-    create(_: LocalContext, elem: Dependency.Elem) {
-      return {
-        in: [],
-        out: [],
-        deps: [elem],
-      };
-    },
-    resolve: ([elemIdx]) => elemIdx,
-  }),
+  drop: typedByImmediates(
+    define("elem.drop", ElemIndex, resolveIndex),
+    1,
+    (elem: Dependency.Elem) => ({ in: [], out: [], deps: [elem], args: [] }),
+  ),
 };
 
 /** Alignment exponent, offset, and a memory index unless the access is to memory 0. */
@@ -249,6 +271,11 @@ type LaneAccessSignature<Args extends readonly ValueType[], Results> = <
   ...args: AccessArgs<Args, NoInfer<A>> | []
 ) => Instruction_<Args, Results>;
 
+/**
+ * Memory accesses, like `i32.load` and `i64.store`. The first operand is the address, of the memory's
+ * address type. The default memory has index 0, which the memory argument leaves out; the index of a
+ * named memory is a hole, which Module() fills in.
+ */
 function memoryInstruction<
   const Args extends Tuple<ValueType>,
   const Results extends Tuple<ValueType>,
@@ -257,39 +284,70 @@ function memoryInstruction<
   bits: number,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>,
-): ((
+): MemoryInstruction<Args, Results> {
+  let instruction = define(
+    name,
+    withNaturalAlign(MemArg, bits),
+    ([memoryIdx]: number[], memArg: MemArg) => withMemory(memArg, memoryIdx),
+  );
+  let { ins32, ins64 } = addressed(valueTypeLiterals<Args>(args));
+  let outs: ValueType[] = valueTypeLiterals<Results>(results);
+  let natural = Math.log2(bits / 8);
+  let operands: (Input<ValueType> | undefined)[] = [];
+  let emit = function (
+    ctx: LocalContext,
+    memArg: MemArgInput,
+    a?: Input<ValueType>,
+    b?: Input<ValueType>,
+    c?: Input<ValueType>,
+  ) {
+    if (ctx.allowed !== undefined) checkAllowed(ctx, name);
+    let { memory } = memArg;
+    let ins = memory?.address === "i64" ? ins64 : ins32;
+    if (ins.length === 1) takeOne(ctx, name, ins[0], a);
+    else if (ins.length === 2) takeTwo(ctx, name, ins[0], ins[1], a, b);
+    else {
+      operands[0] = a;
+      operands[1] = b;
+      operands[2] = c;
+      takeOperands(ctx, name, ins, operands);
+    }
+    let { code } = ctx;
+    writeOpcode(code, instruction.opcodeBytes);
+    if (memory === undefined) {
+      ctx.deps.add(Dependency.hasMemory);
+      let { offset = 0, align } = memArg;
+      writeUnsignedLEB(code, align === undefined ? natural : alignExponent(name, align));
+      U64.writeBytes(code, memoryOffset(offset));
+    } else {
+      ctx.deps.add(memory);
+      addHole(code, instruction, [memory], [memArgFromInput(name, bits, memArg)]);
+    }
+    return pushResults(ctx, outs);
+  };
+  // The function takes its operands as separate parameters, without the array of a rest parameter,
+  // so TypeScript can't relate it to the signature, which it implements.
+  return Object.assign(emit, { instruction }) as MemoryInstruction<Args, Results>;
+}
+
+/** Operand types with a 32-bit address, and with a 64-bit address. */
+function addressed(args: ValueType[]) {
+  let rest = args.slice(1);
+  return { ins32: ["i32", ...rest] as ValueType[], ins64: ["i64", ...rest] as ValueType[] };
+}
+
+/** A memory access, as a function of its memory argument and operands. */
+type MemoryInstruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueType>> = ((
   ctx: LocalContext,
   memArg: MemArgInput,
   ...args: AccessArgs<Args> | []
 ) => Instruction_<Args, Results>) &
-  WithPublicSignature<AccessSignature<Args, Results>> {
-  let expectedArgs = valueTypeLiterals<Args>(args);
-  let createInstr = baseInstruction<MemArg, [memArg: MemArgInput], [memArg: MemArg], Args, Results>(
-    name,
-    withNaturalAlign(MemArg, bits),
-    {
-      create(_, memArg) {
-        const { address, deps } = memoryUse(memArg.memory);
-        return {
-          in: [address, ...expectedArgs.slice(1)] as ValueType[] as Args,
-          out: valueTypeLiterals<Results>(results),
-          resolveArgs: [memArgFromInput(name, bits, memArg)],
-          deps,
-        };
-      },
-      resolve: ([memoryIdx], memArg) => withMemory(memArg, memoryIdx),
-    },
-  );
-  return function createInstr_(ctx, memArg, ...actualArgs) {
-    const { address } = memoryUse(memArg.memory);
-    processStackArgs(ctx, name, [address, ...expectedArgs.slice(1)], actualArgs);
-    return createInstr(ctx, memArg);
-  };
-}
+  WithPublicSignature<AccessSignature<Args, Results>> & { instruction: BaseInstruction };
 
 type MemArgAndLane = { memArg: MemArg; lane: U8 };
 const MemArgAndLane = record({ memArg: MemArg, lane: U8 });
 
+/** Memory accesses to a lane of a vector, like `v128.load8_lane`, whose lane follows the memory argument. */
 function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueType>>(
   name: InstructionName,
   bits: number,
@@ -301,41 +359,63 @@ function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tu
   lane: number,
   ...args: AccessArgs<Args> | []
 ) => Instruction_<Args, Results>) &
-  WithPublicSignature<LaneAccessSignature<Args, Results>> {
-  let expectedArgs = valueTypeLiterals<Args>(args);
-  let createInstr = baseInstruction<
-    MemArgAndLane,
-    [memArg: MemArgInput, lane: number],
-    [memArgAndLane: MemArgAndLane],
-    Args,
-    Results
-  >(name, withNaturalAlign(MemArgAndLane, bits), {
-    create(_, memArg, lane) {
-      const { address, deps } = memoryUse(memArg.memory);
-      return {
-        in: [address, ...expectedArgs.slice(1)] as ValueType[] as Args,
-        out: valueTypeLiterals<Results>(results),
-        resolveArgs: [{ memArg: memArgFromInput(name, bits, memArg), lane }],
-        deps,
-      };
-    },
-    resolve: ([memoryIdx], { memArg, lane }) => ({ memArg: withMemory(memArg, memoryIdx), lane }),
-  });
-  return function createInstr_(ctx, memArg, lane, ...actualArgs) {
-    const { address } = memoryUse(memArg.memory);
-    processStackArgs(ctx, name, [address, ...expectedArgs.slice(1)], actualArgs);
-    return createInstr(ctx, memArg, lane);
+  WithPublicSignature<LaneAccessSignature<Args, Results>> & { instruction: BaseInstruction } {
+  let instruction = define(
+    name,
+    withNaturalAlign(MemArgAndLane, bits),
+    ([memoryIdx]: number[], { memArg, lane }: MemArgAndLane) => ({
+      memArg: withMemory(memArg, memoryIdx),
+      lane,
+    }),
+  );
+  let { ins32, ins64 } = addressed(valueTypeLiterals<Args>(args));
+  let outs: ValueType[] = valueTypeLiterals<Results>(results);
+  let emit = function (
+    ctx: LocalContext,
+    memArg: MemArgInput,
+    lane: number,
+    a?: Input<ValueType>,
+    b?: Input<ValueType>,
+  ) {
+    if (ctx.allowed !== undefined) checkAllowed(ctx, name);
+    let { memory } = memArg;
+    let ins = memory?.address === "i64" ? ins64 : ins32;
+    takeTwo(ctx, name, ins[0], ins[1], a, b);
+    let { code } = ctx;
+    writeOpcode(code, instruction.opcodeBytes);
+    let value = { memArg: memArgFromInput(name, bits, memArg), lane };
+    if (memory === undefined) {
+      ctx.deps.add(Dependency.hasMemory);
+      MemArgAndLane.writeBytes(code, value);
+    } else {
+      ctx.deps.add(memory);
+      addHole(code, instruction, [memory], [value]);
+    }
+    return pushResults(ctx, outs);
   };
+  return Object.assign(emit, { instruction }) as ReturnType<
+    typeof memoryLaneInstruction<Args, Results>
+  >;
 }
 
 function memArgFromInput(
   name: string,
   bits: number,
   { offset = 0, align = bits / 8 }: MemArgInput,
-) {
-  let alignExponent = Math.log2(align);
-  if (!Number.isInteger(alignExponent)) {
+): MemArg {
+  return { offset: memoryOffset(offset), align: alignExponent(name, align) };
+}
+
+/** Offsets are numbers where exact, bigints beyond 2^53. */
+function memoryOffset(offset: U64): U64 {
+  return typeof offset === "number" && Number.isSafeInteger(offset) && offset >= 0
+    ? offset
+    : uint64(BigInt(offset));
+}
+
+function alignExponent(name: string, align: number) {
+  let exponent = Math.log2(align);
+  if (!Number.isInteger(exponent))
     throw Error(`${name}: \`align\` must be power of 2, got ${align}`);
-  }
-  return { offset: uint64(BigInt(offset)), align: alignExponent };
+  return exponent;
 }

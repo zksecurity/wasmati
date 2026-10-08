@@ -1,6 +1,12 @@
-import { Undefined } from "../binable.ts";
+import { writeIndexed } from "../binable.ts";
 import * as Dependency from "../dependency.ts";
-import { baseInstruction, type FunctionTypeInput, functionTypeOf } from "./base.ts";
+import {
+  checkAllowed,
+  define,
+  emitInstruction,
+  type FunctionTypeInput,
+  functionTypeOf,
+} from "./base.ts";
 import {
   type AbstractHeapType,
   type DefinedType,
@@ -19,81 +25,82 @@ import {
   ValueType,
   valueTypeLiteral,
 } from "../types.ts";
-import { type LocalContext, StackVar, type StackType, Unknown } from "../local-context.ts";
+import {
+  type LocalContext,
+  popOne,
+  StackValue,
+  StackVar,
+  type StackType,
+  Unknown,
+  missingLocal,
+  pushResult,
+} from "../local-context.ts";
 import { globalGet, localGet } from "./variable-get.ts";
-import { type Input, processStackArgs } from "./stack-args.ts";
+import { checkLatest, type Input, takeOne, writeOperand, writeOpcode } from "./stack-args.ts";
 
-export {
-  localOps,
-  bindLocalOps,
-  globalOps,
-  bindGlobalOps,
-  globalConstructor,
-  refTypeConstructor,
-  refOps,
-};
+export { bindLocalOps, bindGlobalOps, globalConstructor, refTypeConstructor, refOps, instructions };
 
-const localOps = {
-  get: localGet,
-  set: baseInstruction("local.set", LocalIndex, {
-    create({ locals }, x: Local) {
-      let local = locals[x.index];
-      if (local === undefined) throw Error(`local with index ${x.index} not available`);
-      return { in: [local], out: [] };
-    },
-    resolve: (_, x: Local) => x.index,
-  }),
-  tee: baseInstruction("local.tee", LocalIndex, {
-    create({ locals }, x: Local) {
-      let type = locals[x.index];
-      if (type === undefined) throw Error(`local with index ${x.index} not available`);
-      return { in: [type], out: [type] };
-    },
-    resolve: (_, x: Local) => x.index,
-  }),
-};
+const localSetInstruction = define("local.set", LocalIndex);
+const localTeeInstruction = define("local.tee", LocalIndex);
+
+/**
+ * Write local.set or local.tee, with its operand, or the value on the stack, and return the local's
+ * type. Constant expressions have no locals.
+ */
+function writeLocal(
+  ctx: LocalContext,
+  name: "local.set" | "local.tee",
+  opcode: number,
+  x: Local,
+  value: Input<any> | undefined,
+) {
+  let type = localType(ctx, x);
+  if (value !== undefined && !(value instanceof StackValue)) writeOperand(ctx, name, type, value);
+  else {
+    if (value !== undefined) checkLatest(ctx, name, value, 1);
+    popOne(ctx, type, name);
+  }
+  writeIndexed(ctx.code, opcode, x.index);
+  return type;
+}
+
+function localType(ctx: LocalContext, x: Local) {
+  let type = ctx.locals[x.index];
+  if (type === undefined) throw missingLocal(ctx, x.index);
+  return type;
+}
 
 function bindLocalOps(ctx: LocalContext) {
   return {
     get: function <T extends ValueType>(x: Local<T>) {
-      return localOps.get(ctx, x) as StackVar<T>;
+      return localGet(ctx, x) as StackVar<T>;
     },
     set: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      processStackArgs(ctx, "local.set", [x.type], value === undefined ? [] : [value]);
-      return localOps.set(ctx, x);
+      writeLocal(ctx, "local.set", 0x21, x, value);
     },
     tee: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      processStackArgs(ctx, "local.tee", [x.type], value === undefined ? [] : [value]);
-      return localOps.tee(ctx, x) as StackVar<L["type"]>;
+      return pushResult(ctx, writeLocal(ctx, "local.tee", 0x22, x, value)) as StackVar<L["type"]>;
     },
   };
 }
 
-const globalOps = {
-  get: globalGet,
-  set: baseInstruction("global.set", GlobalIndex, {
-    create(_, global: Dependency.AnyGlobal) {
-      if (!global.type.mutable) {
-        throw Error("global.set used on immutable global");
-      }
-      return {
-        in: [global.type.value],
-        out: [],
-        deps: [global],
-      };
-    },
-    resolve: ([globalIdx]) => globalIdx,
-  }),
-};
+const globalSetInstruction = define("global.set", GlobalIndex, ([index]: number[]) => index);
+
+/** Set a mutable global to its operand, or to the value on the stack. */
+function globalSet(ctx: LocalContext, global: Dependency.AnyGlobal, value?: Input<ValueType>) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "global.set");
+  if (!global.type.mutable) throw Error("global.set used on immutable global");
+  takeOne(ctx, "global.set", global.type.value, value);
+  emitInstruction(ctx, globalSetInstruction, [global], []);
+}
 
 function bindGlobalOps(ctx: LocalContext) {
   return {
     get: function <T extends ValueType>(x: Dependency.AnyGlobal<T>) {
-      return globalOps.get(ctx, x) as StackVar<T>;
+      return globalGet(ctx, x) as StackVar<T>;
     },
     set: function <G extends Dependency.AnyGlobal>(x: G, value?: Input<G["type"]["value"]>) {
-      processStackArgs(ctx, "global.set", [x.type.value], value === undefined ? [] : [value]);
-      return globalOps.set(ctx, x);
+      globalSet(ctx, x, value);
     },
   };
 }
@@ -136,37 +143,56 @@ function topReference(stack: StackVar<StackType>[], name: string): RefType | Unk
   return type;
 }
 
-const refOps = {
-  /** The null reference of a reference type's heap type. */
-  null: baseInstruction("ref.null", HeapType, {
-    create(_, type: Type<RefType>) {
-      let heap = referenced(valueTypeLiteral(type)).ref;
-      return { in: [], out: [refType(heap, true)], resolveArgs: [heap] };
-    },
-  }),
-  is_null: baseInstruction("ref.is_null", Undefined, {
-    create({ stack }: LocalContext) {
-      return { in: [topReference(stack, "ref.is_null") as RefType], out: ["i32"] };
-    },
-    resolve: () => undefined,
-  }),
-  as_non_null: baseInstruction("ref.as_non_null", Undefined, {
-    create({ stack }: LocalContext) {
-      let type = topReference(stack, "ref.as_non_null");
-      let result = type === Unknown ? type : refType(referenced(type).ref, false);
-      return { in: [type as RefType], out: [result as RefType] };
-    },
-    resolve: () => undefined,
-  }),
-  /** A non-null reference to a function, typed by the function's type. */
-  func: baseInstruction("ref.func", FunctionIndex, {
-    create(_, func: Dependency.AnyFunc) {
-      return {
-        in: [],
-        out: [refType(Dependency.typeOf(func), false)],
-        deps: [func, Dependency.hasRefTo(func)],
-      };
-    },
-    resolve: ([funcIdx]) => funcIdx,
-  }),
-};
+const refNullInstruction = define("ref.null", HeapType);
+
+/** The null reference of a reference type's heap type. */
+function refNull(ctx: LocalContext, type: Type<RefType>) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "ref.null");
+  let heap = referenced(valueTypeLiteral(type)).ref;
+  // A defined heap type is a hole, which Module() fills in with its index.
+  emitInstruction(ctx, refNullInstruction, [], [heap]);
+  return pushResult(ctx, refType(heap, true));
+}
+
+const refIsNullInstruction = define("ref.is_null");
+
+/** Whether the reference on the stack is null. */
+function refIsNull(ctx: LocalContext) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "ref.is_null");
+  popOne(ctx, topReference(ctx.stack, "ref.is_null"), "ref.is_null");
+  writeOpcode(ctx.code, refIsNullInstruction.opcodeBytes);
+  return pushResult(ctx, "i32");
+}
+
+const refAsNonNullInstruction = define("ref.as_non_null");
+
+/** The reference on the stack, which traps if it is null, as non-null. */
+function refAsNonNull(ctx: LocalContext) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "ref.as_non_null");
+  let type = topReference(ctx.stack, "ref.as_non_null");
+  popOne(ctx, type, "ref.as_non_null");
+  writeOpcode(ctx.code, refAsNonNullInstruction.opcodeBytes);
+  return pushResult(ctx, type === Unknown ? type : refType(referenced(type).ref, false));
+}
+
+const refFuncInstruction = define("ref.func", FunctionIndex, ([index]: number[]) => index);
+
+/** A non-null reference to a function, typed by the function's type. */
+function refFunc(ctx: LocalContext, func: Dependency.AnyFunc) {
+  if (ctx.allowed !== undefined) checkAllowed(ctx, "ref.func");
+  emitInstruction(ctx, refFuncInstruction, [func, Dependency.hasRefTo(func)], []);
+  return pushResult(ctx, refType(Dependency.typeOf(func), false));
+}
+
+const refOps = { null: refNull, is_null: refIsNull, as_non_null: refAsNonNull, func: refFunc };
+
+/** The instructions of the functions above, which lookups by name or opcode find. */
+const instructions = [
+  localSetInstruction,
+  localTeeInstruction,
+  globalSetInstruction,
+  refNullInstruction,
+  refIsNullInstruction,
+  refAsNonNullInstruction,
+  refFuncInstruction,
+];

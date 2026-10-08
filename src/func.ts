@@ -1,11 +1,12 @@
-import { Binable, iso, record, tuple } from "./binable.ts";
+import { Binable, tuple, writeUnsignedLEB } from "./binable.ts";
+import { createCode } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
-import { U32, vec, withByteLength } from "./immediate.ts";
+import { U32, vec } from "./immediate.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
-import { Expression } from "./instruction/binable.ts";
 import {
   type LocalContext,
   StackVar,
+  checkSynchronous,
   formatStack,
   popStack,
   withContext,
@@ -40,7 +41,6 @@ export { func, declareFunc, type Local };
 // internal
 export {
   type FinalizedFunc,
-  Code,
   Locals,
   type JSFunction,
   type ReturnValues,
@@ -76,52 +76,61 @@ function func<
 ): Func<ParameterSchema<Args>, Results> {
   let { in: entries, locals = {} as Locals, out: results } = signature;
   const args = createParameters<Args>(entries);
-  ctx.stack = [];
   const { names: argNames, types: argsArray } = args;
-  const localEntries = Object.entries(locals);
-  const flatLocals = localEntries.flatMap(([name, declaration]) =>
-    declaration.kind === "local-array"
-      ? Array.from({ length: declaration.length }, (_, index) => ({
-          name: `${name}[${index}]`,
-          type: declaration.type.kind,
-        }))
-      : [{ name, type: declaration.kind }],
-  );
-  const localsArray = flatLocals.map(({ type }) => type);
+  const nArgs = argsArray.length;
+  // Locals in declaration order, with an entry per element of arrays of locals. Loops rather than
+  // callbacks, which is faster in code that runs for the first time.
+  const flatNames: string[] = [];
+  const localsArray: ValueType[] = [];
+  for (const key in locals) {
+    const declaration = locals[key];
+    if (declaration.kind === "local-array") {
+      for (let i = 0; i < declaration.length; i++) {
+        flatNames.push(`${key}[${i}]`);
+        localsArray.push(declaration.type.kind);
+      }
+    } else {
+      flatNames.push(key);
+      localsArray.push(declaration.kind);
+    }
+  }
   const resultsArray = valueTypeLiterals<Results>(results);
   const type = { args: argsArray, results: resultsArray };
-  const nArgs = argsArray.length;
-  const argsInput = Object.fromEntries(
-    argNames.map((name, index) => [
-      name,
-      { kind: "local", type: argsArray[index], index } satisfies Local,
-    ]),
-  ) as ToLocal<ParameterValues<ParameterSchema<Args>>>;
+  const argsInput: Record<string, Local> = {};
+  const localNames: Record<number, string> = {};
+  for (let index = 0; index < nArgs; index++) {
+    argsInput[argNames[index]] = { kind: "local", type: argsArray[index], index };
+    localNames[index] = argNames[index];
+  }
   const { sortedLocals, localIndices } = sortLocals(localsArray, nArgs);
-  let offset = 0;
-  const localsInput = Object.fromEntries(
-    localEntries.map(([name, declaration]) => {
-      const isArray = declaration.kind === "local-array";
-      const length = isArray ? declaration.length : 1;
-      const values = Array.from({ length }, () => {
-        const j = offset++;
-        return { kind: "local", type: localsArray[j], index: localIndices[j] } satisfies Local;
-      });
-      return [name, isArray ? values : values[0]];
-    }),
-  ) as NamedLocals<Locals>;
-  const localNames = Object.fromEntries([
-    ...argNames.map((name, index) => [index, name]),
-    ...flatLocals.map(({ name }, j) => [localIndices[j], name]),
-  ]);
+  const localsInput: Record<string, Local | Local[]> = {};
+  let j = 0;
+  for (const key in locals) {
+    const declaration = locals[key];
+    if (declaration.kind === "local-array") {
+      const values: Local[] = [];
+      for (let i = 0; i < declaration.length; i++, j++)
+        values.push({ kind: "local", type: localsArray[j], index: localIndices[j] });
+      localsInput[key] = values;
+    } else {
+      localsInput[key] = { kind: "local", type: localsArray[j], index: localIndices[j] };
+      j++;
+    }
+  }
+  for (let j = 0; j < flatNames.length; j++) localNames[localIndices[j]] = flatNames[j];
   const name = signature.name ?? (run.name || undefined);
   let stack: StackVar<ValueType>[] = [];
-  let { body, deps } = withContext(
+  let code = createCode();
+  let deps = new Set<Dependency.t>();
+  let calls = new Set<Dependency.AnyFunc>();
+  withContext(
     ctx,
     {
       locals: [...argsArray, ...sortedLocals],
-      body: [],
-      deps: [],
+      code,
+      deps,
+      calls,
+      allowed: undefined,
       stack,
       return: resultsArray,
       frames: [
@@ -136,7 +145,14 @@ function func<
       ],
     },
     () => {
-      run(argsInput, localsInput, ctx);
+      checkSynchronous(
+        run(
+          argsInput as ToLocal<ParameterValues<ParameterSchema<Args>>>,
+          localsInput as NamedLocals<Locals>,
+          ctx,
+        ),
+        `func${name === undefined ? "" : ` ${name}`}`,
+      );
       // The function's results must be all that is left on the stack.
       const end = `end of function${name === undefined ? "" : ` ${name}`}`;
       popStack(ctx, resultsArray, end);
@@ -153,8 +169,9 @@ function func<
     localNames,
     type,
     ...explicitType(signature.type, type),
-    body,
-    deps,
+    code,
+    deps: [...deps],
+    calls: [...calls] as Func<any, any>["calls"],
     locals: sortedLocals,
     defined: true,
   } satisfies Dependency.Func;
@@ -190,8 +207,9 @@ function declareFunc<
     ...explicitType(signature.type, type),
     name: signature.name,
     locals: [],
-    body: [],
+    code: createCode(0),
     deps: [],
+    calls: [],
     defined: false,
   };
   return Object.assign(declaration, {
@@ -253,45 +271,52 @@ function sortLocals(locals: ValueType[], offset: number) {
   let count: number[] = [];
   let groups: number[] = [];
   let offsetWithin: number[] = [];
-  for (let local of locals) {
-    let i = types.findIndex((type) => typeEquals(type, local));
-    if (i === -1) i = types.push(local) - 1;
-    count[i] ??= 0;
+  for (let j = 0; j < locals.length; j++) {
+    let local = locals[j];
+    let i = 0;
+    while (i < types.length && !typeEquals(types[i], local)) i++;
+    if (i === types.length) {
+      types.push(local);
+      count.push(0);
+    }
     groups.push(i);
-    offsetWithin.push(count[i]);
-    count[i]++;
+    offsetWithin.push(count[i]++);
   }
-  let typeOffset: number[] = Array(count.length).fill(0);
-  for (let i = 1; i < count.length; i++) {
-    typeOffset[i] = count[i - 1] + typeOffset[i - 1];
+  let typeOffset: number[] = [];
+  let sortedLocals: ValueType[] = [];
+  for (let i = 0; i < types.length; i++) {
+    typeOffset.push(sortedLocals.length);
+    for (let k = 0; k < count[i]; k++) sortedLocals.push(types[i]);
   }
-  let localIndices = locals.map((_, j) => offset + typeOffset[groups[j]] + offsetWithin[j]);
-  let sortedLocals: ValueType[] = types.flatMap((type, i) => Array(count[i]).fill(type));
+  let localIndices: number[] = [];
+  for (let j = 0; j < locals.length; j++)
+    localIndices.push(offset + typeOffset[groups[j]] + offsetWithin[j]);
   return { sortedLocals, localIndices };
 }
 
 // binable
 
 const CompressedLocals = vec(tuple([U32, ValueType]));
-const Locals = iso<[number, ValueType][], ValueType[]>(CompressedLocals, {
+const Locals = Binable<ValueType[]>({
   // Runs of equal types, which keeps locals in order.
-  to(locals) {
-    let runs: [number, ValueType][] = [];
-    for (let local of locals) {
-      let last = runs.at(-1);
-      if (last !== undefined && typeEquals(last[1], local)) last[0]++;
-      else runs.push([1, local]);
+  writeBytes(output, locals) {
+    let n = locals.length;
+    let runs = 0;
+    for (let i = 0; i < n; i++) if (i === 0 || !typeEquals(locals[i - 1], locals[i])) runs++;
+    writeUnsignedLEB(output, runs);
+    for (let i = 0; i < n;) {
+      let j = i + 1;
+      while (j < n && typeEquals(locals[i], locals[j])) j++;
+      writeUnsignedLEB(output, j - i);
+      ValueType.writeBytes(output, locals[i]);
+      i = j;
     }
-    return runs;
   },
-  from(compressed) {
+  readBytes(input) {
     let locals: ValueType[] = [];
-    for (let [count, local] of compressed) {
+    for (let [count, local] of CompressedLocals.readBytes(input)) {
       locals.push(...Array(count).fill(local));
     }
     return locals;
   },
 });
-
-type Code = { locals: ValueType[]; body: Expression };
-const Code = withByteLength(record({ locals: Locals, body: Expression })) satisfies Binable<Code>;

@@ -1,4 +1,5 @@
 import type {} from "./js-api.ts";
+import type { Code } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
 import type { Parameters, ParameterEntry } from "./parameters.ts";
 import { ValueType } from "./types.ts";
@@ -10,8 +11,10 @@ type Func<Args extends readonly ParameterEntry[], Results extends readonly Value
   name?: string;
   localNames?: Record<number, string>;
   locals: ValueType[];
-  body: Dependency.Instruction[];
+  code: Code;
   deps: Dependency.t[];
+  /** Functions that the code calls directly. */
+  calls: AnyFunc<any, any>[];
   params: Parameters<Args>;
   type: { args: Parameters<Args>["types"]; results: Results };
   defined: boolean;

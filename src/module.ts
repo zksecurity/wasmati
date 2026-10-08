@@ -1,10 +1,14 @@
 import type {} from "./js-api.ts";
+import { fromJSONValue, toJSONValue, type JSONValue } from "./json.ts";
 import * as Dependency from "./dependency.ts";
 import { Export, Import } from "./export.ts";
-import type { FinalizedFunc, JSFunction } from "./func.ts";
-import { resolveInstruction, type ResolvedInstruction } from "./instruction/base.ts";
-import { Module as BinableModule } from "./module-binable.ts";
-import { Data, Elem, Global, Table } from "./memory-binable.ts";
+import type { JSFunction } from "./func.ts";
+import { END } from "./instruction/binable.ts";
+import { byteCursor, writeByte, writtenBytes } from "./binable.ts";
+import { link, type Linker } from "./code.ts";
+import { Locals } from "./func.ts";
+import { Module as BinableModule, EncodedModule } from "./module-binable.ts";
+import type { EncodedData, EncodedElem, EncodedGlobal, EncodedTable } from "./memory-binable.ts";
 import {
   FunctionType,
   functionTypeEquals,
@@ -20,13 +24,13 @@ import {
 import { elemConstructor, memoryConstructor } from "./memory.ts";
 import { parseWat } from "./text/wat.ts";
 import { printWat } from "./text/print.ts";
-import { jsStringBuiltins, usesJSStringBuiltins } from "./js-string.ts";
+import { jsStringBuiltins } from "./js-string.ts";
 import type { AsyncExport } from "./export.ts";
 import { TypeRegistry } from "./type-registry.ts";
 import type { NameMap, NameSection } from "./name-section.ts";
 import type { CustomSection } from "./module-binable.ts";
 
-export { Module, type ModuleExport, type ModuleInstance };
+export { Module, type ModuleExport, type ModuleInstance, type ExportInput, type TypedInstance };
 
 type Module = ReturnType<typeof ModuleConstructor>;
 
@@ -43,6 +47,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   customSections,
   dependencies: inputDependencies = [],
   declareReferences = true,
+  skipDebugNames = false,
 }: {
   exports: Exports;
   /**
@@ -62,6 +67,12 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
    * segments declare them. The decompiler turns this off to reproduce modules without it faithfully.
    */
   declareReferences?: boolean;
+  /**
+   * Leave out the names of parameters and locals, which the module otherwise contains in its name
+   * section, so that debuggers and printed WAT show them. Building is a few percent faster, and the
+   * module a few percent smaller. Function names stay, for stack traces; entries of `names` stay too.
+   */
+  skipDebugNames?: boolean;
 }) {
   // collect all dependencies (by kind)
   let dependencies = new Set<Dependency.t>();
@@ -192,51 +203,76 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   // index datas
   dependencyByKind.data.forEach((data, dataIdx) => depToIndex.set(data, dataIdx));
 
-  // finalize functions
-  let funcs: FinalizedFunc[] = funcs0.map(({ typeIdx, funcIdx, ...func }) => {
-    let body = func.body.map((instr) => resolveInstruction(instr, depToIndex));
-    return {
-      funcIdx: funcIdx,
-      typeIdx: typeIdx,
-      type: func.type,
-      locals: func.locals,
-      body,
-    };
+  // Link code: fill in indices of dependencies, and of types in immediates, which may add types.
+  // Types are indexed in the order of functions, globals, tables, elements and data segments.
+  let linker: Linker = {
+    index(dep) {
+      let index = depToIndex.get(dep);
+      if (index !== undefined) return index;
+      if (dep.kind === "hasRefTo" || dep.kind === "hasMemory") return 0;
+      throw Error("bug: no index for dependency");
+    },
+    types: (name, immediate) => registry.immediate(name, immediate),
+  };
+  let writer = byteCursor();
+  let value = <T extends ValueType>(type: T): T => registry.value(type);
+  let constant = (constant: Dependency.Constant): Uint8Array => {
+    writer.offset = 0;
+    link(constant.code, writer, linker);
+    writeByte(writer, END);
+    return writtenBytes(writer);
+  };
+  // Functions are encoded once, here, from their code.
+  let funcs = funcs0.map(({ typeIdx, type, locals, code }) => {
+    registry.signature(type);
+    writer.offset = 0;
+    Locals.writeBytes(writer, locals.map(value));
+    let hints = link(code, writer, linker, 0);
+    writeByte(writer, END);
+    return { typeIdx, code: writtenBytes(writer), hints };
   });
-  // finalize globals
-  let globals: Global[] = dependencyByKind.global.map(({ type, init }) => {
-    let init_ = resolveConst(init, depToIndex);
-    return { type, init: init_ };
-  });
-  // finalize tables
-  let tables: Table[] = dependencyByKind.table.map(({ type, init }) =>
-    init === undefined ? type : { ...type, init: resolveConst(init, depToIndex) },
-  );
-  // finalize elems
-  let elems: Elem[] = dependencyByKind.elem.map(({ type, init, mode }) => {
-    let init_ = init.map((i) => resolveConst(i, depToIndex));
-    let mode_: Elem["mode"] =
+  let globals: EncodedGlobal[] = dependencyByKind.global.map(({ type, init }) => ({
+    type: { ...type, value: value(type.value) },
+    init: constant(init),
+  }));
+  let tables: EncodedTable[] = dependencyByKind.table.map(({ type, init }) => ({
+    ...type,
+    type: value(type.type),
+    ...(init === undefined ? {} : { init: constant(init) }),
+  }));
+  let elems: EncodedElem[] = dependencyByKind.elem.map(({ type, init, mode }) => ({
+    type: value(type),
+    init: init.map(constant),
+    mode:
       typeof mode === "object"
-        ? {
-            table: depToIndex.get(mode.table)!,
-            offset: resolveConst(mode.offset, depToIndex),
-          }
-        : mode;
-    return { type, init: init_, mode: mode_ };
-  });
+        ? { table: depToIndex.get(mode.table)!, offset: constant(mode.offset) }
+        : mode,
+  }));
   // finalize memories
   checkDefaultMemory(dependencyByKind);
   let memories = dependencyByKind.memory.map(({ type }) => type);
   // finalize datas: without a memory, active segments use the default memory
-  let datas: Data[] = dependencyByKind.data.map(({ init, mode }) => {
-    let mode_: Data["mode"] =
-      mode !== "passive"
-        ? {
+  let datas: EncodedData[] = dependencyByKind.data.map(({ init, mode }) => ({
+    init,
+    mode:
+      mode === "passive"
+        ? mode
+        : {
             memory: mode.memory === undefined ? 0 : depToIndex.get(mode.memory)!,
-            offset: resolveConst(mode.offset, depToIndex),
-          }
-        : mode;
-    return { init, mode: mode_ };
+            offset: constant(mode.offset),
+          },
+  }));
+  imports = imports.map((imp) => {
+    const { description } = imp;
+    if (description.kind === "global") {
+      const type = { ...description.value, value: value(description.value.value) };
+      return { ...imp, description: { ...description, value: type } };
+    }
+    if (description.kind === "table") {
+      const type = { ...description.value, type: value(description.value.type) };
+      return { ...imp, description: { ...description, value: type } };
+    }
+    return imp;
   });
 
   // start
@@ -253,11 +289,13 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   const generated: NameSection = name === undefined ? {} : { module: name };
   for (const func of funcs0) {
     if (func.name !== undefined) (generated.functions ??= {})[func.funcIdx] = func.name;
-    if (func.localNames !== undefined) (generated.locals ??= {})[func.funcIdx] = func.localNames;
+    if (!skipDebugNames && func.localNames !== undefined)
+      (generated.locals ??= {})[func.funcIdx] = func.localNames;
   }
   dependencyByKind.importFunction.forEach((func, index) => {
     const debugName = func.name ?? func.field;
     if (debugName !== undefined) (generated.functions ??= {})[index] = debugName;
+    if (skipDebugNames) return;
     (generated.locals ??= {})[index] = Object.fromEntries(
       func.params.names.map((name, index) => [index, name]),
     );
@@ -294,12 +332,19 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
       mergedNames.locals[index] = { ...generated.locals?.[index], ...names?.locals?.[index] };
     }
   }
-  let binableModule: BinableModule = {
+  // Names given in the builder, unless the module's names override them.
+  const { names: typeNames, fieldNames } = registry;
+  if (Object.keys(typeNames).length > 0) mergedNames.types = { ...typeNames, ...mergedNames.types };
+  if (Object.keys(fieldNames).length > 0)
+    mergedNames.fields = { ...fieldNames, ...mergedNames.fields };
+  let encoded: EncodedModule = {
     types: registry.types,
+    ...(registry.groups.some((size) => size !== 1) ? { recGroups: registry.groups } : {}),
     funcs,
     imports,
     exports,
     datas,
+    dataCount: datas.length,
     elems,
     tables,
     globals,
@@ -309,7 +354,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(indexTypes(binableModule, registry), importMap, {
+  return createModule<Exports>(EncodedModule.toBytes(encoded), importMap, {
     asyncExports,
     importDependencies,
   });
@@ -351,21 +396,11 @@ function asyncPath(
   if (visited.has(func)) return undefined;
   visited.add(func);
   if (func.kind === "importFunction") return func.async ? [func] : undefined;
-  for (let callee of directCalls(func.body)) {
+  for (let callee of func.calls) {
     let path = asyncPath(callee, visited);
     if (path !== undefined) return [func, ...path];
   }
   return undefined;
-}
-
-/** Functions called by `call` and `return_call`, including in nested blocks. */
-function* directCalls(body: Dependency.Instruction[]): Generator<Dependency.AnyFunc> {
-  for (let instruction of body) {
-    if (instruction.string === "call" || instruction.string === "return_call")
-      yield instruction.deps[0] as Dependency.AnyFunc;
-    for (let arg of instruction.resolveArgs)
-      if (Array.isArray(arg) && typeof arg[0]?.string === "string") yield* directCalls(arg);
-  }
 }
 
 function functionName(func: Dependency.AnyFunc) {
@@ -386,88 +421,26 @@ function orderGlobals(globals: Dependency.Global[]): Dependency.Global[] {
 }
 
 /**
- * Builders refer to defined types as objects. Give each its type index, adding types as needed, so
- * that the module refers to types by index only, and record type and field names.
- */
-function indexTypes(module: BinableModule, registry: TypeRegistry): BinableModule {
-  const value = <T extends ValueType>(type: T): T => registry.value(type);
-  const instructions = (body: ResolvedInstruction[]) => registry.instructions(body);
-  const indexed: BinableModule = {
-    ...module,
-    funcs: module.funcs.map((func) => ({
-      ...func,
-      type: registry.signature(func.type),
-      locals: func.locals.map(value),
-      body: instructions(func.body),
-    })),
-    globals: module.globals.map(({ type, init }) => ({
-      type: { ...type, value: value(type.value) },
-      init: instructions(init),
-    })),
-    tables: module.tables.map(({ type, init, ...table }) => ({
-      ...table,
-      type: value(type),
-      ...(init === undefined ? {} : { init: instructions(init) }),
-    })),
-    elems: module.elems.map(({ type, init, mode }) => ({
-      type: value(type),
-      init: init.map(instructions),
-      mode: typeof mode === "string" ? mode : { ...mode, offset: instructions(mode.offset) },
-    })),
-    datas: module.datas.map(({ init, mode }) => ({
-      init,
-      mode: mode === "passive" ? mode : { ...mode, offset: instructions(mode.offset) },
-    })),
-    imports: module.imports.map((imp) => {
-      const { description } = imp;
-      if (description.kind === "global") {
-        const type = { ...description.value, value: value(description.value.value) };
-        return { ...imp, description: { ...description, value: type } };
-      }
-      if (description.kind === "table") {
-        const type = { ...description.value, type: value(description.value.type) };
-        return { ...imp, description: { ...description, value: type } };
-      }
-      return imp;
-    }),
-  };
-  if (registry.groups.some((size) => size !== 1)) indexed.recGroups = registry.groups;
-  // Names given in the builder, unless the module's names override them.
-  const { names: typeNames, fieldNames } = registry;
-  if (Object.keys(typeNames).length > 0 || Object.keys(fieldNames).length > 0) {
-    const names = { ...indexed.names };
-    if (Object.keys(typeNames).length > 0) names.types = { ...typeNames, ...names.types };
-    if (Object.keys(fieldNames).length > 0) names.fields = { ...fieldNames, ...names.fields };
-    indexed.names = names;
-  }
-  return indexed;
-}
-
-/**
+ * A module is its bytes, which are well-formed, with the import object that instantiates it.
  * `asyncExports` names the exports that are wrapped by `WebAssembly.promising` on instantiation.
  * Modules of the builder know the dependencies behind their imports, in order, which `wasmati build`
  * turns into a JS module.
  */
 function createModule<Exports extends Record<string, ExportInput>>(
-  binableModule: BinableModule,
+  bytes: Uint8Array<ArrayBuffer>,
   importMap: WebAssembly.Imports,
   {
     asyncExports = [],
     importDependencies,
   }: { asyncExports?: string[]; importDependencies?: Dependency.AnyImport[] } = {},
 ) {
-  let module = {
-    module: binableModule,
+  return {
     importMap,
     asyncExports,
     importDependencies,
     /** Instantiate Wasm with inferred native export signatures; exports are the actual Wasm functions. */
     async instantiate() {
-      let { instance, module } = await WebAssembly.instantiate(
-        BinableModule.toBytes(binableModule),
-        importMap,
-        compileOptions(binableModule),
-      );
+      let { instance, module } = await WebAssembly.instantiate(bytes, importMap, jsStringBuiltins);
       return { instance: withAsyncExports(instance, asyncExports), module } as {
         instance: TypedInstance<Exports>;
         module: WebAssembly.Module;
@@ -475,25 +448,35 @@ function createModule<Exports extends Record<string, ExportInput>>(
     },
     /** Compile Wasm without instantiating it, for example to instantiate it in workers. */
     compile() {
-      return WebAssembly.compile(
-        BinableModule.toBytes(binableModule),
-        compileOptions(binableModule),
-      );
+      return WebAssembly.compile(bytes, jsStringBuiltins);
     },
+    /** The module's bytes, which are the module: changing them changes it. */
     toBytes() {
-      return BinableModule.toBytes(module.module);
+      return bytes;
+    },
+    /**
+     * The module decoded into plain JS data, close to the spec's layout, which `Module.fromObject()`
+     * encodes. Indices, sizes and 32-bit integers are numbers; 64-bit integers are bigints, as are
+     * 64-bit sizes and offsets beyond 2^53; floats are numbers, or `{ bits }` for NaNs, which keeps
+     * their payload; bytes, like data segments and custom sections, are `Uint8Array`s. Because of
+     * bigints and bytes, it is not JSON; `toJSON()` is.
+     */
+    toObject(): BinableModule {
+      return BinableModule.fromBytes(bytes);
+    },
+    /**
+     * `toObject()` as JSON, which `JSON.stringify(module)` gives, and `Module.fromJSON()` encodes.
+     * Bigints, bytes and numbers that are not finite, or -0, are tagged objects like
+     * `{ $bigint: "123" }`, `{ $bytes: "00ff" }` in hex, and `{ $number: "Infinity" }`.
+     */
+    toJSON(): JSONValue {
+      return toJSONValue(BinableModule.fromBytes(bytes));
     },
     /** The module in the WebAssembly text format, with names as identifiers. */
     toWat() {
-      return printWat(module.module);
+      return printWat(BinableModule.fromBytes(bytes));
     },
   };
-  return module;
-}
-
-/** Modules that use JS string builtins compile with them. */
-function compileOptions(module: BinableModule): WebAssembly.CompileOptions {
-  return usesJSStringBuiltins(module.imports) ? jsStringBuiltins : {};
 }
 
 /**
@@ -509,8 +492,11 @@ function withAsyncExports(instance: WebAssembly.Instance, asyncExports: string[]
   return Object.create(instance, { exports: { value: exports } }) as WebAssembly.Instance;
 }
 
-/** An instance with the inferred types of a module's exports. */
-type TypedInstance<Exports extends Record<string, ExportInput>> = WebAssembly.Instance & {
+/** An instance with the inferred types of a module's exports, and no others. */
+type TypedInstance<Exports extends Record<string, ExportInput>> = Omit<
+  WebAssembly.Instance,
+  "exports"
+> & {
   exports: { [K in keyof Exports]: ModuleExport<Exports[K]> };
 };
 
@@ -518,7 +504,9 @@ type TypedInstance<Exports extends Record<string, ExportInput>> = WebAssembly.In
  * The instance of a module, as `instantiate()` returns it, for instances created otherwise: for
  * example in a worker, from the compiled module and the import object of the module.
  */
-type ModuleInstance<M extends Module> = Awaited<ReturnType<M["instantiate"]>>["instance"];
+type ModuleInstance<M extends { instantiate(): Promise<{ instance: unknown }> }> = Awaited<
+  ReturnType<M["instantiate"]>
+>["instance"];
 
 type ModuleExport<Export extends ExportInput> =
   Export extends AsyncExport<infer F>
@@ -526,7 +514,7 @@ type ModuleExport<Export extends ExportInput> =
     : Export extends Dependency.AnyFunc
       ? JSFunction<Export>
       : Export extends Dependency.AnyGlobal
-        ? {
+        ? Omit<WebAssembly.Global, "value" | "valueOf"> & {
             value: JSValue<Export["type"]["value"]>;
             valueOf(): JSValue<Export["type"]["value"]>;
           }
@@ -544,19 +532,40 @@ type AsyncFunction<T extends Dependency.AnyFunc> = (
 ) => Promise<ReturnType<JSFunction<T>>>;
 
 const Module = Object.assign(ModuleConstructor, {
+  /**
+   * A module of the given bytes, which must be well-formed: this decodes them, and throws if they are
+   * not a module. Engines check that it is valid, like its types, when they compile it.
+   */
   fromBytes<Exports extends Record<string, ExportInput>>(
     bytes: Uint8Array,
     importMap: WebAssembly.Imports = {},
   ) {
-    let binableModule = BinableModule.fromBytes(bytes);
-    return createModule<Exports>(binableModule, importMap);
+    BinableModule.fromBytes(bytes);
+    // Bytes in a shared buffer are copied, which Wasm compiles.
+    let own =
+      bytes.buffer instanceof ArrayBuffer ? (bytes as Uint8Array<ArrayBuffer>) : bytes.slice();
+    return createModule<Exports>(own, importMap);
+  },
+  /** A module from plain JS data, like `module.toObject()` gives it, which it encodes. */
+  fromObject<Exports extends Record<string, ExportInput>>(
+    object: BinableModule,
+    importMap: WebAssembly.Imports = {},
+  ) {
+    return createModule<Exports>(BinableModule.toBytes(object), importMap);
+  },
+  /** A module from JSON, like `module.toJSON()` gives it, which it encodes. */
+  fromJSON<Exports extends Record<string, ExportInput>>(
+    json: JSONValue,
+    importMap: WebAssembly.Imports = {},
+  ) {
+    return Module.fromObject<Exports>(fromJSONValue(json) as BinableModule, importMap);
   },
   /** A module from the WebAssembly text format. */
   fromWat<Exports extends Record<string, ExportInput>>(
     text: string,
     importMap: WebAssembly.Imports = {},
   ) {
-    return createModule<Exports>(parseWat(text), importMap);
+    return Module.fromObject<Exports>(parseWat(text), importMap);
   },
 });
 
@@ -566,14 +575,6 @@ function pushDependency(existing: Set<Dependency.anyDependency>, dep: Dependency
   for (let dep_ of dep.deps) {
     pushDependency(existing, dep_);
   }
-}
-
-/** A constant expression's instructions, which refer to other definitions by index. */
-function resolveConst(
-  constant: Dependency.Constant,
-  depToIndex: Map<Dependency.t, number>,
-): ResolvedInstruction[] {
-  return constant.body.map((instruction) => resolveInstruction(instruction, depToIndex));
 }
 
 function addImport(

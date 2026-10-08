@@ -3,14 +3,7 @@ import * as polyfill from "./js-string-polyfill.ts";
 import { array, i16, mut } from "./type-definitions.ts";
 import { externref, i32t as i32, refType } from "./types.ts";
 
-export {
-  jsString,
-  stringConstant,
-  jsStringBuiltins,
-  usesJSStringBuiltins,
-  builtinModule,
-  constantModule,
-};
+export { jsString, stringConstant, jsStringBuiltins, builtinModule, constantModule };
 
 /** The import modules of JS string builtins and of imported string constants. */
 const builtinModule = "wasm:js-string";
@@ -18,10 +11,6 @@ const constantModule = "'";
 
 /** Instantiation options that enable JS string builtins and imported string constants. */
 const jsStringBuiltins = { builtins: ["js-string"], importedStringConstants: constantModule };
-
-function usesJSStringBuiltins(imports: { module: string }[]) {
-  return imports.some(({ module }) => module === builtinModule || module === constantModule);
-}
 
 /** The array type that builtins read characters from and write them to: UTF-16 code units. */
 const charCodeArray = array(mut(i16));

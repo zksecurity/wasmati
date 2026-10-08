@@ -82,10 +82,10 @@
     f64.const 1.125
     i64.trunc_sat_f64_s
     call $consoleLog64
-    local.get $y
     local.get $x
     i32.const 0
     i32.add
+    local.get $y
     i32.add
     block (param i32) (result i32)
       local.tee $tmp

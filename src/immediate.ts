@@ -2,6 +2,7 @@ import {
   Binable,
   type ByteCursor,
   readByte,
+  reserve,
   writeByte,
   writeByteArray,
   writeSigned64LEB,
@@ -46,9 +47,21 @@ const utf8Encoder = new TextEncoder();
 
 const Name = Binable<string>({
   writeBytes(output, string: string) {
-    let bytes = utf8Encoder.encode(string);
-    writeUnsignedLEB(output, bytes.length);
-    writeByteArray(output, bytes);
+    let n = string.length;
+    let ascii = true;
+    for (let i = 0; i < n && ascii; i++) ascii = string.charCodeAt(i) < 0x80;
+    if (!ascii) {
+      let bytes = utf8Encoder.encode(string);
+      writeUnsignedLEB(output, bytes.length);
+      writeByteArray(output, bytes);
+      return;
+    }
+    // ASCII strings are their own UTF-8 encoding.
+    writeUnsignedLEB(output, n);
+    reserve(output, n);
+    let { bytes, offset } = output;
+    for (let i = 0; i < n; i++) bytes[offset + i] = string.charCodeAt(i);
+    output.offset = offset + n;
   },
   readBytes(input) {
     let length = U32.readBytes(input);
@@ -125,11 +138,17 @@ const I32 = Binable<I32>({
   },
 });
 
+const int64View = new DataView(new ArrayBuffer(8));
+
 const I64 = Binable<I64>({
   writeBytes(output, x: I64) {
-    let signed = BigInt.asIntN(64, x);
-    if (signed >= -(2n ** 31n) && signed < 2n ** 31n) writeSignedLEB(output, Number(signed));
-    else writeSigned64LEB(output, Number(signed >> 32n), Number(BigInt.asUintN(32, signed)));
+    // The low 64 bits, as two 32-bit halves.
+    int64View.setBigInt64(0, x, true);
+    let low = int64View.getUint32(0, true);
+    let high = int64View.getInt32(4, true);
+    if ((high === 0 && low < 0x8000_0000) || (high === -1 && low >= 0x8000_0000))
+      writeSignedLEB(output, low | 0);
+    else writeSigned64LEB(output, high, low);
   },
   readBytes(input) {
     return readLEB128(input, 64, true);

@@ -53,7 +53,7 @@ test("named parameters and grouped locals emit their actual Wasm indices", async
       2: { 0: "count", 1: "value", 2: "first", 3: "second", 4: "fraction", 5: "scratch" },
     },
   };
-  assert.deepEqual(module.module.names, expected);
+  assert.deepEqual(module.toObject().names, expected);
   const { instance, module: compiled } = await module.instantiate();
   assert(instance instanceof WebAssembly.Instance);
   assert.equal(instance.exports.sum(2, 40n), 42n);
@@ -104,16 +104,50 @@ test("explicit metadata overrides individual inferred names without mutating fun
       locals: { 0: { 1: "right" } },
     },
   });
-  assert.deepEqual(one.module.names, {
+  assert.deepEqual(one.toObject().names, {
     module: "one",
     functions: { 0: "sum" },
     locals: { 0: { 0: "x", 1: "right" } },
   });
   const two = Module({ exports: { other: add } });
-  assert.deepEqual(two.module.names, {
+  assert.deepEqual(two.toObject().names, {
     functions: { 0: "other" },
     locals: { 0: { 0: "x", 1: "y" } },
   });
+});
+
+test("skipDebugNames leaves out parameter and local names, but keeps function names", () => {
+  const log = importFunc({ field: "log", in: [{ value: i32 }], out: [] }, () => {});
+  const add = func(
+    { name: "add", in: [{ x: i32 }], locals: { y: i32 }, out: [i32] },
+    ({ x }, { y }) => {
+      call(log, { value: x });
+      i32.add(x, y);
+    },
+  );
+  const module = Module({ exports: { add }, skipDebugNames: true });
+  assert.deepEqual(module.toObject().names, { functions: { 0: "log", 1: "add" } });
+  const named = Module({
+    exports: { add },
+    skipDebugNames: true,
+    names: { locals: { 1: { 0: "x" } } },
+  });
+  assert.deepEqual(named.toObject().names?.locals, { 1: { 0: "x" } });
+});
+
+test("typed instances have only their exports, which other modules can import", async () => {
+  const counter = global(
+    constant(() => i32.const(7)),
+    { mutable: true },
+  );
+  const read = func({ in: [], out: [i32] }, () => global.get(counter));
+  const { instance } = await Module({ exports: { read, counter } }).instantiate();
+  instance.exports.counter.value satisfies number;
+  instance.exports satisfies WebAssembly.ModuleImports;
+  // @ts-expect-error only the module's exports exist
+  instance.exports.missing;
+  assert.equal(instance.exports.counter.value, 7);
+  assert.equal(instance.exports.read(), 7);
 });
 
 test("local arrays retain their groups and names across type-based reordering", async () => {
@@ -162,8 +196,8 @@ test("local arrays retain their groups and names across type-based reordering", 
     7: "floats[0]",
     8: "floats[1]",
   };
-  assert.deepEqual(module.module.names?.locals, { 0: names });
-  assert.deepEqual(Module.fromBytes(module.toBytes()).module.names?.locals, { 0: names });
+  assert.deepEqual(module.toObject().names?.locals, { 0: names });
+  assert.deepEqual(Module.fromBytes(module.toBytes()).toObject().names?.locals, { 0: names });
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.grouped(40), 42n);
 });
@@ -189,7 +223,7 @@ test("named callbacks supply internal names, and stack calls still work", async 
     call(helper);
   });
   const module = Module({ exports: { entry } });
-  assert.deepEqual(module.module.names?.functions, { 0: "entry", 1: "increment" });
+  assert.deepEqual(module.toObject().names?.functions, { 0: "entry", 1: "increment" });
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.entry(41), 42);
 });
@@ -203,7 +237,7 @@ test("exported globals, tables and memories receive names and retain native iden
       table: table({ type: funcref, min: 0 }),
     },
   });
-  assert.deepEqual(module.module.names, {
+  assert.deepEqual(module.toObject().names, {
     module: "entities",
     globals: { 0: "counter" },
     memories: { 0: "memory" },
@@ -217,7 +251,7 @@ test("exported globals, tables and memories receive names and retain native iden
 
 test("native parameter order follows the declaration, including numeric keys", async () => {
   const ordered = func({ in: [{ last: i32 }, { 2: i32 }, { 1: i64 }], out: [i64] }, (args) => {
-    i64.add(args[1], i64.extend_i32_u(i32.sub(args[2], args.last)));
+    i64.add(local.get(args[1]), i64.extend_i32_u(i32.sub(args[2], args.last)));
   });
   assert.deepEqual(ordered.params.names, ["last", "2", "1"]);
   const { instance } = await Module({ exports: { ordered } }).instantiate();
@@ -254,8 +288,9 @@ test("parameter declarations require one unique name per entry and local arrays 
 test("modules without parameter names retain native calls", async () => {
   const identity = func({ in: [{ value: i32 }], out: [i32] }, ({ value }) => local.get(value));
   const module = Module({ exports: { identity } });
-  delete module.module.names;
-  const recovered = Module.fromBytes<{ identity: typeof identity }>(module.toBytes());
+  const { names, ...rest } = module.toObject();
+  const recovered = Module.fromObject<{ identity: typeof identity }>(rest);
+  assert.equal(recovered.toObject().names, undefined);
   const { instance } = await recovered.instantiate();
   instance.exports.identity satisfies (value: number) => number;
   assert.equal(instance.exports.identity(42), 42);

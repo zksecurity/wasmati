@@ -2,6 +2,7 @@ import type { Tuple } from "./util.ts";
 
 export {
   Binable,
+  lazy,
   type ByteCursor,
   byteCursor,
   writtenBytes,
@@ -9,6 +10,8 @@ export {
   reserve,
   writeByte,
   writeByteArray,
+  writeSlice,
+  writeIndexed,
   writeUnsignedLEB,
   writeSignedLEB,
   writeSigned64LEB,
@@ -77,9 +80,9 @@ function Binable<T>({
 
 /**
  * Bytes and an offset into them, where codecs read and write. Writing advances the offset, and when
- * the bytes are full, replaces them by larger ones.
+ * the bytes are full, replaces them by larger ones, unless they are `fixed`, for the reason given.
  */
-type ByteCursor = { bytes: Uint8Array; offset: number };
+type ByteCursor = { bytes: Uint8Array; offset: number; fixed?: string };
 
 /** A cursor to write into, at the start of empty bytes. */
 function byteCursor(capacity = 1 << 12): ByteCursor {
@@ -101,6 +104,7 @@ function readByte(input: ByteCursor): number {
 function reserve(output: ByteCursor, n: number) {
   let { bytes, offset } = output;
   if (offset + n <= bytes.length) return;
+  if (output.fixed !== undefined) throw Error(output.fixed);
   let larger = new Uint8Array(Math.max(2 * bytes.length, offset + n));
   larger.set(bytes.subarray(0, offset));
   output.bytes = larger;
@@ -118,6 +122,28 @@ function writeByteArray(output: ByteCursor, array: ArrayLike<number>) {
   if (array instanceof Uint8Array) bytes.set(array, offset);
   else for (let i = 0; i < n; i++) bytes[offset + i] = array[i];
   output.offset = offset + n;
+}
+
+/** Bytes from `from` to `to` of other bytes. */
+function writeSlice(output: ByteCursor, source: Uint8Array, from: number, to: number) {
+  let n = to - from;
+  reserve(output, n);
+  output.bytes.set(source.subarray(from, to), output.offset);
+  output.offset += n;
+}
+
+/** An opcode and an unsigned 32-bit LEB128 index, like that of `local.get`. */
+function writeIndexed(output: ByteCursor, opcode: number, index: number) {
+  if (output.offset + 6 > output.bytes.length) reserve(output, 6);
+  let { bytes } = output;
+  let offset = output.offset;
+  bytes[offset++] = opcode;
+  while (index >= 0x80) {
+    bytes[offset++] = (index & 0x7f) | 0x80;
+    index >>>= 7;
+  }
+  bytes[offset++] = index;
+  output.offset = offset;
 }
 
 /** An unsigned LEB128 integer below 2^53. */
@@ -218,7 +244,7 @@ const RemainingBytes = Binable<Uint8Array>({
 function sequence<T>(element: Binable<T>): Binable<T[]> {
   return Binable({
     writeBytes(output, values) {
-      for (let value of values) element.writeBytes(output, value);
+      for (let i = 0; i < values.length; i++) element.writeBytes(output, values[i]);
     },
     readBytes(input) {
       const values: T[] = [];
@@ -246,6 +272,15 @@ const Bool = Binable<boolean>({
     return !!byte;
   },
 });
+
+/** A codec that is defined later, for codecs that refer to each other through modules. */
+function lazy<T>(get: () => Binable<T>): Binable<T> {
+  let codec: Binable<T> | undefined;
+  return Binable({
+    writeBytes: (output, t) => (codec ??= get()).writeBytes(output, t),
+    readBytes: (input) => (codec ??= get()).readBytes(input),
+  });
+}
 
 function withByteCode<T>(code: number, binable: Binable<T>): Binable<T> {
   return Binable({
