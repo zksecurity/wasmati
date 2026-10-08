@@ -8,7 +8,6 @@ import {
   StackVar,
   Unknown,
   missingLocal,
-  pushResult,
   pushStack,
 } from "../local-context.ts";
 import {
