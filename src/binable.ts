@@ -42,7 +42,9 @@ export {
  * the hooks of composed codecs, which write and read at the offset of a cursor and advance it.
  */
 type Binable<T> = {
+  /** Bytes of their own buffer, which Wasm compiles; shared buffers it doesn't. */
   toBytes(value: T): Uint8Array<ArrayBuffer>;
+  /** Any bytes, also of a shared buffer. */
   fromBytes(bytes: Uint8Array): T;
   readBytes(input: ByteCursor): T;
   writeBytes(output: ByteCursor, value: T): void;
@@ -86,7 +88,7 @@ function byteCursor(capacity = 1 << 12): ByteCursor {
 
 /** The bytes written so far. */
 function writtenBytes({ bytes, offset }: ByteCursor): Uint8Array<ArrayBuffer> {
-  return bytes.slice(0, offset) as Uint8Array<ArrayBuffer>;
+  return bytes.slice(0, offset);
 }
 
 /** The byte at the offset, which it advances past. */
