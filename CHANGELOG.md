@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-wasmati 2.0 writes every instruction as bytes the moment it is called, so building a module is up to 16 times faster and there is no separate encoding step. `npm run benchmark` builds 250 KB of field arithmetic in 19 ms instead of 155 the first time, and in 4 ms instead of 67 after that; `WebAssembly.instantiate()` of it takes 0.5 ms instead of 25, which went to encoding.
+wasmati 2.0 writes every instruction as bytes the moment it is called, so there is no separate encoding step. Building and encoding (`toBytes()`) the 250 KB of field arithmetic of `npm run benchmark` takes 19 ms instead of 165 the first time, and 4.6 ms instead of 83 after that.
 
 ### Breaking changes
 
