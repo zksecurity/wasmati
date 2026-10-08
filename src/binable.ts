@@ -119,6 +119,20 @@ class Writer {
     this.length += n;
   }
 
+  /** An opcode and an unsigned 32-bit LEB128 index, like that of `local.get`. */
+  indexed(opcode: number, index: number) {
+    if (this.length + 6 > this.buffer.length) this.reserve(6);
+    let { buffer } = this;
+    let length = this.length;
+    buffer[length++] = opcode;
+    while (index >= 0x80) {
+      buffer[length++] = (index & 0x7f) | 0x80;
+      index >>>= 7;
+    }
+    buffer[length++] = index;
+    this.length = length;
+  }
+
   /** An unsigned LEB128 integer below 2^53. */
   unsigned(x: number) {
     this.reserve(8);

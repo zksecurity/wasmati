@@ -25,9 +25,22 @@ import {
   ValueType,
   valueTypeLiteral,
 } from "../types.ts";
-import { type LocalContext, StackVar, type StackType, Unknown } from "../local-context.ts";
+import {
+  type LocalContext,
+  popOne,
+  StackValue,
+  StackVar,
+  type StackType,
+  Unknown,
+} from "../local-context.ts";
 import { globalGet, localGet } from "./variable-get.ts";
-import { type Input, processStackArg, processStackArgs } from "./stack-args.ts";
+import {
+  checkLatest,
+  type Input,
+  processStackArg,
+  processStackArgs,
+  writeOperand,
+} from "./stack-args.ts";
 
 export {
   localOps,
@@ -59,6 +72,38 @@ const localOps = {
   }),
 };
 
+/**
+ * Write local.set or local.tee, with its operand, or the value on the stack, and return where its
+ * value's computation starts. Constant expressions take the instructions' general path.
+ */
+function writeLocal(
+  ctx: LocalContext,
+  name: "local.set" | "local.tee",
+  opcode: number,
+  x: Local,
+  value: Input<any> | undefined,
+) {
+  if (ctx.allowed !== undefined) {
+    if (value !== undefined) processStackArg(ctx, name, x.type, value);
+    let type = localType(ctx, x);
+    let instruction = localOps[name === "local.set" ? "set" : "tee"].instruction;
+    emitSimple(ctx, instruction, one(type), undefined, x.index);
+    return ctx.code.length;
+  }
+  let type = localType(ctx, x);
+  let { code } = ctx;
+  let start = code.length;
+  let from = start;
+  if (value !== undefined && !(value instanceof StackValue)) writeOperand(ctx, name, x.type, value);
+  else {
+    if (value !== undefined) checkLatest(ctx, name, value, 1);
+    from = popOne(ctx, type, name, from);
+  }
+  code.writes.push({ position: start, name, local: x.index });
+  code.indexed(opcode, x.index);
+  return from;
+}
+
 function localType({ locals }: LocalContext, x: Local) {
   let type = locals[x.index];
   if (type === undefined) throw Error(`local with index ${x.index} not available`);
@@ -71,16 +116,13 @@ function bindLocalOps(ctx: LocalContext) {
       return localOps.get(ctx, x) as StackVar<T>;
     },
     set: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      if (value !== undefined) processStackArg(ctx, "local.set", x.type, value);
-      let type = localType(ctx, x);
-      emitSimple(ctx, localOps.set.instruction, one(type), undefined, x.index);
+      writeLocal(ctx, "local.set", 0x21, x, value);
     },
     tee: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      if (value !== undefined) processStackArg(ctx, "local.tee", x.type, value);
-      let type = localType(ctx, x);
-      return emitSimple(ctx, localOps.tee.instruction, one(type), type, x.index) as StackVar<
-        L["type"]
-      >;
+      let start = writeLocal(ctx, "local.tee", 0x22, x, value);
+      let result = new StackValue(localType(ctx, x), start, ctx.code.length);
+      ctx.stack.push(result);
+      return result as StackVar<L["type"]>;
     },
   };
 }

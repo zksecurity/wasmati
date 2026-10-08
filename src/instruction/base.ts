@@ -10,6 +10,7 @@ import {
   pushResult,
   pushStack,
   type RandomLabel,
+  StackValue,
   StackVar,
   stackVars,
   withContext,
@@ -376,11 +377,23 @@ function baseInstructionWithImmediate<
   if (instr.out.length > 1) return base;
   let { instruction } = base;
   let [result] = instr.out;
+  let [opcode] = instruction.opcodeBytes;
+  // Constants, without operands, are written and pushed directly.
+  let direct =
+    instr.in.length === 0 && result !== undefined && instruction.opcodeBytes.length === 1;
   return Object.assign(
     function (ctx: LocalContext, value?: CreateArgs[0]) {
       if (validateImmediate !== undefined && immediate !== undefined)
         validateImmediate(value as Immediate);
-      return emitSimple(ctx, instruction, instr.in, result, value) as Instruction_<Args, Results>;
+      if (!direct || ctx.allowed !== undefined)
+        return emitSimple(ctx, instruction, instr.in, result, value) as Instruction_<Args, Results>;
+      let { code } = ctx;
+      let start = code.length;
+      code.byte(opcode);
+      immediate?.write(code, value as Immediate);
+      let pushed = new StackValue(result, start, code.length);
+      ctx.stack.push(pushed);
+      return pushed as unknown as Instruction_<Args, Results>;
     },
     { create: base.create, instruction },
   );

@@ -43,6 +43,8 @@ export {
   processStackArgs,
   processStackArg,
   writeOperands,
+  writeOperand,
+  checkLatest,
   namedInputs,
   insertInstruction,
 };
@@ -374,8 +376,7 @@ function writeOperand(
         `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
       );
     if (ctx.locals[x.index] === undefined) throw Error(`local with index ${x.index} not available`);
-    code.byte(0x20);
-    code.unsigned(x.index);
+    code.indexed(0x20, x.index);
   } else if (isGlobal(x)) {
     if (!isSubtype(x.type.value, type))
       throw Error(
