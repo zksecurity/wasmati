@@ -42,6 +42,7 @@ export {
   processStackArg,
   writeOperands,
   writeOperand,
+  flatOperands,
   checkLatest,
   namedInputs,
 };
