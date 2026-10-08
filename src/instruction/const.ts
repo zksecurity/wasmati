@@ -17,7 +17,10 @@ function checkInt32(value: number) {
     throw Error(`i32.const: value lies outside the int32 and uint32 ranges, got ${value}`);
 }
 
+const int64Min = -0x8000_0000_0000_0000n;
+const uint64End = 0x1_0000_0000_0000_0000n;
+
 function checkInt64(value: bigint) {
-  if (value < -0x8000_0000_0000_0000n || value >= 0x1_0000_0000_0000_0000n)
+  if (value < int64Min || value >= uint64End)
     throw Error(`i64.const: value lies outside the int64 and uint64 ranges, got ${value}`);
 }

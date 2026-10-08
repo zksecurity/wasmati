@@ -32,7 +32,8 @@ export {
   isVectorType,
   isSameType,
   formatStack,
-  placeOf,
+  startOf,
+  endOf,
   place,
   shiftPlaces,
 };
@@ -332,11 +333,16 @@ function placed(value: StackVar<StackType>): Placed {
   return value as Placed;
 }
 
-function placeOf(value: StackVar<StackType>): { start: number; end: number } {
-  let { start, end } = placed(value);
-  if (start < 0 || end < 0)
-    throw Error("invariant violation: stack value without a place in the body");
-  return { start, end };
+function startOf(value: StackVar<StackType>): number {
+  let { start } = placed(value);
+  if (start < 0) throw Error("invariant violation: stack value without a place in the body");
+  return start;
+}
+
+function endOf(value: StackVar<StackType>): number {
+  let { end } = placed(value);
+  if (end < 0) throw Error("invariant violation: stack value without a place in the body");
+  return end;
 }
 
 /** Place a value, by default one computed by an instruction inserted at `start`. */

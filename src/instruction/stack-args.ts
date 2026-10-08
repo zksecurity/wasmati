@@ -1,7 +1,7 @@
 import { Binable, Undefined } from "../binable.ts";
 import type { AnyGlobal } from "../dependency.ts";
 import type * as Dependency from "../dependency.ts";
-import { formatStack, place, placeOf, pushStack, shiftPlaces } from "../local-context.ts";
+import { endOf, formatStack, place, pushStack, shiftPlaces, startOf } from "../local-context.ts";
 import {
   isStackVar,
   type LocalContext,
@@ -481,8 +481,8 @@ function insertInstruction(ctx: LocalContext, i: number, description: Descriptio
     throw Error(`${string}: can't insert below ${i} values, the stack has ${stack.length}`);
   // In unreachable code, values that are missing from the stack are below the inserted one.
   let below = Math.max(0, stack.length - i);
-  let position = below < stack.length ? placeOf(stack[below]).start : code.length;
-  if (below > 0 && position < placeOf(stack[below - 1]).end)
+  let position = below < stack.length ? startOf(stack[below]) : code.length;
+  if (below > 0 && position < endOf(stack[below - 1]))
     throw Error(
       `${string}: can't insert an operand between values that one instruction pushes or passes through, in stack ${formatStack(stack)}`,
     );
@@ -512,9 +512,9 @@ function insertInstruction(ctx: LocalContext, i: number, description: Descriptio
 function insertOperand(ctx: LocalContext, name: string, type: ValueType, x: Input<any>) {
   let { stack, code } = ctx;
   let top = stack[stack.length - 1];
-  let position = placeOf(top).start;
+  let position = startOf(top);
   let below = stack[stack.length - 2];
-  if (below !== undefined && position < placeOf(below).end)
+  if (below !== undefined && position < endOf(below))
     throw Error(
       `${name}: can't insert an operand between values that one instruction pushes or passes through, in stack ${formatStack(stack)}`,
     );
