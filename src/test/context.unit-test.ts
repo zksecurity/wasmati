@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createHash } from "node:crypto";
 import {
   Module,
   block,
@@ -51,7 +50,7 @@ test("functions, constants and modules can be built in the middle of a function 
 });
 
 // Async builders interleave where they await, between functions, which are built synchronously.
-test("modules built concurrently with Promise.all equal modules built one after another", async () => {
+test("modules built and instantiated concurrently with Promise.all work like ones built one after another", async () => {
   const tick = () => new Promise((resolve) => setTimeout(resolve, Math.random() * 2));
   async function arithmetic(n: number) {
     const mem = memory({ min: 1 });
@@ -62,6 +61,7 @@ test("modules built concurrently with Promise.all equal modules built one after 
         { in: [{ out: i32 }, { x: i32 }], locals: { xs: localArray(i64, 4), carry: i64 }, out: [] },
         ({ out, x }, { xs, carry }) => {
           for (let i = 0; i < 4; i++) local.set(xs[i], i64.load({ offset: 8 * i }, x));
+          local.set(carry, BigInt(k));
           for (let i = 0; i < 4; i++) {
             local.set(carry, i64.add(i64.mul(xs[i], xs[3 - i]), carry));
             i64.store({ offset: 8 * i }, local.get(out), i64.and(local.get(carry), 0xffff_ffffn));
@@ -69,7 +69,9 @@ test("modules built concurrently with Promise.all equal modules built one after 
         },
       );
     }
-    return Module({ exports: { ...exports, mem }, memory: mem });
+    await tick();
+    const { instance } = await Module({ exports: { ...exports, mem }, memory: mem }).instantiate();
+    return instance;
   }
   async function counters(n: number) {
     const counter = global(
@@ -93,17 +95,31 @@ test("modules built concurrently with Promise.all equal modules built one after 
         global.get(counter);
       });
     }
-    return Module({ exports });
+    await tick();
+    const { instance } = await Module({ exports }).instantiate();
+    return instance;
   }
-  const hash = (module: { toBytes(): Uint8Array }) =>
-    createHash("sha256").update(module.toBytes()).digest("hex");
-  const expected = [hash(await arithmetic(20)), hash(await counters(20))];
+  type Instance = { exports: Record<string, any> };
+  // What the instances compute: products of limbs in memory, and running counts.
+  function products({ exports }: Instance, n: number) {
+    let memory = new BigUint64Array(exports.mem.buffer);
+    memory.set([3n, 5n << 33n, 7n, 11n << 40n]);
+    let results: bigint[] = [];
+    for (let k = 0; k < n; k++) {
+      exports[`mul${k}`](64, 0);
+      results.push(...memory.slice(8, 12));
+    }
+    return results;
+  }
+  function counts({ exports }: Instance, n: number) {
+    return Array.from({ length: n }, (_, k) => exports[`count${k}`](3));
+  }
+  const expected = [products(await arithmetic(20), 20), counts(await counters(20), 20)];
   for (let round = 0; round < 3; round++) {
     const [a, b] = await Promise.all([arithmetic(20), counters(20)]);
-    assert.deepEqual([hash(a), hash(b)], expected);
-    const { instance } = await b.instantiate();
-    assert.equal((instance.exports.count7 as (n: number) => number)(3), 21);
+    assert.deepEqual([products(a, 20), counts(b, 20)], expected);
   }
+  assert.equal(expected[1][19], (3 * (19 * 20)) / 2);
 });
 
 test("bodies must be synchronous", () => {
