@@ -10,14 +10,12 @@ import {
   pushResult,
   pushStack,
   type RandomLabel,
-  StackValue,
   StackVar,
   stackVars,
   withContext,
 } from "../local-context.ts";
 import {
   type DefinedType,
-  type Local,
   FunctionType,
   isFunctionType,
   referencedTypes,
@@ -39,7 +37,6 @@ export {
   type Description,
   emit,
   emitSimple,
-  one,
   emitResults,
   writeInstruction,
   runBlock,
@@ -92,6 +89,7 @@ type Description = {
   likely?: boolean;
 };
 
+/** Instructions whose immediates may contain defined types, which `TypeRegistry.immediate()` replaces. */
 const typedInstructions = new Set([
   "ref.null",
   "ref.test",
@@ -182,7 +180,7 @@ function baseInstruction<
   return Object.assign(
     function (ctx: LocalContext, ...createArgs: CreateArgs) {
       let results = emit(ctx, wrapCreate(ctx, ...createArgs));
-      // The results are the stack entries, so that operands can be checked to be where they are.
+      // The results are the stack entries, so that operands can be checked to be the latest values.
       return (
         results.length === 0 ? undefined : results.length === 1 ? results[0] : results
       ) as Instruction_<Args, Results>;
@@ -214,27 +212,15 @@ function emitSimple(
   args: ValueType[],
   result: ValueType | undefined,
   immediate?: unknown,
-  popped = false,
 ): StackVar<ValueType> | undefined {
   let { code } = ctx;
   if (ctx.allowed !== undefined) checkAllowed(ctx, instruction.string);
-  // Operands written by the instruction itself were checked and are not on the stack.
-  if (!popped && args.length > 0) popTypes(ctx, args, instruction.string);
+  if (args.length > 0) popTypes(ctx, args, instruction.string);
   let { opcodeBytes } = instruction;
   if (opcodeBytes.length === 1) code.byte(opcodeBytes[0]);
   else code.bytes(opcodeBytes);
   if (instruction.immediate !== undefined) instruction.immediate.write(code, immediate);
   return result === undefined ? undefined : pushResult(ctx, result);
-}
-
-const singletons = new Map<ValueType, ValueType[]>();
-
-/** The list of one type, shared for types that are strings. */
-function one(type: ValueType): ValueType[] {
-  if (typeof type !== "string") return [type];
-  let list = singletons.get(type);
-  if (list === undefined) singletons.set(type, (list = [type]));
-  return list;
 }
 
 /** Like `emitSimple()`, for an instruction of several results, which it returns. */
@@ -243,10 +229,9 @@ function emitResults(
   instruction: BaseInstruction,
   args: ValueType[],
   results: ValueType[],
-  popped = false,
 ): StackVar<ValueType>[] {
   if (ctx.allowed !== undefined) checkAllowed(ctx, instruction.string);
-  if (!popped && args.length > 0) popTypes(ctx, args, instruction.string);
+  if (args.length > 0) popTypes(ctx, args, instruction.string);
   ctx.code.bytes(instruction.opcodeBytes);
   return pushStack(ctx, results) as StackVar<ValueType>[];
 }
@@ -361,9 +346,7 @@ function baseInstructionWithImmediate<
       let { code } = ctx;
       code.byte(opcode);
       immediate?.write(code, value as Immediate);
-      let pushed = new StackValue(result);
-      ctx.stack.push(pushed);
-      return pushed as unknown as Instruction_<Args, Results>;
+      return pushResult(ctx, result) as unknown as Instruction_<Args, Results>;
     },
     { create: base.create, instruction },
   );

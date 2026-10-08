@@ -5,7 +5,7 @@ import { ELSE, END, Instruction, rememberEncoding } from "./instruction/binable.
 import { Locals } from "./func.ts";
 import type { ValueType } from "./types.ts";
 
-export { encodeBranchHints, decodeBranchHints, branchHintSection, encodeWithOffsets };
+export { encodeBranchHints, decodeBranchHints, branchHintSection };
 
 /**
  * Branch hints are code metadata: a custom section that refers to `if` and `br_if` instructions by

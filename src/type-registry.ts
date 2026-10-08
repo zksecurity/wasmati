@@ -7,7 +7,6 @@ import {
   refType,
   type StorageType,
   type TypeDefinition,
-  type ValueType,
   typeKey,
 } from "./types.ts";
 
@@ -83,8 +82,8 @@ class TypeRegistry {
   }
 
   /**
-   * An immediate with defined types replaced by their indices: heap types of null references, tests
-   * and casts, value types of typed selects, and block types.
+   * An immediate with defined types replaced by their indices: heap types of null references, tests,
+   * casts and branches on casts, value types of typed selects, and block types.
    */
   immediate(name: string, immediate: any): unknown {
     if (name === "ref.null" || name.startsWith("ref.test") || name.startsWith("ref.cast"))

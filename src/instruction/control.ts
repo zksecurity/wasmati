@@ -139,7 +139,7 @@ function blockInstruction(name: "block" | "loop") {
 }
 
 function notBuilt(): never {
-  throw Error("bug: blocks are written by their own instruction");
+  throw Error("bug: written by its own function, not through create()");
 }
 
 const block = blockInstruction("block");

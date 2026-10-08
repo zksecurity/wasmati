@@ -288,8 +288,9 @@ test("parameter declarations require one unique name per entry and local arrays 
 test("modules without parameter names retain native calls", async () => {
   const identity = func({ in: [{ value: i32 }], out: [i32] }, ({ value }) => local.get(value));
   const module = Module({ exports: { identity } });
-  delete module.toJSON().names;
-  const recovered = Module.fromBytes<{ identity: typeof identity }>(module.toBytes());
+  const { names, ...json } = module.toJSON();
+  const recovered = Module.fromJSON<{ identity: typeof identity }>(json);
+  assert.equal(recovered.toJSON().names, undefined);
   const { instance } = await recovered.instantiate();
   instance.exports.identity satisfies (value: number) => number;
   assert.equal(instance.exports.identity(42), 42);

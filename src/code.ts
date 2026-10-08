@@ -1,7 +1,7 @@
 import { Writer } from "./binable.ts";
 import type * as Dependency from "./dependency.ts";
 
-export { Code, type Hole, type Linker, type Immediate, link };
+export { Code, type Linker, type Immediate, link };
 
 /**
  * How an immediate that refers to other definitions is written, once their indices are known: from the

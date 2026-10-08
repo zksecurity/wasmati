@@ -317,9 +317,7 @@ function memoryInstruction<
     code.bytes(instruction.opcodeBytes);
     let { offset = 0, align } = memArg;
     code.unsigned(align === undefined ? natural : alignExponent(name, align));
-    if (typeof offset === "number" && Number.isSafeInteger(offset) && offset >= 0)
-      code.unsigned(offset);
-    else U64.write(code, uint64(BigInt(offset)));
+    U64.write(code, memoryOffset(offset));
     return result === undefined ? undefined : pushResult(ctx, result);
   } as any;
 }
@@ -370,9 +368,14 @@ function memArgFromInput(
   bits: number,
   { offset = 0, align = bits / 8 }: MemArgInput,
 ): MemArg {
-  // Offsets are numbers where exact, bigints beyond 2^53.
-  let exact = typeof offset === "number" && Number.isSafeInteger(offset) && offset >= 0;
-  return { offset: exact ? offset : uint64(BigInt(offset)), align: alignExponent(name, align) };
+  return { offset: memoryOffset(offset), align: alignExponent(name, align) };
+}
+
+/** Offsets are numbers where exact, bigints beyond 2^53. */
+function memoryOffset(offset: U64): U64 {
+  return typeof offset === "number" && Number.isSafeInteger(offset) && offset >= 0
+    ? offset
+    : uint64(BigInt(offset));
 }
 
 function alignExponent(name: string, align: number) {

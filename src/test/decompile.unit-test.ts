@@ -37,7 +37,7 @@ async function rebuild(wat: string, imports: WebAssembly.Imports = {}, debugName
 async function rebuildBytes(bytes: Uint8Array, imports: WebAssembly.Imports = {}) {
   const source = decompile(bytes, { importPath });
   assert.equal(source, decompile(bytes, { importPath }), "source is deterministic");
-  assert.doesNotMatch(source, /fromBytes|resolveArgs|defaultCtx|as any/);
+  assert.doesNotMatch(source, /fromBytes|as any/);
   const directory = await mkdtemp(join(tmpdir(), "wasmati-decompile-"));
   try {
     const path = join(directory, "generated.mts");

@@ -423,9 +423,10 @@ function orderGlobals(globals: Dependency.Global[]): Dependency.Global[] {
 }
 
 /**
- * A module is its bytes, which are well-formed, with the import object that instantiates it. `asyncExports` names the exports
- * that are wrapped by `WebAssembly.promising` on instantiation. Modules of the builder know the
- * dependencies behind their imports, in order, which `wasmati build` turns into a JS module.
+ * A module is its bytes, which are well-formed, with the import object that instantiates it.
+ * `asyncExports` names the exports that are wrapped by `WebAssembly.promising` on instantiation.
+ * Modules of the builder know the dependencies behind their imports, in order, which `wasmati build`
+ * turns into a JS module.
  */
 function createModule<Exports extends Record<string, ExportInput>>(
   bytes: Uint8Array<ArrayBuffer>,

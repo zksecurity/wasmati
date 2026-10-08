@@ -78,8 +78,8 @@ function func<
   const args = createParameters<Args>(entries);
   const { names: argNames, types: argsArray } = args;
   const nArgs = argsArray.length;
-  // Locals in declaration order, with an entry per element of arrays of locals. Loops, which code
-  // that runs for the first time runs faster than callbacks.
+  // Locals in declaration order, with an entry per element of arrays of locals. Loops rather than
+  // callbacks, which is faster in code that runs for the first time.
   const flatNames: string[] = [];
   const localsArray: ValueType[] = [];
   for (const key in locals) {
@@ -274,7 +274,7 @@ function sortLocals(locals: ValueType[], offset: number) {
   for (let j = 0; j < locals.length; j++) {
     let local = locals[j];
     let i = 0;
-    while (i < types.length && types[i] !== local && !typeEquals(types[i], local)) i++;
+    while (i < types.length && !typeEquals(types[i], local)) i++;
     if (i === types.length) {
       types.push(local);
       count.push(0);
@@ -302,11 +302,11 @@ const Locals = Binable<ValueType[]>({
   write(writer, locals) {
     let n = locals.length;
     let runs = 0;
-    for (let i = 0; i < n; i++) if (i === 0 || !sameType(locals[i - 1], locals[i])) runs++;
+    for (let i = 0; i < n; i++) if (i === 0 || !typeEquals(locals[i - 1], locals[i])) runs++;
     writer.unsigned(runs);
     for (let i = 0; i < n;) {
       let j = i + 1;
-      while (j < n && sameType(locals[i], locals[j])) j++;
+      while (j < n && typeEquals(locals[i], locals[j])) j++;
       writer.unsigned(j - i);
       ValueType.write(writer, locals[i]);
       i = j;
@@ -321,7 +321,3 @@ const Locals = Binable<ValueType[]>({
     return [locals, end];
   },
 });
-
-function sameType(a: ValueType, b: ValueType) {
-  return a === b || typeEquals(a, b);
-}

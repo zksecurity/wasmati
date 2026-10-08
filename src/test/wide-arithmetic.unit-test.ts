@@ -126,7 +126,7 @@ test("wide results compose with locals, constants, globals and stack operands", 
     i64.mul_wide_u(a, b);
     i64.add128($, $, 1n, 0n);
   });
-  const stackBelowConstants = func(
+  const constantsBelowStack = func(
     { in: [{ a: i64 }, { b: i64 }], out: [i64, i64] },
     ({ a, b }) => {
       i64.const(0n);
@@ -144,13 +144,13 @@ test("wide results compose with locals, constants, globals and stack operands", 
     },
   );
   const { instance } = await Module({
-    exports: { multiplyAdd, stackAdd, stackBelowConstants, chained },
+    exports: { multiplyAdd, stackAdd, constantsBelowStack, chained },
   }).instantiate();
   for (const a of limbs)
     for (const b of limbs) {
       assert.deepEqual(instance.exports.multiplyAdd(a, b), pair(a * b + 1n));
       assert.deepEqual(instance.exports.stackAdd(a, b), pair(a * b + 1n));
-      assert.deepEqual(instance.exports.stackBelowConstants(a, b), pair(-a * b));
+      assert.deepEqual(instance.exports.constantsBelowStack(a, b), pair(-a * b));
       assert.deepEqual(instance.exports.chained(a, b, b, a), pair(2n * a * b));
     }
 });

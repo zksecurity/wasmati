@@ -1,12 +1,6 @@
 import { Undefined } from "../binable.ts";
 import * as Dependency from "../dependency.ts";
-import {
-  baseInstruction,
-  emitSimple,
-  type FunctionTypeInput,
-  functionTypeOf,
-  one,
-} from "./base.ts";
+import { baseInstruction, type FunctionTypeInput, functionTypeOf } from "./base.ts";
 import {
   type AbstractHeapType,
   type DefinedType,
@@ -33,15 +27,10 @@ import {
   type StackType,
   Unknown,
   missingLocal,
+  pushResult,
 } from "../local-context.ts";
 import { globalGet, localGet } from "./variable-get.ts";
-import {
-  checkLatest,
-  type Input,
-  processStackArg,
-  processStackArgs,
-  writeOperand,
-} from "./stack-args.ts";
+import { checkLatest, type Input, processStackArgs, writeOperand } from "./stack-args.ts";
 
 export {
   localOps,
@@ -74,8 +63,8 @@ const localOps = {
 };
 
 /**
- * Write local.set or local.tee, with its operand, or the value on the stack. Constant expressions take
- * the instructions' general path.
+ * Write local.set or local.tee, with its operand, or the value on the stack, and return the local's
+ * type. Constant expressions have no locals.
  */
 function writeLocal(
   ctx: LocalContext,
@@ -85,12 +74,6 @@ function writeLocal(
   value: Input<any> | undefined,
 ) {
   let type = localType(ctx, x);
-  if (ctx.allowed !== undefined) {
-    if (value !== undefined) processStackArg(ctx, name, x.type, value);
-    let instruction = localOps[name === "local.set" ? "set" : "tee"].instruction;
-    emitSimple(ctx, instruction, one(type), undefined, x.index);
-    return type;
-  }
   if (value !== undefined && !(value instanceof StackValue)) writeOperand(ctx, name, x.type, value);
   else {
     if (value !== undefined) checkLatest(ctx, name, value, 1);
@@ -115,9 +98,7 @@ function bindLocalOps(ctx: LocalContext) {
       writeLocal(ctx, "local.set", 0x21, x, value);
     },
     tee: function <L extends Local>(x: L, value?: Input<L["type"]>) {
-      let result = new StackValue(writeLocal(ctx, "local.tee", 0x22, x, value));
-      ctx.stack.push(result);
-      return result as StackVar<L["type"]>;
+      return pushResult(ctx, writeLocal(ctx, "local.tee", 0x22, x, value)) as StackVar<L["type"]>;
     },
   };
 }
