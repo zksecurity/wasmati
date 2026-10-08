@@ -10,6 +10,7 @@ import {
   StackValue,
   pushValue,
   StackVar,
+  type StackType,
   Unknown,
 } from "../local-context.ts";
 import {
@@ -171,13 +172,9 @@ function flat(
       let aResult = a instanceof StackValue;
       let bResult = b instanceof StackValue;
       if (bResult && !aResult) {
-        // A new value before a result goes below the result, where the result's computation starts.
-        checkLatest(ctx, name, b as StackVar<ValueType>, 1);
-        if ((b as StackVar<ValueType | Unknown>).type === Unknown || ctx.frames[0]?.unreachable)
-          return general(ctx, a, b!);
-        let start = insertOperand(ctx, name, t0, a);
-        popOne(ctx, t1, name, from);
-        return finish(ctx, opcode, start, results);
+        // A new value before a result, which is inserted below it
+        let start = flatOperands(ctx, name, args, 2, a, b);
+        return start === undefined ? general(ctx, a, b!) : finish(ctx, opcode, start, results);
       }
       if (aResult) checkLatest(ctx, name, a as StackVar<ValueType>, bResult ? 2 : 1);
       if (bResult) checkLatest(ctx, name, b as StackVar<ValueType>, 1);
@@ -188,7 +185,94 @@ function flat(
       return finish(ctx, opcode, from, results);
     };
   }
+  if (args.length === 3 || args.length === 4) {
+    let n = args.length;
+    return function (
+      ctx: LocalContext,
+      a?: Input<ValueType>,
+      b?: Input<ValueType>,
+      c?: Input<ValueType>,
+      d?: Input<ValueType>,
+    ) {
+      let from =
+        ctx.allowed === undefined ? flatOperands(ctx, name, args, n, a, b, c, d) : undefined;
+      if (from !== undefined) return finish(ctx, opcode, from, results);
+      if (a === undefined) return general(ctx);
+      return n === 2
+        ? general(ctx, a, b!)
+        : n === 3
+          ? general(ctx, a, b!, c!)
+          : general(ctx, a, b!, c!, d!);
+    };
+  }
   return general;
+}
+
+/**
+ * Check and write up to four operands, or take them from the stack, and return where their
+ * computation starts; undefined where the general path takes them, for `$` and in unreachable code.
+ * New values that come before instruction results are inserted below those results.
+ */
+function flatOperands(
+  ctx: LocalContext,
+  name: string,
+  args: ValueType[],
+  n: number,
+  a?: Input<ValueType>,
+  b?: Input<ValueType>,
+  c?: Input<ValueType>,
+  d?: Input<ValueType>,
+): number | undefined {
+  let { stack } = ctx;
+  let from = ctx.code.length;
+  if (a === undefined) {
+    for (let i = n - 1; i >= 0; i--) from = popOne(ctx, args[i], name, from);
+    return from;
+  }
+  let count = 0;
+  let reorder = false;
+  for (let i = 0; i < n; i++) {
+    let x = pick(i, a, b, c, d)!;
+    if (!(x instanceof StackValue)) continue;
+    if (x.type === Unknown) return undefined;
+    if (count < i) reorder = true;
+    count++;
+  }
+  if (count > 0 && ctx.frames[0]?.unreachable) return undefined;
+  // Instruction results are the latest values on the stack, in order.
+  let depth = count;
+  for (let i = 0; i < n; i++) {
+    let x = pick(i, a, b, c, d)!;
+    if (x instanceof StackValue) checkLatest(ctx, name, x, depth--);
+  }
+  if (!reorder) {
+    for (let i = count; i < n; i++) writeOperand(ctx, name, args[i], pick(i, a, b, c, d)!);
+  } else {
+    // From the last operand: new values go below the results that follow them, and before new
+    // values that are there already. New values after the last result go at the end.
+    let at = -1;
+    let below: StackVar<StackType> | undefined;
+    for (let i = n - 1; i >= 0; i--) {
+      let x = pick(i, a, b, c, d)!;
+      if (x instanceof StackValue) {
+        depth++;
+        at = startOf(x);
+        below = stack[stack.length - depth - 1];
+      } else if (at < 0) writeOperand(ctx, name, args[i], x);
+      else {
+        insertOperand(ctx, name, args[i], x, at, below);
+        if (at < from) from = at;
+      }
+    }
+  }
+  for (let i = n - 1; i >= 0; i--)
+    if (pick(i, a, b, c, d)! instanceof StackValue) from = popOne(ctx, args[i], name, from);
+  return from;
+}
+
+/** The i-th of up to four operands, without a closure, which would be allocated per instruction. */
+function pick<T>(i: number, a: T, b: T, c: T, d: T): T {
+  return i === 0 ? a : i === 1 ? b : i === 2 ? c : d;
 }
 
 /** An operand that is an instruction result must be the value `depth` from the top of the stack. */
@@ -507,14 +591,18 @@ function insertInstruction(ctx: LocalContext, i: number, description: Descriptio
 }
 
 /**
- * Insert a local, global or number below the value on top of the stack, where that value's computation
- * starts, and return that position. It must not be read before a later write to it.
+ * Insert a local, global or number at a position where a value's computation starts, above the value
+ * `below`. It must not be read before a later write to it.
  */
-function insertOperand(ctx: LocalContext, name: string, type: ValueType, x: Input<any>) {
+function insertOperand(
+  ctx: LocalContext,
+  name: string,
+  type: ValueType,
+  x: Input<any>,
+  position: number,
+  below: StackVar<StackType> | undefined,
+) {
   let { stack, code } = ctx;
-  let top = stack[stack.length - 1];
-  let position = startOf(top);
-  let below = stack[stack.length - 2];
   if (below !== undefined && position < endOf(below))
     throw Error(
       `${name}: can't insert an operand between values that one instruction pushes or passes through, in stack ${formatStack(stack)}`,
@@ -534,7 +622,6 @@ function insertOperand(ctx: LocalContext, name: string, type: ValueType, x: Inpu
   writeOperand(ctx, name, type, x, scratch);
   code.insert(position, scratch);
   shiftPlaces(ctx, position, scratch.length);
-  return position;
 }
 
 /** Code of an instruction to insert. */
