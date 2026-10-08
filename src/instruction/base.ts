@@ -66,7 +66,7 @@ function withPublicSignature<Signature>() {
 type BaseInstruction = Immediate & {
   opcode: number | [number, number];
   immediate: Binable<any> | undefined;
-  /** The opcode's encoding. */
+  /** The opcode's encoding: for opcodes with a prefix, the prefix byte and the LEB128 subcode. */
   opcodeBytes: number[];
   /** Whether the immediate may contain defined types, which Module() replaces by their indices. */
   typed: boolean;
