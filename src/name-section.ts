@@ -1,4 +1,4 @@
-import { Binable, Byte, RemainingBytes, iso, record, sequence, withValidation } from "./binable.ts";
+import { Binable, Byte, RemainingBytes, record, sequence, withValidation } from "./binable.ts";
 import { Name, U32, vec, withByteLength } from "./immediate.ts";
 
 export { NameSection, type NameMap, type IndirectNameMap };
@@ -23,14 +23,19 @@ type NameSection = {
 };
 
 function indices(map: Record<number, unknown>) {
-  const indices = Object.keys(map)
-    .map(Number)
-    .sort((a, b) => a - b);
-  for (const index of indices) {
-    if (!Number.isInteger(index) || index < 0 || index > 0xffff_ffff || !(String(index) in map)) {
-      throw Error(`invalid name index: ${index}`);
+  // Keys that are array indices come in increasing order, so sorting is rarely needed.
+  const keys = Object.keys(map);
+  const indices: number[] = [];
+  let sorted = true;
+  for (let i = 0; i < keys.length; i++) {
+    const index = Number(keys[i]);
+    if (!Number.isInteger(index) || index < 0 || index > 0xffff_ffff || String(index) !== keys[i]) {
+      throw Error(`invalid name index: ${keys[i]}`);
     }
+    if (i > 0 && index < indices[i - 1]) sorted = false;
+    indices.push(index);
   }
+  if (!sorted) indices.sort((a, b) => a - b);
   return indices;
 }
 
@@ -92,37 +97,47 @@ const Subsections = withValidation(sequence(Subsection), (sections) => {
 });
 
 // Payload only: the enclosing custom section supplies the "name" string.
-const NameSection = iso(Subsections, {
-  to(names: NameSection) {
-    const sections: { id: number; data: number[] }[] = [];
-    for (const [id, [key, codec]] of subsections.entries()) {
+function fromSubsections(sections: { id: number; data: number[] }[]): NameSection {
+  const names: NameSection = {};
+  for (const { id, data } of sections) {
+    const subsection = subsections[id];
+    if (subsection === undefined) {
+      (names.unknown ??= []).push({ id, data });
+    } else {
+      const [key, codec] = subsection;
+      const value = codec.fromBytes(data);
+      // The subsection pairs each key with its codec; TS loses that correlation.
+      (names as Record<typeof key, typeof value>)[key] = value;
+    }
+  }
+  return names;
+}
+
+const NameSection = Binable<NameSection>({
+  // Subsections are written in place, in the order of their ids; unknown ones come last.
+  write(writer, names) {
+    for (let id = 0; id < subsections.length; id++) {
+      const [key, codec] = subsections[id];
       const value = names[key];
-      // Bytes, which the subsection's codec writes as they are.
-      if (value !== undefined)
-        sections.push({ id, data: (codec as Binable<any>).encode(value) as unknown as number[] });
+      if (value === undefined) continue;
+      writer.byte(id);
+      writer.withLength(() => (codec as Binable<any>).write(writer, value));
     }
-    for (const section of names.unknown ?? []) {
-      if (!Number.isInteger(section.id) || section.id < subsections.length || section.id > 255) {
-        throw Error(`invalid unknown name subsection id: ${section.id}`);
-      }
-      sections.push(section);
+    const unknown = [...(names.unknown ?? [])].sort((a, b) => a.id - b.id);
+    let previous = -1;
+    for (const { id, data } of unknown) {
+      if (!Number.isInteger(id) || id < subsections.length || id > 255)
+        throw Error(`invalid unknown name subsection id: ${id}`);
+      if (id === previous)
+        throw Error("name subsections must be unique and increasing (no duplicates)");
+      previous = id;
+      writer.byte(id);
+      writer.unsigned(data.length);
+      writer.bytes(data);
     }
-    sections.sort((a, b) => a.id - b.id);
-    return sections;
   },
-  from(sections): NameSection {
-    const names: NameSection = {};
-    for (const { id, data } of sections) {
-      const subsection = subsections[id];
-      if (subsection === undefined) {
-        (names.unknown ??= []).push({ id, data });
-      } else {
-        const [key, codec] = subsection;
-        const value = codec.fromBytes(data);
-        // The subsection pairs each key with its codec; TS loses that correlation.
-        (names as Record<typeof key, typeof value>)[key] = value;
-      }
-    }
-    return names;
+  readBytes(bytes, offset) {
+    const [sections, end] = Subsections.readBytes(bytes, offset);
+    return [fromSubsections(sections), end];
   },
 });

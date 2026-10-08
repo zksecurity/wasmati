@@ -1,4 +1,4 @@
-import { iso, tuple } from "./binable.ts";
+import { Binable, tuple } from "./binable.ts";
 import { Code } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
 import { U32, vec } from "./immediate.ts";
@@ -294,22 +294,31 @@ function sortLocals(locals: ValueType[], offset: number) {
 // binable
 
 const CompressedLocals = vec(tuple([U32, ValueType]));
-const Locals = iso<[number, ValueType][], ValueType[]>(CompressedLocals, {
+const Locals = Binable<ValueType[]>({
   // Runs of equal types, which keeps locals in order.
-  to(locals) {
-    let runs: [number, ValueType][] = [];
-    for (let local of locals) {
-      let last = runs.at(-1);
-      if (last !== undefined && typeEquals(last[1], local)) last[0]++;
-      else runs.push([1, local]);
+  write(writer, locals) {
+    let n = locals.length;
+    let runs = 0;
+    for (let i = 0; i < n; i++) if (i === 0 || !sameType(locals[i - 1], locals[i])) runs++;
+    writer.unsigned(runs);
+    for (let i = 0; i < n;) {
+      let j = i + 1;
+      while (j < n && sameType(locals[i], locals[j])) j++;
+      writer.unsigned(j - i);
+      ValueType.write(writer, locals[i]);
+      i = j;
     }
-    return runs;
   },
-  from(compressed) {
+  readBytes(bytes, offset) {
+    let [compressed, end] = CompressedLocals.readBytes(bytes, offset);
     let locals: ValueType[] = [];
     for (let [count, local] of compressed) {
       locals.push(...Array(count).fill(local));
     }
-    return locals;
+    return [locals, end];
   },
 });
+
+function sameType(a: ValueType, b: ValueType) {
+  return a === b || typeEquals(a, b);
+}
