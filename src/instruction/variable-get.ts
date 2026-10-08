@@ -1,3 +1,4 @@
+import { writeIndexed } from "../binable.ts";
 import type * as Dependency from "../dependency.ts";
 import { baseInstruction } from "./base.ts";
 import { GlobalIndex, LocalIndex, type Local } from "../types.ts";
@@ -18,7 +19,7 @@ const localGet = Object.assign(
     let local = ctx.locals[x.index];
     // Constant expressions have no locals.
     if (local === undefined) throw missingLocal(ctx, x.index);
-    ctx.code.indexed(0x20, x.index);
+    writeIndexed(ctx.code, 0x20, x.index);
     return pushResult(ctx, local);
   },
   { create: localGetBase.create, instruction: localGetBase.instruction },

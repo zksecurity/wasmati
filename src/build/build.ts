@@ -92,7 +92,7 @@ async function build(input: string, { outDir }: { outDir?: string } = {}): Promi
   const wasm = join(out, `${name}.wasm`);
   const types = join(out, `${name}.d.wasm.ts`);
   const built = { ...json, imports };
-  await writeFile(wasm, BinaryModule.encode(built));
+  await writeFile(wasm, BinaryModule.toBytes(built));
   await writeFile(types, exportTypes(built));
   const output: BuildOutput = { wasm, types };
   if (!host.isEmpty) {

@@ -1,4 +1,5 @@
-import { Code } from "./code.ts";
+import { type Code, createCode } from "./code.ts";
+import { preventWrites } from "./binable.ts";
 import type * as Dependency from "./dependency.ts";
 import type { InstructionName } from "./instruction/opcodes.ts";
 import { isSubtype, printValueType, typeEquals, ValueType } from "./types.ts";
@@ -71,14 +72,11 @@ type LocalContext = {
 const idle =
   "no function or constant is being built with this instance of the builder API. Call instructions in the body of func() or constant(), with the instance that builds it.";
 
-/** The code of an instance that builds nothing, which instructions can't write to. */
-class IdleCode extends Code {
-  constructor() {
-    super(0);
-  }
-  reserve(): void {
-    throw Error(idle);
-  }
+/** The code of an instance that builds nothing, without room that instructions could write to. */
+function idleCode(): Code {
+  let code = createCode(0);
+  preventWrites(code.bytes, idle);
+  return code;
 }
 
 /** A local that is not among the function's locals, or used where no function is being built. */
@@ -89,7 +87,7 @@ function missingLocal(ctx: LocalContext, index: number) {
 function emptyContext(): LocalContext {
   return {
     locals: [],
-    code: new IdleCode(),
+    code: idleCode(),
     deps: new Set(),
     calls: new Set(),
     return: [],

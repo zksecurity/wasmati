@@ -1,4 +1,4 @@
-import { Binable, record } from "./binable.ts";
+import { Binable, record, writeByteArray, writeUnsignedLEB } from "./binable.ts";
 import { Locals } from "./func.ts";
 import { withByteLength } from "./immediate.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
@@ -20,10 +20,10 @@ const DecodedEntry = withByteLength(record({ locals: Locals, body: Expression })
 
 /** An entry of the code section. Decoding gives locals and body; encoded code is written as is. */
 const CodeEntry = Binable<Code | EncodedCode>({
-  write(writer, code) {
-    if (!("encoded" in code)) return DecodedEntry.write(writer, code);
-    writer.unsigned(code.encoded.bytes.length);
-    writer.bytes(code.encoded.bytes);
+  writeBytes(output, code) {
+    if (!("encoded" in code)) return DecodedEntry.writeBytes(output, code);
+    writeUnsignedLEB(output, code.encoded.bytes.length);
+    writeByteArray(output, code.encoded.bytes);
   },
   readBytes: DecodedEntry.readBytes,
 });

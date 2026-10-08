@@ -54,9 +54,9 @@ function toV128Bytes<T extends V128>(...[shape, value]: T): TupleN<number, 16> {
     case "i64x2":
       return value.flatMap((v) => intToBytes(v, 8)) as Bytes16;
     case "f32x4":
-      return value.flatMap((v) => F32.toBytes(v)) as Bytes16;
+      return value.flatMap((v) => [...F32.toBytes(v)]) as Bytes16;
     case "f64x2":
-      return value.flatMap((v) => F64.toBytes(v)) as Bytes16;
+      return value.flatMap((v) => [...F64.toBytes(v)]) as Bytes16;
     default:
       throw Error("unreachable");
   }

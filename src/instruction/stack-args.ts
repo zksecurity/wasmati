@@ -1,4 +1,4 @@
-import { Binable, Undefined } from "../binable.ts";
+import { Binable, reserve, Undefined, writeByte, writeIndexed } from "../binable.ts";
 import type { AnyGlobal } from "../dependency.ts";
 import {
   isStackVar,
@@ -243,11 +243,10 @@ function newBeforeResult(name: string): never {
 function finish(ctx: LocalContext, opcode: number[], results: ValueType[]) {
   let { code } = ctx;
   let n = opcode.length;
-  code.reserve(n);
-  let { buffer } = code;
-  let length = code.length;
-  for (let i = 0; i < n; i++) buffer[length + i] = opcode[i];
-  code.length = length + n;
+  reserve(code, n);
+  let { bytes, offset } = code;
+  for (let i = 0; i < n; i++) bytes[offset + i] = opcode[i];
+  code.offset = offset + n;
   // Pushed here rather than through pushResult(), which is measurably slower on this hottest path.
   if (results.length === 1) {
     let value = new StackValue(results[0]);
@@ -369,7 +368,7 @@ function writeOperand(ctx: LocalContext, string: string, type: ValueType, x: Inp
         `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
       );
     if (ctx.locals[x.index] === undefined) throw missingLocal(ctx, x.index);
-    code.indexed(0x20, x.index);
+    writeIndexed(code, 0x20, x.index);
   } else if (isGlobal(x)) {
     if (!isSubtype(x.type.value, type))
       throw Error(
@@ -379,18 +378,18 @@ function writeOperand(ctx: LocalContext, string: string, type: ValueType, x: Inp
     ctx.deps.add(x);
   } else if (type === "i32" && typeof x === "number") {
     checkInt32(x);
-    code.byte(0x41);
-    I32.write(code, x);
+    writeByte(code, 0x41);
+    I32.writeBytes(code, x);
   } else if (type === "i64" && typeof x === "bigint") {
     checkInt64(x);
-    code.byte(0x42);
-    I64.write(code, x);
+    writeByte(code, 0x42);
+    I64.writeBytes(code, x);
   } else if (type === "f32" && typeof x === "number") {
-    code.byte(0x43);
-    F32.write(code, x);
+    writeByte(code, 0x43);
+    F32.writeBytes(code, x);
   } else if (type === "f64" && typeof x === "number") {
-    code.byte(0x44);
-    F64.write(code, x);
+    writeByte(code, 0x44);
+    F64.writeBytes(code, x);
   } else throw Error(`${string}: Unsupported input for type ${type}, got ${x}.`);
 }
 

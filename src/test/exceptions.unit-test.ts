@@ -114,8 +114,8 @@ test("try_table bodies take part in type indexing and data count checks", async 
 });
 
 /** Remove a section, by its id, from a module's bytes. */
-function withoutSection(bytes: number[], id: number): number[] {
-  const result = bytes.slice(0, 8);
+function withoutSection(bytes: Uint8Array, id: number): Uint8Array {
+  const result = [...bytes.subarray(0, 8)];
   for (let offset = 8; offset < bytes.length;) {
     const start = offset++;
     let size = 0;
@@ -125,7 +125,7 @@ function withoutSection(bytes: number[], id: number): number[] {
       if (byte < 0x80) break;
     }
     offset += size;
-    if (bytes[start] !== id) result.push(...bytes.slice(start, offset));
+    if (bytes[start] !== id) result.push(...bytes.subarray(start, offset));
   }
-  return result;
+  return new Uint8Array(result);
 }

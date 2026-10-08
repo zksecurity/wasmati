@@ -1,4 +1,15 @@
-import { Binable, Byte, RemainingBytes, record, sequence, withValidation } from "./binable.ts";
+import {
+  Binable,
+  Byte,
+  record,
+  RemainingBytes,
+  sequence,
+  withValidation,
+  writeByte,
+  writeByteArray,
+  writeUnsignedLEB,
+  writeWithLength,
+} from "./binable.ts";
 import { Name, U32, vec, withByteLength } from "./immediate.ts";
 
 export { NameSection, type NameMap, type IndirectNameMap };
@@ -19,7 +30,7 @@ type NameSection = {
   data?: NameMap;
   fields?: IndirectNameMap;
   tags?: NameMap;
-  unknown?: { id: number; data: number[] }[];
+  unknown?: { id: number; data: Uint8Array }[];
 };
 
 function indices(map: Record<number, unknown>) {
@@ -53,17 +64,17 @@ function indexed<T>(value: Binable<T>): Binable<Record<number, T>> {
     }
   });
   return Binable({
-    write(writer, map: Record<number, T>) {
+    writeBytes(output, map: Record<number, T>) {
       let keys = indices(map);
-      writer.unsigned(keys.length);
+      writeUnsignedLEB(output, keys.length);
       for (let index of keys) {
-        writer.unsigned(index);
-        value.write(writer, map[index]);
+        writeUnsignedLEB(output, index);
+        value.writeBytes(output, map[index]);
       }
     },
-    readBytes(bytes, offset) {
-      let [list, end] = entries.readBytes(bytes, offset);
-      return [Object.fromEntries(list.map(({ index, value }) => [index, value])), end];
+    readBytes(input) {
+      let list = entries.readBytes(input);
+      return Object.fromEntries(list.map(({ index, value }) => [index, value]));
     },
   });
 }
@@ -97,7 +108,7 @@ const Subsections = withValidation(sequence(Subsection), (sections) => {
 });
 
 // Payload only: the enclosing custom section supplies the "name" string.
-function fromSubsections(sections: { id: number; data: number[] }[]): NameSection {
+function fromSubsections(sections: { id: number; data: Uint8Array }[]): NameSection {
   const names: NameSection = {};
   for (const { id, data } of sections) {
     const subsection = subsections[id];
@@ -115,13 +126,13 @@ function fromSubsections(sections: { id: number; data: number[] }[]): NameSectio
 
 const NameSection = Binable<NameSection>({
   // Subsections are written in place, in the order of their ids; unknown ones come last.
-  write(writer, names) {
+  writeBytes(output, names) {
     for (let id = 0; id < subsections.length; id++) {
       const [key, codec] = subsections[id];
       const value = names[key];
       if (value === undefined) continue;
-      writer.byte(id);
-      writer.withLength(() => (codec as Binable<any>).write(writer, value));
+      writeByte(output, id);
+      writeWithLength(output, () => (codec as Binable<any>).writeBytes(output, value));
     }
     const unknown = [...(names.unknown ?? [])].sort((a, b) => a.id - b.id);
     let previous = -1;
@@ -131,13 +142,12 @@ const NameSection = Binable<NameSection>({
       if (id === previous)
         throw Error("name subsections must be unique and increasing (no duplicates)");
       previous = id;
-      writer.byte(id);
-      writer.unsigned(data.length);
-      writer.bytes(data);
+      writeByte(output, id);
+      writeUnsignedLEB(output, data.length);
+      writeByteArray(output, data);
     }
   },
-  readBytes(bytes, offset) {
-    const [sections, end] = Subsections.readBytes(bytes, offset);
-    return [fromSubsections(sections), end];
+  readBytes(input) {
+    return fromSubsections(Subsections.readBytes(input));
   },
 });

@@ -144,7 +144,7 @@ const hasMemory: HasMemory = { kind: "hasMemory", deps: [] };
 
 type Data = {
   kind: "data";
-  init: Byte[];
+  init: Uint8Array;
   /** Active segments without a memory use the default memory. */
   mode: "passive" | { memory: AnyMemory | undefined; offset: Offset };
   deps: (HasMemory | AnyGlobal | AnyMemory)[];

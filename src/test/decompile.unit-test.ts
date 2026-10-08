@@ -247,12 +247,12 @@ test("decompiles SIMD immediates, floats, missing names and hostile debug/export
   const named = await rebuildBytes(
     Module({
       exports: { 'strange"\n': f },
-      customSections: [{ name: "opaque", data: [0, 255] }],
+      customSections: [{ name: "opaque", data: new Uint8Array([0, 255]) }],
     }).toBytes(),
   );
   assert.equal(invoke(named.instance, 'strange"\n', 20, 22), 42);
   assert.equal(named.module.toJSON().names?.functions?.[0], 'bad-name"\n');
-  assert.deepEqual(named.module.toJSON().customSections?.[0].data, [0, 255]);
+  assert.deepEqual(named.module.toJSON().customSections?.[0].data, new Uint8Array([0, 255]));
 });
 
 test("decompiles wide arithmetic through the public API", async () => {

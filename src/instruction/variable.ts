@@ -1,4 +1,4 @@
-import { Undefined } from "../binable.ts";
+import { Undefined, writeIndexed } from "../binable.ts";
 import * as Dependency from "../dependency.ts";
 import { baseInstruction, type FunctionTypeInput, functionTypeOf } from "./base.ts";
 import {
@@ -79,7 +79,7 @@ function writeLocal(
     if (value !== undefined) checkLatest(ctx, name, value, 1);
     popOne(ctx, type, name);
   }
-  ctx.code.indexed(opcode, x.index);
+  writeIndexed(ctx.code, opcode, x.index);
   return type;
 }
 

@@ -420,7 +420,7 @@ function v128(c: Cursor): number[] {
   return Array.from({ length: 128 / width }, () => {
     if (float) {
       const value = c.parse((text) => parseFloat(text, width as 32 | 64));
-      return width === 32 ? F32.toBytes(value as F32) : F64.toBytes(value as F64);
+      return [...(width === 32 ? F32.toBytes(value as F32) : F64.toBytes(value as F64))];
     }
     const value = BigInt.asUintN(
       width,

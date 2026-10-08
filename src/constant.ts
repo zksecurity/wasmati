@@ -1,4 +1,4 @@
-import { Code } from "./code.ts";
+import { createCode } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
 import {
   checkSynchronous,
@@ -52,7 +52,7 @@ function constant<T extends ValueType = ValueType>(
 ): Dependency.Constant<T> {
   let stack: StackVar<StackType>[] = [];
   let type: StackType | undefined;
-  let code = new Code(16);
+  let code = createCode(16);
   let deps = new Set<Dependency.t>();
   withContext(
     ctx,

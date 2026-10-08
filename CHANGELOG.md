@@ -18,10 +18,12 @@ wasmati 2.0 writes every instruction as bytes the moment it is called, so buildi
 - **Instructions throw where no function or constant is being built**, instead of writing their code nowhere.
 - **`defaultCtx` is not exported**; `isolatedWasmati()` gives builder state of its own.
 - **`StackVar` has no `id`**: instruction results are told apart by identity.
+- **Bytes are `Uint8Array`s.** Codecs (`Binable`) encode to and decode from `Uint8Array`s, and the bytes of custom sections, unknown name subsections and data segments in module JSON are `Uint8Array`s. `data()` still accepts arrays of numbers.
+- **Codecs read and write at a cursor.** `toBytes(value)` and `fromBytes(bytes)` stay; the hooks of composed codecs are `readBytes(input)` and `writeBytes(output, value)`, which read and write at the `offset` of a `ByteCursor`, `{ bytes, offset }`, and advance it.
 
 ### Changes
 
-- **Faster builds**: instructions are written as bytes when they are called, through flat fast paths for most instructions, and `Module()` links and encodes the functions once. Modules encode into one growable byte buffer instead of nested arrays, and integers avoid BigInt where they fit. Codecs (`Binable`) have `write` and `encode` methods.
+- **Faster builds**: instructions are written as bytes when they are called, through flat fast paths for most instructions, and `Module()` links and encodes the functions once. Modules encode into one growable byte buffer instead of nested arrays, integers avoid BigInt where they fit, and decoding allocates no intermediate arrays.
 - **`isolatedWasmati()`** returns an independent instance of the builder API (`func`, `constant`, `declareFunc` and all instructions) with build state of its own, typed `Wasmati`. Separate instances build functions independently, even interleaved, and helper libraries can take the instance to emit into; the package's exports are the default instance.
 - **`Module({ skipDebugNames: true })`** leaves parameter and local names out of the name section, which makes modules a few percent smaller and faster to build. Function names stay.
 - **Instance types have only the module's exports**: `instance.exports.missing` is a type error, and exported globals are typed as `WebAssembly.Global`s with typed values, so exports can be imports of other modules. `TypedInstance`, `ExportInput` and `AsyncExport` are exported, so that libraries can emit declarations of builders that are generic in their exports.

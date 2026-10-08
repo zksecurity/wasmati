@@ -276,17 +276,17 @@ test("@custom annotations are custom sections, placed relative to other sections
     (@custom "d" "end")
     (func))`);
   assert.deepEqual(module.customSections, [
-    { name: "a", data: [1], after: 0 },
-    { name: "b", data: [0x78, 0x79], after: 13 },
-    { name: "c", data: [], after: 10 },
-    { name: "d", data: [0x65, 0x6e, 0x64] },
+    { name: "a", data: new Uint8Array([1]), after: 0 },
+    { name: "b", data: new Uint8Array([0x78, 0x79]), after: 13 },
+    { name: "c", data: new Uint8Array([]), after: 10 },
+    { name: "d", data: new Uint8Array([0x65, 0x6e, 0x64]) },
   ]);
   assert.deepEqual(parseWat(printWat(module)), module);
   assert.deepEqual(BinaryModule.fromBytes(BinaryModule.toBytes(module)).customSections, [
-    { name: "a", data: [1], after: 0 },
-    { name: "b", data: [0x78, 0x79], after: 3 },
-    { name: "c", data: [], after: 10 },
-    { name: "d", data: [0x65, 0x6e, 0x64], after: 10 },
+    { name: "a", data: new Uint8Array([1]), after: 0 },
+    { name: "b", data: new Uint8Array([0x78, 0x79]), after: 3 },
+    { name: "c", data: new Uint8Array([]), after: 10 },
+    { name: "d", data: new Uint8Array([0x65, 0x6e, 0x64]), after: 10 },
   ]);
   for (const source of [
     '(module (@custom "a" here))',
@@ -328,7 +328,7 @@ test("custom sections print as @custom annotations", () => {
   const f = func({ in: [], out: [i32] }, () => i32.const(42));
   const module = Module({
     exports: { f },
-    customSections: [{ name: "producers", data: [1, 2], after: 0 }],
+    customSections: [{ name: "producers", data: new Uint8Array([1, 2]), after: 0 }],
   });
   assert.match(module.toWat(), /\(@custom "producers" \(before first\) "\\01\\02"\)\)\n$/);
 });

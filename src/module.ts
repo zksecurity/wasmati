@@ -4,7 +4,7 @@ import { Export, Import } from "./export.ts";
 import type { JSFunction } from "./func.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 import { END, rememberEncoding } from "./instruction/binable.ts";
-import { Writer } from "./binable.ts";
+import { byteCursor, writeByte, writtenBytes } from "./binable.ts";
 import { link, type Linker } from "./code.ts";
 import { Locals } from "./func.ts";
 import { Module as BinableModule, type EncodableModule } from "./module-binable.ts";
@@ -214,25 +214,25 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     },
     types: (name, immediate) => registry.immediate(name, immediate),
   };
-  let writer = new Writer();
+  let writer = byteCursor();
   let value = <T extends ValueType>(type: T): T => registry.value(type);
   let constant = (constant: Dependency.Constant): ResolvedInstruction[] => {
-    writer.length = 0;
+    writer.offset = 0;
     link(constant.code, writer, linker);
-    writer.byte(END);
+    writeByte(writer, END);
     // Encoded already, so encoding the module writes the bytes as they are.
     let expression: ResolvedInstruction[] = [];
-    rememberEncoding(expression, writer.result());
+    rememberEncoding(expression, writtenBytes(writer));
     return expression;
   };
   // Functions are encoded once, here, from their code.
   let funcs = funcs0.map(({ typeIdx, type, locals, code }) => {
     registry.signature(type);
-    writer.length = 0;
-    Locals.write(writer, locals.map(value));
+    writer.offset = 0;
+    Locals.writeBytes(writer, locals.map(value));
     let hints = link(code, writer, linker, 0);
-    writer.byte(END);
-    return { typeIdx, encoded: { bytes: writer.result(), hints } };
+    writeByte(writer, END);
+    return { typeIdx, encoded: { bytes: writtenBytes(writer), hints } };
   });
   let globals: Global[] = dependencyByKind.global.map(({ type, init }) => ({
     type: { ...type, value: value(type.value) },
@@ -356,7 +356,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(BinableModule.encode(binableModule), importMap, {
+  return createModule<Exports>(BinableModule.toBytes(binableModule), importMap, {
     asyncExports,
     importDependencies,
   });
@@ -539,7 +539,7 @@ const Module = Object.assign(ModuleConstructor, {
     json: BinableModule,
     importMap: WebAssembly.Imports = {},
   ) {
-    return createModule<Exports>(BinableModule.encode(json), importMap);
+    return createModule<Exports>(BinableModule.toBytes(json), importMap);
   },
   /** A module from the WebAssembly text format. */
   fromWat<Exports extends Record<string, ExportInput>>(

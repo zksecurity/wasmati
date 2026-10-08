@@ -10,6 +10,7 @@ import {
   withByteCode,
   withPreamble,
   withValidation,
+  type ByteCursor,
 } from "./binable.ts";
 import { Name, U32, vec, withByteLength } from "./immediate.ts";
 import { NameSection } from "./name-section.ts";
@@ -35,7 +36,7 @@ export { Module, type EncodableModule, type CustomSection };
 
 type CustomSection = {
   name: string;
-  data: number[];
+  data: Uint8Array;
   // Position after a standard section id; 0 means before the first section.
   // If that section is empty/absent, use its position in the section order.
   // Omit to append after all standard sections.
@@ -148,11 +149,10 @@ const Version = iso(tuple([Byte, Byte, Byte, Byte]), {
 function optional<T>(id: number, section: Binable<T>, empty: T): Binable<T> {
   const isEmpty = (value: T) => value === undefined || (Array.isArray(value) && value.length === 0);
   return Binable({
-    write: (writer, value) => {
-      if (!isEmpty(value)) section.write(writer, value);
+    writeBytes: (output, value) => {
+      if (!isEmpty(value)) section.writeBytes(output, value);
     },
-    readBytes: (bytes, offset) =>
-      bytes[offset] === id ? section.readBytes(bytes, offset) : [empty, offset],
+    readBytes: (input) => (input.bytes[input.offset] === id ? section.readBytes(input) : empty),
   });
 }
 
@@ -188,7 +188,7 @@ const sectionIds = {
   dataSection: 11,
 } as const;
 
-const Sections = interleavedRecord<Sections, { name: string; data: number[] }>(
+const Sections = interleavedRecord<Sections, { name: string; data: Uint8Array }>(
   {
     typeSection: optional(1, TypeSection, []),
     importSection: optional(2, ImportSection, []),
@@ -204,7 +204,7 @@ const Sections = interleavedRecord<Sections, { name: string; data: number[] }>(
     codeSection: optional(10, CodeSection, []),
     dataSection: optional(11, DataSection, []),
   },
-  { codec: CustomSection, matches: (bytes, offset) => bytes[offset] === 0 },
+  { codec: CustomSection, matches: (input) => input.bytes[input.offset] === 0 },
 );
 
 const ParsedModule = withValidation(
@@ -270,9 +270,7 @@ const ModuleCodec = iso(ParsedModule, {
       return { after: after === undefined ? null : key, value };
     });
     if (names !== undefined) {
-      // Bytes, which the custom section's codec writes as they are.
-      let data = NameSection.encode(names) as unknown as number[];
-      extras.push({ after: null, value: { name: "name", data } });
+      extras.push({ after: null, value: { name: "name", data: NameSection.toBytes(names) } });
     }
     let funcSection = funcs.map((f) => f.typeIdx);
     // The functions themselves, whose bodies may be encoded already, and decoded only when read.
@@ -390,8 +388,8 @@ const ModuleCodec = iso(ParsedModule, {
 
 /** Modules: decoding gives their JSON, encoding takes it, or a module whose functions are encoded. */
 const Module = ModuleCodec as Omit<Binable<EncodableModule>, "fromBytes" | "readBytes"> & {
-  fromBytes(bytes: number[] | Uint8Array): Module;
-  readBytes(bytes: number[], offset: number): [Module, number];
+  fromBytes(bytes: Uint8Array): Module;
+  readBytes(input: ByteCursor): Module;
 };
 
 // validation context according to spec.. may remain unused

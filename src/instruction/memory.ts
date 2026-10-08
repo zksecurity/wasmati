@@ -8,7 +8,7 @@ import {
 import * as Dependency from "../dependency.ts";
 import { type LocalContext, type StackVar, pushResult } from "../local-context.ts";
 import { U32, U64, U8, uint64 } from "../immediate.ts";
-import { Binable, record, tuple } from "../binable.ts";
+import { Binable, record, tuple, writeByteArray, writeUnsignedLEB } from "../binable.ts";
 import {
   type AddressType,
   DataIndex,
@@ -196,24 +196,21 @@ const elemOps = {
 type MemArg = { align: U32; offset: U64; memory?: number };
 // Flags from 64 announce a memory index, which precedes the offset; flags from 128 are malformed.
 const MemArg = Binable<MemArg>({
-  write(writer, { align, offset, memory }) {
-    if (memory === undefined || memory === 0) U32.write(writer, align);
+  writeBytes(output, { align, offset, memory }) {
+    if (memory === undefined || memory === 0) U32.writeBytes(output, align);
     else {
-      U32.write(writer, align | 64);
-      U32.write(writer, memory);
+      U32.writeBytes(output, align | 64);
+      U32.writeBytes(output, memory);
     }
-    U64.write(writer, offset);
+    U64.writeBytes(output, offset);
   },
-  readBytes(bytes, start) {
-    let [flags, offset] = U32.readBytes(bytes, start);
+  readBytes(input) {
+    let flags = U32.readBytes(input);
     if (flags >= 128) throw Error(`malformed memory alignment flags ${flags}`);
-    let memory = 0;
-    if (flags & 64) [memory, offset] = U32.readBytes(bytes, offset);
-    let memoryOffset: U64;
-    [memoryOffset, offset] = U64.readBytes(bytes, offset);
-    const memArg: MemArg = { align: flags & 63, offset: memoryOffset };
+    let memory = flags & 64 ? U32.readBytes(input) : 0;
+    const memArg: MemArg = { align: flags & 63, offset: U64.readBytes(input) };
     if (memory !== 0) memArg.memory = memory;
-    return [memArg, offset];
+    return memArg;
   },
 });
 
@@ -314,10 +311,10 @@ function memoryInstruction<
     flatOperands(ctx, name, defaultArgs, n, a, b, c);
     ctx.deps.add(Dependency.hasMemory);
     let { code } = ctx;
-    code.bytes(instruction.opcodeBytes);
+    writeByteArray(code, instruction.opcodeBytes);
     let { offset = 0, align } = memArg;
-    code.unsigned(align === undefined ? natural : alignExponent(name, align));
-    U64.write(code, memoryOffset(offset));
+    writeUnsignedLEB(code, align === undefined ? natural : alignExponent(name, align));
+    U64.writeBytes(code, memoryOffset(offset));
     return result === undefined ? undefined : pushResult(ctx, result);
   } as any;
 }

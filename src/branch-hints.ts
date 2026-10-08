@@ -1,4 +1,11 @@
-import { Binable, Byte, Writer } from "./binable.ts";
+import {
+  Binable,
+  byteCursor,
+  readByte,
+  writeByte,
+  writeUnsignedLEB,
+  writtenBytes,
+} from "./binable.ts";
 import { U32, vec } from "./immediate.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 import { ELSE, END, Instruction, rememberEncoding } from "./instruction/binable.ts";
@@ -19,33 +26,30 @@ type FunctionHints = { func: number; hints: { offset: number; likely: boolean }[
 
 const BranchHints = vec(
   Binable<FunctionHints>({
-    write(writer, { func, hints }) {
-      writer.unsigned(func);
-      Hints.write(writer, hints);
+    writeBytes(output, { func, hints }) {
+      writeUnsignedLEB(output, func);
+      Hints.writeBytes(output, hints);
     },
-    readBytes(bytes, offset) {
-      let func: number, hints: FunctionHints["hints"];
-      [func, offset] = U32.readBytes(bytes, offset);
-      [hints, offset] = Hints.readBytes(bytes, offset);
-      return [{ func, hints }, offset];
+    readBytes(input) {
+      let func = U32.readBytes(input);
+      return { func, hints: Hints.readBytes(input) };
     },
   }),
 );
 
 /** A hint's payload is one byte: 1 if the branch is likely taken, 0 if not. */
 const Hint = Binable<{ offset: number; likely: boolean }>({
-  write(writer, { offset, likely }) {
-    writer.unsigned(offset);
-    writer.byte(1);
-    writer.byte(likely ? 1 : 0);
+  writeBytes(output, { offset, likely }) {
+    writeUnsignedLEB(output, offset);
+    writeByte(output, 1);
+    writeByte(output, likely ? 1 : 0);
   },
-  readBytes(bytes, offset) {
-    let position: number, size: number, value: number;
-    [position, offset] = U32.readBytes(bytes, offset);
-    [size, offset] = U32.readBytes(bytes, offset);
-    [value, offset] = Byte.readBytes(bytes, offset);
+  readBytes(input) {
+    let offset = U32.readBytes(input);
+    let size = U32.readBytes(input);
+    let value = readByte(input);
     if (size !== 1 || value > 1) throw Error("malformed branch hint");
-    return [{ offset: position, likely: value === 1 }, offset];
+    return { offset, likely: value === 1 };
   },
 });
 
@@ -59,7 +63,7 @@ function encodeBranchHints<C>(
   codes: C[],
   firstFunc: number,
   encoded: (code: C) => { offset: number; likely: boolean }[] | undefined,
-): number[] | undefined {
+): Uint8Array | undefined {
   let functions = codes.flatMap((entry, i): FunctionHints[] => {
     let known = encoded(entry);
     if (known !== undefined)
@@ -95,7 +99,7 @@ function hasHints(body: ResolvedInstruction[]): boolean {
 }
 
 /** Record the section's hints on the instructions they refer to; throws if the section is invalid. */
-function decodeBranchHints(data: number[], codes: Code[], firstFunc: number) {
+function decodeBranchHints(data: Uint8Array, codes: Code[], firstFunc: number) {
   let assignments: [ResolvedInstruction, boolean][] = [];
   for (let { func, hints } of BranchHints.fromBytes(data)) {
     let code = codes[func - firstFunc];
@@ -128,36 +132,36 @@ function encodeWithOffsets(
   bytes: Uint8Array;
 } {
   let offsets: [ResolvedInstruction, number][] = [];
-  let writer = new Writer();
-  let start = Locals.encode(locals).length;
+  let output = byteCursor();
+  let start = Locals.toBytes(locals).length;
   // A block's header is its encoding with empty bodies, without the final `end`.
   const header = (instruction: ResolvedInstruction, empty: unknown) => {
-    Instruction.write(writer, {
+    Instruction.writeBytes(output, {
       ...instruction,
       immediate: { ...instruction.immediate, instructions: empty },
     });
-    writer.length--;
+    output.offset--;
   };
   const walk = (body: ResolvedInstruction[]) => {
     for (let instruction of body) {
-      if (select(instruction)) offsets.push([instruction, start + writer.length]);
+      if (select(instruction)) offsets.push([instruction, start + output.offset]);
       let { name, immediate } = instruction;
       if (name === "block" || name === "loop" || name === "try_table") {
         header(instruction, []);
         walk(immediate.instructions);
-        writer.byte(END);
+        writeByte(output, END);
       } else if (name === "if") {
         header(instruction, { if: [] });
         walk(immediate.instructions.if);
         if (immediate.instructions.else !== undefined) {
-          writer.byte(ELSE);
+          writeByte(output, ELSE);
           walk(immediate.instructions.else);
         }
-        writer.byte(END);
-      } else Instruction.write(writer, instruction);
+        writeByte(output, END);
+      } else Instruction.writeBytes(output, instruction);
     }
   };
   walk(body);
-  writer.byte(END);
-  return { offsets, bytes: writer.result() };
+  writeByte(output, END);
+  return { offsets, bytes: writtenBytes(output) };
 }

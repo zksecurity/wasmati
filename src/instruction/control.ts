@@ -1,4 +1,4 @@
-import { lazy, record, tuple, Undefined } from "../binable.ts";
+import { lazy, record, tuple, Undefined, writeByte, writeByteArray } from "../binable.ts";
 import * as Dependency from "../dependency.ts";
 import type { AnyFunc } from "../func-types.ts";
 import { vec } from "../immediate.ts";
@@ -51,7 +51,7 @@ import {
   type Instruction_,
 } from "./base.ts";
 import { Block, BlockType, Catch, ELSE, END, IfBlock, TryTable } from "./binable.ts";
-import type { Immediate } from "../code.ts";
+import { type Immediate, addHole } from "../code.ts";
 import { type Input, namedInputs, processStackArgs } from "./stack-args.ts";
 
 export { control, bindControlOps, parametric };
@@ -103,18 +103,18 @@ const blockTypeImmediate: Immediate = {
 function writeHeader(ctx: LocalContext, instruction: BaseInstruction, type: FunctionType) {
   let { code } = ctx;
   checkAllowed(ctx, instruction.string);
-  code.bytes(instruction.opcodeBytes);
+  writeByteArray(code, instruction.opcodeBytes);
   let { deps, abbreviated } = blockType(type);
   if (abbreviated === undefined) {
     ctx.deps.add(deps[0]);
-    code.hole(blockTypeImmediate, deps, [undefined]);
-  } else if (hasDefinedType(abbreviated)) code.hole(blockTypeImmediate, [], [abbreviated]);
-  else BlockType.write(code, abbreviated);
+    addHole(code, blockTypeImmediate, deps, [undefined]);
+  } else if (hasDefinedType(abbreviated)) addHole(code, blockTypeImmediate, [], [abbreviated]);
+  else BlockType.writeBytes(code, abbreviated);
 }
 
 /** After a block's code: take its parameters from the stack, and push its results. */
 function endBlock<Args, Results>(ctx: LocalContext, name: string, { args, results }: FunctionType) {
-  ctx.code.byte(END);
+  writeByte(ctx.code, END);
   popStack(ctx, args, name);
   let pushed = pushStack(ctx, results);
   return (
@@ -162,11 +162,11 @@ function if_(ctx: LocalContext, ...args: IfArgs) {
   popStack(ctx, ["i32"]);
   let type = typeFromInput(options);
   if (options.likely !== undefined)
-    code.hints.push({ position: code.length, likely: options.likely });
+    code.hints.push({ position: code.offset, likely: options.likely });
   writeHeader(ctx, ifInstruction, type);
   runBlock(ctx, "if", type, runIf);
   if (runElse !== undefined) {
-    code.byte(ELSE);
+    writeByte(code, ELSE);
     runBlock(ctx, "else", type, runElse);
   }
   // The condition was taken before the branches; the parameters are below it.
@@ -198,7 +198,7 @@ function br_if(ctx: LocalContext, label: Label | number, hint: BranchHint = {}) 
   let [i, frame] = getFrameFromLabel(ctx, label);
   if (labelTypes(frame).length > 0) return brIf(ctx, label, hint);
   if (hint.likely !== undefined)
-    ctx.code.hints.push({ position: ctx.code.length, likely: hint.likely });
+    ctx.code.hints.push({ position: ctx.code.offset, likely: hint.likely });
   emitSimple(ctx, brIf.instruction, i32Operand, undefined, i);
 }
 
@@ -426,7 +426,7 @@ function try_table(
     tagged: tag !== undefined,
   }));
   for (let tag of tags) ctx.deps.add(tag);
-  code.hole(catchesImmediate, tags, [resolved]);
+  addHole(code, catchesImmediate, tags, [resolved]);
   runBlock(ctx, "try_table", type, run);
   return endBlock(ctx, "try_table", type);
 }

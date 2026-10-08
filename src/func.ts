@@ -1,5 +1,5 @@
-import { Binable, tuple } from "./binable.ts";
-import { Code } from "./code.ts";
+import { Binable, tuple, writeUnsignedLEB } from "./binable.ts";
+import { createCode } from "./code.ts";
 import type * as Dependency from "./dependency.ts";
 import { U32, vec } from "./immediate.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
@@ -120,7 +120,7 @@ function func<
   for (let j = 0; j < flatNames.length; j++) localNames[localIndices[j]] = flatNames[j];
   const name = signature.name ?? (run.name || undefined);
   let stack: StackVar<ValueType>[] = [];
-  let code = new Code();
+  let code = createCode();
   let deps = new Set<Dependency.t>();
   let calls = new Set<Dependency.AnyFunc>();
   withContext(
@@ -207,7 +207,7 @@ function declareFunc<
     ...explicitType(signature.type, type),
     name: signature.name,
     locals: [],
-    code: new Code(0),
+    code: createCode(0),
     deps: [],
     calls: [],
     defined: false,
@@ -299,25 +299,24 @@ function sortLocals(locals: ValueType[], offset: number) {
 const CompressedLocals = vec(tuple([U32, ValueType]));
 const Locals = Binable<ValueType[]>({
   // Runs of equal types, which keeps locals in order.
-  write(writer, locals) {
+  writeBytes(output, locals) {
     let n = locals.length;
     let runs = 0;
     for (let i = 0; i < n; i++) if (i === 0 || !typeEquals(locals[i - 1], locals[i])) runs++;
-    writer.unsigned(runs);
+    writeUnsignedLEB(output, runs);
     for (let i = 0; i < n;) {
       let j = i + 1;
       while (j < n && typeEquals(locals[i], locals[j])) j++;
-      writer.unsigned(j - i);
-      ValueType.write(writer, locals[i]);
+      writeUnsignedLEB(output, j - i);
+      ValueType.writeBytes(output, locals[i]);
       i = j;
     }
   },
-  readBytes(bytes, offset) {
-    let [compressed, end] = CompressedLocals.readBytes(bytes, offset);
+  readBytes(input) {
     let locals: ValueType[] = [];
-    for (let [count, local] of compressed) {
+    for (let [count, local] of CompressedLocals.readBytes(input)) {
       locals.push(...Array(count).fill(local));
     }
-    return [locals, end];
+    return locals;
   },
 });

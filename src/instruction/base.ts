@@ -1,5 +1,5 @@
-import { Binable, Undefined } from "../binable.ts";
-import type { Code, Immediate } from "../code.ts";
+import { Binable, Undefined, writeByte, writeByteArray } from "../binable.ts";
+import { type Code, type Immediate, addHole } from "../code.ts";
 import type * as Dependency from "../dependency.ts";
 import {
   checkSynchronous,
@@ -217,9 +217,9 @@ function emitSimple(
   if (ctx.allowed !== undefined) checkAllowed(ctx, instruction.string);
   if (args.length > 0) popTypes(ctx, args, instruction.string);
   let { opcodeBytes } = instruction;
-  if (opcodeBytes.length === 1) code.byte(opcodeBytes[0]);
-  else code.bytes(opcodeBytes);
-  if (instruction.immediate !== undefined) instruction.immediate.write(code, immediate);
+  if (opcodeBytes.length === 1) writeByte(code, opcodeBytes[0]);
+  else writeByteArray(code, opcodeBytes);
+  if (instruction.immediate !== undefined) instruction.immediate.writeBytes(code, immediate);
   return result === undefined ? undefined : pushResult(ctx, result);
 }
 
@@ -232,7 +232,7 @@ function emitResults(
 ): StackVar<ValueType>[] {
   if (ctx.allowed !== undefined) checkAllowed(ctx, instruction.string);
   if (args.length > 0) popTypes(ctx, args, instruction.string);
-  ctx.code.bytes(instruction.opcodeBytes);
+  writeByteArray(ctx.code, instruction.opcodeBytes);
   return pushStack(ctx, results) as StackVar<ValueType>[];
 }
 
@@ -247,16 +247,16 @@ function writeInstruction(
   args: any[],
   likely?: boolean,
 ) {
-  if (likely !== undefined) code.hints.push({ position: code.length, likely });
+  if (likely !== undefined) code.hints.push({ position: code.offset, likely });
   let { opcodeBytes, immediate } = instruction;
-  if (opcodeBytes.length === 1) code.byte(opcodeBytes[0]);
-  else code.bytes(opcodeBytes);
+  if (opcodeBytes.length === 1) writeByte(code, opcodeBytes[0]);
+  else writeByteArray(code, opcodeBytes);
   if (immediate !== undefined) {
-    if (deps.length > 0 && deps.some(hasIndex)) code.hole(instruction, deps, args);
+    if (deps.length > 0 && deps.some(hasIndex)) addHole(code, instruction, deps, args);
     else {
       let value = instruction.resolve(deps.length === 0 ? noDeps : deps.map(noIndex), ...args);
-      if (instruction.typed && hasDefinedType(value)) code.hole(instruction, deps, args);
-      else immediate.write(code, value);
+      if (instruction.typed && hasDefinedType(value)) addHole(code, instruction, deps, args);
+      else immediate.writeBytes(code, value);
     }
   }
 }
@@ -344,8 +344,8 @@ function baseInstructionWithImmediate<
       if (!direct || ctx.allowed !== undefined)
         return emitSimple(ctx, instruction, instr.in, result, value) as Instruction_<Args, Results>;
       let { code } = ctx;
-      code.byte(opcode);
-      immediate?.write(code, value as Immediate);
+      writeByte(code, opcode);
+      immediate?.writeBytes(code, value as Immediate);
       return pushResult(ctx, result) as unknown as Instruction_<Args, Results>;
     },
     { create: base.create, instruction },

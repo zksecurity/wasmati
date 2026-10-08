@@ -1,7 +1,7 @@
-import { Writer } from "./binable.ts";
+import { type ByteCursor, writeSlice } from "./binable.ts";
 import type * as Dependency from "./dependency.ts";
 
-export { Code, type Linker, type Immediate, link };
+export { type Code, createCode, addHole, type Linker, type Immediate, link };
 
 /**
  * How an immediate that refers to other definitions is written, once their indices are known: from the
@@ -10,7 +10,7 @@ export { Code, type Linker, type Immediate, link };
  */
 type Immediate = {
   string: string;
-  immediate: { write(writer: Writer, value: any): void } | undefined;
+  immediate: { writeBytes(output: ByteCursor, value: any): void } | undefined;
   resolve: (deps: number[], ...args: any) => any;
 };
 
@@ -29,27 +29,32 @@ type Linker = {
  * `end`. Immediates that refer to other definitions by index are holes, which Module() fills in.
  * Positions are byte offsets in the code.
  */
-class Code extends Writer {
-  holes: Hole[] = [];
+type Code = ByteCursor & {
+  holes: Hole[];
   /** Branch hints, at the position of their instruction. */
-  hints: { position: number; likely: boolean }[] = [];
+  hints: { position: number; likely: boolean }[];
+};
 
-  hole(immediate: Immediate, deps: Dependency.t[], args: unknown[]) {
-    this.holes.push({ position: this.length, immediate, deps, args });
-  }
+function createCode(capacity = 1 << 12): Code {
+  return { bytes: new Uint8Array(capacity), offset: 0, holes: [], hints: [] };
+}
+
+/** A hole at the end of the code, for an immediate that Module() writes. */
+function addHole(code: Code, immediate: Immediate, deps: Dependency.t[], args: unknown[]) {
+  code.holes.push({ position: code.offset, immediate, deps, args });
 }
 
 /**
  * Write code with its holes filled in, and return the offsets of its branch hints from `start`, by
- * default where the writer is.
+ * default where the output is.
  */
 function link(
   code: Code,
-  writer: Writer,
+  output: ByteCursor,
   linker: Linker,
-  start = writer.length,
+  start = output.offset,
 ): { offset: number; likely: boolean }[] {
-  let { buffer, holes, hints } = code;
+  let { bytes, holes, hints } = code;
   let offsets: { offset: number; likely: boolean }[] = [];
   let from = 0;
   let h = 0;
@@ -57,19 +62,19 @@ function link(
   let hintsBefore = (until: number) => {
     for (; h < hints.length && hints[h].position < until; h++) {
       let { position, likely } = hints[h];
-      offsets.push({ offset: writer.length - start + position - from, likely });
+      offsets.push({ offset: output.offset - start + position - from, likely });
     }
   };
   for (let { position, immediate, deps, args } of holes) {
     // A hint at a hole's position is of the instruction after the hole's immediate.
     hintsBefore(position);
-    writer.copy(buffer, from, position);
+    writeSlice(output, bytes, from, position);
     from = position;
     let indices = deps.map((dep) => linker.index(dep));
     let value = linker.types(immediate.string, immediate.resolve(indices, ...args));
-    immediate.immediate!.write(writer, value);
+    immediate.immediate!.writeBytes(output, value);
   }
   hintsBefore(Infinity);
-  writer.copy(buffer, from, code.length);
+  writeSlice(output, bytes, from, code.offset);
   return offsets;
 }

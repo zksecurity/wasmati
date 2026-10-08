@@ -277,7 +277,7 @@ class Source {
         typeof d.mode === "string"
           ? literal(d.mode)
           : `{ memory: ${this.reference(this.memories, d.mode.memory)}, offset: ${this.offset(d.mode.offset, this.addressOf("memory", d.mode.memory))} }`;
-      this.line(`const ${variable} = ${this.use("data")}(${mode}, ${literal(d.init)});`);
+      this.line(`const ${variable} = ${this.use("data")}(${mode}, ${literal([...d.init])});`);
       this.dependencies.push(variable);
     }
     for (const [index, e] of this.module.elems.entries()) {
@@ -831,6 +831,7 @@ function literal(value: unknown): string {
     if (value === -Infinity) return "-Infinity";
   }
   if (Array.isArray(value)) return `[${value.map(literal).join(", ")}]`;
+  if (value instanceof Uint8Array) return `new Uint8Array([${value.join(", ")}])`;
   if (typeof value === "object" && value !== null) {
     return `{ ${Object.entries(value)
       .filter(([, v]) => v !== undefined)

@@ -110,34 +110,30 @@ const Import = record<Import>({
  * among several items (0x7F), or also one description (0x7E); they decode into single imports.
  */
 const Imports = Binable<Import[]>({
-  toBytes(imports) {
-    return vec(Import).toBytes(imports);
+  writeBytes(output, imports) {
+    vec(Import).writeBytes(output, imports);
   },
-  readBytes(bytes, offset) {
+  readBytes(input) {
     let imports: Import[] = [];
-    let count: number;
-    [count, offset] = U32.readBytes(bytes, offset);
+    let count = U32.readBytes(input);
     for (let i = 0; i < count; i++) {
-      let module: string, name: string;
-      [module, offset] = Name.readBytes(bytes, offset);
-      [name, offset] = Name.readBytes(bytes, offset);
-      let encoding = name === "" ? bytes[offset] : undefined;
+      let module = Name.readBytes(input);
+      let name = Name.readBytes(input);
+      let encoding = name === "" ? input.bytes[input.offset] : undefined;
       if (encoding === 0x7f) {
-        let items: { name: string; description: ImportDescription }[];
-        [items, offset] = vec(CompactItem).readBytes(bytes, offset + 1);
+        input.offset++;
+        let items = vec(CompactItem).readBytes(input);
         imports.push(...items.map((item) => ({ module, ...item })));
       } else if (encoding === 0x7e) {
-        let description: ImportDescription, names: string[];
-        [description, offset] = ImportDescription.readBytes(bytes, offset + 1);
-        [names, offset] = vec(Name).readBytes(bytes, offset);
+        input.offset++;
+        let description = ImportDescription.readBytes(input);
+        let names = vec(Name).readBytes(input);
         imports.push(...names.map((name) => ({ module, name, description })));
       } else {
-        let description: ImportDescription;
-        [description, offset] = ImportDescription.readBytes(bytes, offset);
-        imports.push({ module, name, description });
+        imports.push({ module, name, description: ImportDescription.readBytes(input) });
       }
     }
-    return [imports, offset];
+    return imports;
   },
 });
 const CompactItem = record({ name: Name, description: ImportDescription });

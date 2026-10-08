@@ -1,4 +1,15 @@
-import { Binable, type Writer } from "./binable.ts";
+import {
+  Binable,
+  type ByteCursor,
+  readByte,
+  reserve,
+  writeByte,
+  writeByteArray,
+  writeSigned64LEB,
+  writeSignedLEB,
+  writeUnsignedLEB,
+  writeWithLength,
+} from "./binable.ts";
 
 export { vec, withByteLength, Name, U8, U32, U64, I32, I64, S33, F32, F64, uint64 };
 
@@ -17,19 +28,15 @@ type F64 = number | { bits: bigint };
 
 function vec<T>(Element: Binable<T>) {
   return Binable<T[]>({
-    write(writer, vec) {
-      writer.unsigned(vec.length);
-      for (let i = 0; i < vec.length; i++) Element.write(writer, vec[i]);
+    writeBytes(output, vec) {
+      writeUnsignedLEB(output, vec.length);
+      for (let i = 0; i < vec.length; i++) Element.writeBytes(output, vec[i]);
     },
-    readBytes(bytes, start) {
-      let [length, offset] = U32.readBytes(bytes, start);
+    readBytes(input) {
+      let length = U32.readBytes(input);
       let elements: T[] = [];
-      for (let i = 0; i < length; i++) {
-        let element: T;
-        [element, offset] = Element.readBytes(bytes, offset);
-        elements.push(element);
-      }
-      return [elements, offset];
+      for (let i = 0; i < length; i++) elements.push(Element.readBytes(input));
+      return elements;
     },
   });
 }
@@ -39,29 +46,31 @@ const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const utf8Encoder = new TextEncoder();
 
 const Name = Binable<string>({
-  write(writer, string: string) {
+  writeBytes(output, string: string) {
     let n = string.length;
     let ascii = true;
     for (let i = 0; i < n && ascii; i++) ascii = string.charCodeAt(i) < 0x80;
     if (!ascii) {
       let bytes = utf8Encoder.encode(string);
-      writer.unsigned(bytes.length);
-      writer.bytes(bytes);
+      writeUnsignedLEB(output, bytes.length);
+      writeByteArray(output, bytes);
       return;
     }
     // ASCII strings are their own UTF-8 encoding.
-    writer.unsigned(n);
-    writer.reserve(n);
-    let { buffer, length } = writer;
-    for (let i = 0; i < n; i++) buffer[length + i] = string.charCodeAt(i);
-    writer.length = length + n;
+    writeUnsignedLEB(output, n);
+    reserve(output, n);
+    let { bytes, offset } = output;
+    for (let i = 0; i < n; i++) bytes[offset + i] = string.charCodeAt(i);
+    output.offset = offset + n;
   },
-  readBytes(bytes, start) {
-    let [length, offset] = U32.readBytes(bytes, start);
-    let end = offset + length;
-    if (end > bytes.length) throw Error("unexpected end");
+  readBytes(input) {
+    let length = U32.readBytes(input);
+    let start = input.offset;
+    let end = start + length;
+    if (end > input.bytes.length) throw Error("unexpected end");
+    input.offset = end;
     try {
-      return [utf8.decode(Uint8Array.from(bytes.slice(offset, end))), end];
+      return utf8.decode(input.bytes.subarray(start, end));
     } catch {
       throw Error("malformed UTF-8 encoding");
     }
@@ -70,46 +79,45 @@ const Name = Binable<string>({
 
 function withByteLength<T>(binable: Binable<T>): Binable<T> {
   return Binable({
-    write(writer, t) {
-      writer.withLength(() => binable.write(writer, t));
+    writeBytes(output, t) {
+      writeWithLength(output, () => binable.writeBytes(output, t));
     },
-    readBytes(bytes, offset) {
-      let [length, start] = U32.readBytes(bytes, offset);
+    readBytes(input) {
+      let length = U32.readBytes(input);
+      let start = input.offset;
       let end = start + length;
-      if (end > bytes.length) throw Error("invalid length encoding");
-      let [value, consumed] = binable.readBytes(bytes.slice(start, end), 0);
-      if (consumed !== length) throw Error("invalid length encoding");
-      return [value, end];
+      if (end > input.bytes.length) throw Error("invalid length encoding");
+      // The value ends where its length says, which codecs that read to the end rely on.
+      let inner: ByteCursor = { bytes: input.bytes.subarray(start, end), offset: 0 };
+      let value = binable.readBytes(inner);
+      if (inner.offset !== length) throw Error("invalid length encoding");
+      input.offset = end;
+      return value;
     },
   });
 }
 
 /** A single byte, used for lane indices. */
 const U8 = Binable<U8>({
-  write(writer, x: U8) {
+  writeBytes(output, x: U8) {
     if (!Number.isInteger(x) || x < 0 || x > 255) throw Error(`invalid byte ${x}`);
-    writer.byte(x);
+    writeByte(output, x);
   },
-  readBytes(bytes, offset): [U8, number] {
-    if (offset >= bytes.length) throw Error("unexpected end");
-    return [bytes[offset], offset + 1];
-  },
+  readBytes: readByte,
 });
 
 const U32 = Binable<U32>({
-  write: writeUnsigned,
-  readBytes(bytes, offset): [U32, number] {
-    let [x, end] = fromLEB128(bytes, offset, 32, false);
-    return [Number(x), end];
+  writeBytes: writeUnsigned,
+  readBytes(input) {
+    return Number(readLEB128(input, 32, false));
   },
 });
 
 /** 64-bit sizes and offsets. */
 const U64 = Binable<U64>({
-  write: writeUnsigned,
-  readBytes(bytes, offset): [U64, number] {
-    let [x, end] = fromLEB128(bytes, offset, 64, false);
-    return [uint64(x), end];
+  writeBytes: writeUnsigned,
+  readBytes(input) {
+    return uint64(readLEB128(input, 64, false));
   },
 });
 
@@ -120,51 +128,49 @@ function uint64(x: bigint): U64 {
 
 // Constants accept unsigned bit patterns too; their encoding is the signed interpretation.
 const I32 = Binable<I32>({
-  write(writer, x: I32) {
+  writeBytes(output, x: I32) {
     // `| 0` is the signed interpretation of 32-bit integers, also of unsigned bit patterns.
-    if (Number.isInteger(x) && x >= -(2 ** 31) && x < 2 ** 32) writer.signed(x | 0);
-    else writer.bytes(toSLEB128(BigInt.asIntN(32, BigInt(x))));
+    if (Number.isInteger(x) && x >= -(2 ** 31) && x < 2 ** 32) writeSignedLEB(output, x | 0);
+    else writeByteArray(output, toSLEB128(BigInt.asIntN(32, BigInt(x))));
   },
-  readBytes(bytes, offset): [I32, number] {
-    let [x, end] = fromLEB128(bytes, offset, 32, true);
-    return [Number(x), end];
+  readBytes(input) {
+    return Number(readLEB128(input, 32, true));
   },
 });
 
 const int64View = new DataView(new ArrayBuffer(8));
 
 const I64 = Binable<I64>({
-  write(writer, x: I64) {
+  writeBytes(output, x: I64) {
     // The low 64 bits, as two 32-bit halves.
     int64View.setBigInt64(0, x, true);
     let low = int64View.getUint32(0, true);
     let high = int64View.getInt32(4, true);
     if ((high === 0 && low < 0x8000_0000) || (high === -1 && low >= 0x8000_0000))
-      writer.signed(low | 0);
-    else writer.signed64(high, low);
+      writeSignedLEB(output, low | 0);
+    else writeSigned64LEB(output, high, low);
   },
-  readBytes(bytes, offset): [I64, number] {
-    return fromLEB128(bytes, offset, 64, true);
+  readBytes(input) {
+    return readLEB128(input, 64, true);
   },
 });
 
 const S33 = Binable<U32>({
-  write(writer, x: U32) {
-    if (x >= -(2 ** 31) && x < 2 ** 31) writer.signed(x);
-    else writer.bytes(toSLEB128(x));
+  writeBytes(output, x: U32) {
+    if (x >= -(2 ** 31) && x < 2 ** 31) writeSignedLEB(output, x);
+    else writeByteArray(output, toSLEB128(x));
   },
-  readBytes(bytes, offset): [U32, number] {
-    let [x, end] = fromLEB128(bytes, offset, 33, true);
-    return [Number(x), end];
+  readBytes(input) {
+    return Number(readLEB128(input, 33, true));
   },
 });
 
 // https://en.wikipedia.org/wiki/LEB128
 
 /** Unsigned integers, which are numbers up to 2^53 and bigints beyond. */
-function writeUnsigned(writer: Writer, x: number | bigint) {
-  if (typeof x === "number" && Number.isSafeInteger(x) && x >= 0) writer.unsigned(x);
-  else writer.bytes(toULEB128(x));
+function writeUnsigned(output: ByteCursor, x: number | bigint) {
+  if (typeof x === "number" && Number.isSafeInteger(x) && x >= 0) writeUnsignedLEB(output, x);
+  else writeByteArray(output, toULEB128(x));
 }
 
 function toULEB128(x0: bigint | number) {
@@ -197,12 +203,11 @@ function toSLEB128(x0: bigint | number): number[] {
  * Decode an N-bit LEB128 integer strictly: at most ceil(N / 7) bytes, and the unused bits of the last
  * byte must be zero, or for signed integers copies of the sign bit.
  */
-function fromLEB128(bytes: number[], offset: number, bits: number, signed: boolean) {
+function readLEB128(input: ByteCursor, bits: number, signed: boolean): bigint {
   const maxBytes = Math.ceil(bits / 7);
   let x = 0n;
   for (let i = 0; i < maxBytes; i++) {
-    if (offset >= bytes.length) throw Error("unexpected end");
-    const byte = bytes[offset++];
+    const byte = readByte(input);
     x |= BigInt(byte & 0x7f) << BigInt(7 * i);
     const last = (byte & 0x80) === 0;
     if (i === maxBytes - 1) {
@@ -214,10 +219,7 @@ function fromLEB128(bytes: number[], offset: number, bits: number, signed: boole
     }
     if (last) {
       const width = BigInt(7 * (i + 1));
-      return [signed ? BigInt.asIntN(Math.min(Number(width), bits), x) : x, offset] as [
-        bigint,
-        number,
-      ];
+      return signed ? BigInt.asIntN(Math.min(Number(width), bits), x) : x;
     }
   }
   throw Error("unreachable");
@@ -230,29 +232,33 @@ const floatView = new DataView(new ArrayBuffer(8));
 const floatBytes = new Uint8Array(floatView.buffer);
 
 const F32 = Binable<F32>({
-  write(writer, value) {
+  writeBytes(output, value) {
     if (typeof value === "number") floatView.setFloat32(0, value, true);
     else floatView.setUint32(0, value.bits, true);
-    writer.bytes(floatBytes.subarray(0, 4));
+    writeByteArray(output, floatBytes.subarray(0, 4));
   },
-  readBytes(bytes, offset) {
+  readBytes(input) {
+    let { bytes, offset } = input;
     if (offset + 4 > bytes.length) throw Error("f32: unexpected end of input");
     for (let i = 0; i < 4; i++) floatView.setUint8(i, bytes[offset + i]);
+    input.offset = offset + 4;
     const value = floatView.getFloat32(0, true);
-    return [Number.isNaN(value) ? { bits: floatView.getUint32(0, true) } : value, offset + 4];
+    return Number.isNaN(value) ? { bits: floatView.getUint32(0, true) } : value;
   },
 });
 
 const F64 = Binable<F64>({
-  write(writer, value) {
+  writeBytes(output, value) {
     if (typeof value === "number") floatView.setFloat64(0, value, true);
     else floatView.setBigUint64(0, value.bits, true);
-    writer.bytes(floatBytes);
+    writeByteArray(output, floatBytes);
   },
-  readBytes(bytes, offset) {
+  readBytes(input) {
+    let { bytes, offset } = input;
     if (offset + 8 > bytes.length) throw Error("f64: unexpected end of input");
     for (let i = 0; i < 8; i++) floatView.setUint8(i, bytes[offset + i]);
+    input.offset = offset + 8;
     const value = floatView.getFloat64(0, true);
-    return [Number.isNaN(value) ? { bits: floatView.getBigUint64(0, true) } : value, offset + 8];
+    return Number.isNaN(value) ? { bits: floatView.getBigUint64(0, true) } : value;
   },
 });

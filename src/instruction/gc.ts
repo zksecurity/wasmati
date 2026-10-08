@@ -1,4 +1,4 @@
-import { Binable, tuple, Undefined } from "../binable.ts";
+import { Binable, tuple, Undefined, writeByte } from "../binable.ts";
 import type * as Dependency from "../dependency.ts";
 import { U32 } from "../immediate.ts";
 import {
@@ -322,25 +322,19 @@ function difference(from: RefType, to: RefType): RefType {
 /** br_on_cast's flags: bit 0 if the operand type is nullable, bit 1 if the target type is. */
 type BrOnCast = { label: number; from: RefType; to: RefType };
 const BrOnCast = Binable<BrOnCast>({
-  toBytes({ label, from, to }) {
-    let flags = (referenced(from).nullable ? 1 : 0) | (referenced(to).nullable ? 2 : 0);
-    let heaps = [
-      ...HeapType.toBytes(referenced(from).ref),
-      ...HeapType.toBytes(referenced(to).ref),
-    ];
-    return [flags, ...U32.toBytes(label), ...heaps];
+  writeBytes(output, { label, from, to }) {
+    writeByte(output, (referenced(from).nullable ? 1 : 0) | (referenced(to).nullable ? 2 : 0));
+    U32.writeBytes(output, label);
+    HeapType.writeBytes(output, referenced(from).ref);
+    HeapType.writeBytes(output, referenced(to).ref);
   },
-  readBytes(bytes, offset) {
-    let flags = bytes[offset++];
+  readBytes(input) {
+    let flags = input.bytes[input.offset++];
     if (flags === undefined || flags > 3) throw Error("malformed cast flags");
-    let label: number, from: HeapType, to: HeapType;
-    [label, offset] = U32.readBytes(bytes, offset);
-    [from, offset] = HeapType.readBytes(bytes, offset);
-    [to, offset] = HeapType.readBytes(bytes, offset);
-    return [
-      { label, from: refType(from, (flags & 1) !== 0), to: refType(to, (flags & 2) !== 0) },
-      offset,
-    ];
+    let label = U32.readBytes(input);
+    let from = HeapType.readBytes(input);
+    let to = HeapType.readBytes(input);
+    return { label, from: refType(from, (flags & 1) !== 0), to: refType(to, (flags & 2) !== 0) };
   },
 });
 
