@@ -8,6 +8,7 @@ import {
   func,
   global,
   i32,
+  i64,
   local,
   localArray,
   memory,
@@ -15,6 +16,7 @@ import {
   isolatedWasmati,
   type Func,
   type Input,
+  type Local,
   type Wasmati,
 } from "../index.ts";
 import * as wasmati from "../index.ts";
@@ -177,4 +179,17 @@ test("instructions throw where their instance builds nothing", () => {
   assert.throws(() => isolated.i32.const(1), idle);
   assert.throws(() => func({ in: [{ x: i32 }], out: [] }, ({ x }) => isolated.local.get(x)), idle);
   assert.throws(() => isolated.func({ in: [], out: [i32] }, () => i32.const(1)), idle);
+});
+
+test("locals are checked against their type in the function that uses them", () => {
+  let saved: Local<"i32"> | undefined;
+  func({ in: [{ x: i32 }], out: [] }, ({ x }) => void (saved = x));
+  assert.throws(
+    () => func({ in: [{ y: i64 }], out: [i32] }, () => i32.add(saved!, 1)),
+    /got local of type i64/,
+  );
+  assert.throws(
+    () => func({ in: [{ y: i64 }], out: [] }, () => local.set(saved!, 1)),
+    /Unsupported input for type i64/,
+  );
 });

@@ -74,7 +74,7 @@ function writeLocal(
   value: Input<any> | undefined,
 ) {
   let type = localType(ctx, x);
-  if (value !== undefined && !(value instanceof StackValue)) writeOperand(ctx, name, x.type, value);
+  if (value !== undefined && !(value instanceof StackValue)) writeOperand(ctx, name, type, value);
   else {
     if (value !== undefined) checkLatest(ctx, name, value, 1);
     popOne(ctx, type, name);

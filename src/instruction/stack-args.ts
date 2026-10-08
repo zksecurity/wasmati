@@ -366,11 +366,13 @@ function processStackArgs(
 function writeOperand(ctx: LocalContext, string: string, type: ValueType, x: Input<any>) {
   let { code } = ctx;
   if (isLocal(x)) {
-    if (x.type !== type && !isSubtype(x.type, type))
+    // The type of the local in this function, which a local of another function needn't have
+    let local = ctx.locals[x.index];
+    if (local === undefined) throw missingLocal(ctx, x.index);
+    if (local !== type && !isSubtype(local, type))
       throw Error(
-        `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(x.type)}.`,
+        `${string}: Expected type ${printValueType(type)}, got local of type ${printValueType(local)}.`,
       );
-    if (ctx.locals[x.index] === undefined) throw missingLocal(ctx, x.index);
     writeIndexed(code, 0x20, x.index);
   } else if (isGlobal(x)) {
     if (!isSubtype(x.type.value, type))
