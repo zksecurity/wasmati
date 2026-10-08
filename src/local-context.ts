@@ -1,5 +1,4 @@
 import { type Code, createCode } from "./code.ts";
-import { preventWrites } from "./binable.ts";
 import type * as Dependency from "./dependency.ts";
 import type { InstructionName } from "./instruction/opcodes.ts";
 import { isSubtype, printValueType, typeEquals, ValueType } from "./types.ts";
@@ -74,9 +73,7 @@ const idle =
 
 /** The code of an instance that builds nothing, without room that instructions could write to. */
 function idleCode(): Code {
-  let code = createCode(0);
-  preventWrites(code.bytes, idle);
-  return code;
+  return { ...createCode(0), fixed: idle };
 }
 
 /** A local that is not among the function's locals, or used where no function is being built. */

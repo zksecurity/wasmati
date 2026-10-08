@@ -1,4 +1,5 @@
 import {
+  type BaseInstruction,
   type Instruction_,
   baseInstruction,
   emitSimple,
@@ -258,12 +259,7 @@ function memoryInstruction<
   bits: number,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>,
-): ((
-  ctx: LocalContext,
-  memArg: MemArgInput,
-  ...args: AccessArgs<Args> | []
-) => Instruction_<Args, Results>) &
-  WithPublicSignature<AccessSignature<Args, Results>> {
+): MemoryInstruction<Args, Results> {
   let expectedArgs = valueTypeLiterals<Args>(args);
   let createInstr = baseInstruction<MemArg, [memArg: MemArgInput], [memArg: MemArg], Args, Results>(
     name,
@@ -317,8 +313,18 @@ function memoryInstruction<
     U64.writeBytes(code, memoryOffset(offset));
     return result === undefined ? undefined : pushResult(ctx, result);
   };
-  return Object.assign(createInstr_, { instruction }) as any;
+  // The function takes its operands as separate parameters, without the array of a rest parameter,
+  // so TypeScript can't relate it to the signature, which it implements.
+  return Object.assign(createInstr_, { instruction }) as MemoryInstruction<Args, Results>;
 }
+
+/** A memory access, as a function of its memory argument and operands. */
+type MemoryInstruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueType>> = ((
+  ctx: LocalContext,
+  memArg: MemArgInput,
+  ...args: AccessArgs<Args> | []
+) => Instruction_<Args, Results>) &
+  WithPublicSignature<AccessSignature<Args, Results>> & { instruction: BaseInstruction };
 
 type MemArgAndLane = { memArg: MemArg; lane: U8 };
 const MemArgAndLane = record({ memArg: MemArg, lane: U8 });
@@ -334,7 +340,7 @@ function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tu
   lane: number,
   ...args: AccessArgs<Args> | []
 ) => Instruction_<Args, Results>) &
-  WithPublicSignature<LaneAccessSignature<Args, Results>> {
+  WithPublicSignature<LaneAccessSignature<Args, Results>> & { instruction: BaseInstruction } {
   let expectedArgs = valueTypeLiterals<Args>(args);
   let createInstr = baseInstruction<
     MemArgAndLane,
@@ -354,17 +360,19 @@ function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tu
     },
     resolve: ([memoryIdx], { memArg, lane }) => ({ memArg: withMemory(memArg, memoryIdx), lane }),
   });
-  let createInstr_ = function (
-    ctx: LocalContext,
-    memArg: MemArgInput,
-    lane: number,
-    ...actualArgs: Input<ValueType>[]
-  ) {
-    const { address } = memoryUse(memArg.memory);
-    processStackArgs(ctx, name, [address, ...expectedArgs.slice(1)], actualArgs);
-    return createInstr(ctx, memArg, lane);
-  };
-  return Object.assign(createInstr_, { instruction: createInstr.instruction }) as any;
+  return Object.assign(
+    function createInstr_(
+      ctx: LocalContext,
+      memArg: MemArgInput,
+      lane: number,
+      ...actualArgs: AccessArgs<Args> | []
+    ) {
+      const { address } = memoryUse(memArg.memory);
+      processStackArgs(ctx, name, [address, ...expectedArgs.slice(1)], actualArgs);
+      return createInstr(ctx, memArg, lane);
+    },
+    { instruction: createInstr.instruction },
+  );
 }
 
 function memArgFromInput(

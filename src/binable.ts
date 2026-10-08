@@ -8,7 +8,6 @@ export {
   writtenBytes,
   readByte,
   reserve,
-  preventWrites,
   writeByte,
   writeByteArray,
   writeSlice,
@@ -81,9 +80,9 @@ function Binable<T>({
 
 /**
  * Bytes and an offset into them, where codecs read and write. Writing advances the offset, and when
- * the bytes are full, replaces them by larger ones.
+ * the bytes are full, replaces them by larger ones, unless they are `fixed`, for the reason given.
  */
-type ByteCursor = { bytes: Uint8Array; offset: number };
+type ByteCursor = { bytes: Uint8Array; offset: number; fixed?: string };
 
 /** A cursor to write into, at the start of empty bytes. */
 function byteCursor(capacity = 1 << 12): ByteCursor {
@@ -101,19 +100,11 @@ function readByte(input: ByteCursor): number {
   return input.bytes[input.offset++];
 }
 
-/** Bytes that writing must not replace, with the reason, like the code of builders that build nothing. */
-const fixed = new WeakMap<Uint8Array, string>();
-
-function preventWrites(bytes: Uint8Array, reason: string) {
-  fixed.set(bytes, reason);
-}
-
 /** Make room for `n` more bytes. */
 function reserve(output: ByteCursor, n: number) {
   let { bytes, offset } = output;
   if (offset + n <= bytes.length) return;
-  let reason = fixed.get(bytes);
-  if (reason !== undefined) throw Error(reason);
+  if (output.fixed !== undefined) throw Error(output.fixed);
   let larger = new Uint8Array(Math.max(2 * bytes.length, offset + n));
   larger.set(bytes.subarray(0, offset));
   output.bytes = larger;

@@ -20,6 +20,7 @@ import {
 } from "../types.ts";
 import type { Tuple } from "../util.ts";
 import {
+  type BaseInstruction,
   type Instruction_,
   baseInstruction,
   emitResults,
@@ -84,14 +85,7 @@ function instruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueT
   name: InstructionName,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>,
-): ((...args: [] | Args) => any) extends (...args: infer P) => any
-  ? (
-      ctx: LocalContext,
-      ...args: {
-        [i in keyof P]: Input<P[i] extends ValueType ? P[i] : never>;
-      }
-    ) => Instruction_<Args, Results>
-  : never {
+): FixedInstruction<Args, Results> {
   let instr = {
     in: valueTypeLiterals<Args>(args),
     out: valueTypeLiterals<Results>(results),
@@ -112,10 +106,24 @@ function instruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueT
       return emitSimple(ctx, instruction, instr.in, result) as Instruction_<Args, Results>;
     return emitResults(ctx, instruction, instr.in, instr.out) as Instruction_<Args, Results>;
   };
+  // The flat functions take their operands as separate parameters, without the array of a rest
+  // parameter, so TypeScript can't relate them to the signature, which they implement.
   return Object.assign(flat(name, instruction.opcodeBytes, instr.in, instr.out, general), {
     instruction,
-  }) as any;
+  }) as FixedInstruction<Args, Results>;
 }
+
+/** An instruction of fixed operand and result types, as a function of its operands. */
+type FixedInstruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueType>> = (((
+  ...args: [] | Args
+) => any) extends (...args: infer P) => any
+  ? (
+      ctx: LocalContext,
+      ...args: {
+        [i in keyof P]: Input<P[i] extends ValueType ? P[i] : never>;
+      }
+    ) => Instruction_<Args, Results>
+  : never) & { instruction: BaseInstruction };
 
 type General = (ctx: LocalContext, ...operands: Input<ValueType>[]) => unknown;
 
