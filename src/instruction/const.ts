@@ -1,13 +1,13 @@
 import { F32, F64, I32, I64 } from "../immediate.ts";
-import { baseInstructionWithImmediate } from "./base.ts";
+import { fixedWithImmediate } from "./stack-args.ts";
 import { i32t, i64t, f32t, f64t } from "../types.ts";
 
 export { i32Const, i64Const, f32Const, f64Const, checkInt32, checkInt64 };
 
-const i32Const = baseInstructionWithImmediate("i32.const", I32, [], [i32t], checkInt32);
-const i64Const = baseInstructionWithImmediate("i64.const", I64, [], [i64t], checkInt64);
-const f32Const = baseInstructionWithImmediate("f32.const", F32, [], [f32t]);
-const f64Const = baseInstructionWithImmediate("f64.const", F64, [], [f64t]);
+const i32Const = fixedWithImmediate("i32.const", I32, [], [i32t], checkInt32);
+const i64Const = fixedWithImmediate("i64.const", I64, [], [i64t], checkInt64);
+const f32Const = fixedWithImmediate("f32.const", F32, [], [f32t]);
+const f64Const = fixedWithImmediate("f64.const", F64, [], [f64t]);
 
 // integer validation
 

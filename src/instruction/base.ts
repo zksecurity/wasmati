@@ -32,6 +32,7 @@ export {
   type WithPublicSignature,
   baseInstructionWithImmediate,
   baseInstruction,
+  define,
   type BaseInstruction,
   type ResolvedInstruction,
   type Description,
@@ -100,6 +101,35 @@ const typedInstructions = new Set([
 type ResolvedInstruction = { name: string; immediate: any; likely?: boolean };
 
 /**
+ * An instruction's definition: its name, opcode and immediate, which encoding, decoding and lookups by
+ * name or opcode use. `resolve` gives the immediate from the indices of the instruction's
+ * dependencies, which Module() knows, and further arguments; by default, it is the first argument.
+ */
+function define(
+  string: InstructionName,
+  immediate?: Binable<any>,
+  resolve: (deps: number[], ...args: any) => any = noResolve,
+): BaseInstruction {
+  let opcode = nameToOpcode[string];
+  // A prefix byte and an unsigned LEB128 subcode, below 2^14 for all instructions.
+  let opcodeBytes =
+    typeof opcode === "number"
+      ? [opcode]
+      : opcode[1] < 0x80
+        ? [opcode[0], opcode[1]]
+        : [opcode[0], (opcode[1] & 0x7f) | 0x80, opcode[1] >> 7];
+  return {
+    string,
+    opcode,
+    opcodeBytes,
+    immediate: immediate === Undefined ? undefined : immediate,
+    resolve,
+    typed: typedInstructions.has(string),
+    directCall: string === "call" || string === "return_call",
+  };
+}
+
+/**
  * Most general function to create instructions
  */
 function baseInstruction<
@@ -131,24 +161,7 @@ function baseInstruction<
   create(ctx: LocalContext, ...createArgs: CreateArgs): Description;
   instruction: BaseInstruction;
 } {
-  resolve ??= noResolve;
-  let opcode = nameToOpcode[string];
-  // A prefix byte and an unsigned LEB128 subcode, below 2^14 for all instructions.
-  let opcodeBytes =
-    typeof opcode === "number"
-      ? [opcode]
-      : opcode[1] < 0x80
-        ? [opcode[0], opcode[1]]
-        : [opcode[0], (opcode[1] & 0x7f) | 0x80, opcode[1] >> 7];
-  let instruction: BaseInstruction = {
-    string,
-    opcode,
-    opcodeBytes,
-    immediate,
-    resolve,
-    typed: typedInstructions.has(string),
-    directCall: string === "call" || string === "return_call",
-  };
+  let instruction = define(string, immediate, resolve);
 
   function wrapCreate(ctx: LocalContext, ...createArgs: CreateArgs): Description {
     let {

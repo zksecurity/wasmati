@@ -2,14 +2,15 @@ import {
   type BaseInstruction,
   type Instruction_,
   baseInstruction,
-  emitSimple,
+  checkAllowed,
+  define,
   withPublicSignature,
   type WithPublicSignature,
 } from "./base.ts";
 import * as Dependency from "../dependency.ts";
-import { type LocalContext, type StackVar, pushResult } from "../local-context.ts";
+import type { LocalContext, StackVar } from "../local-context.ts";
 import { U32, U64, U8, uint64 } from "../immediate.ts";
-import { Binable, record, tuple, writeByteArray, writeUnsignedLEB } from "../binable.ts";
+import { Binable, record, tuple, writeUnsignedLEB } from "../binable.ts";
 import {
   type AddressType,
   DataIndex,
@@ -22,7 +23,15 @@ import {
 } from "../types.ts";
 import type { Tuple } from "../util.ts";
 import type { InstructionName } from "./opcodes.ts";
-import { type Input, flatOperands, processStackArgs } from "./stack-args.ts";
+import {
+  type Input,
+  pushResults,
+  takeOne,
+  takeOperands,
+  takeTwo,
+  writeOpcode,
+} from "./stack-args.ts";
+import { addHole } from "../code.ts";
 
 export { memoryOps, dataOps, tableOps, elemOps, memoryInstruction, memoryLaneInstruction };
 
@@ -251,6 +260,11 @@ type LaneAccessSignature<Args extends readonly ValueType[], Results> = <
   ...args: AccessArgs<Args, NoInfer<A>> | []
 ) => Instruction_<Args, Results>;
 
+/**
+ * Memory accesses, like `i32.load` and `i64.store`. The first operand is the address, of the memory's
+ * address type. The default memory has index 0, which the memory argument leaves out; the index of a
+ * named memory is a hole, which Module() fills in.
+ */
 function memoryInstruction<
   const Args extends Tuple<ValueType>,
   const Results extends Tuple<ValueType>,
@@ -260,62 +274,55 @@ function memoryInstruction<
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>,
 ): MemoryInstruction<Args, Results> {
-  let expectedArgs = valueTypeLiterals<Args>(args);
-  let createInstr = baseInstruction<MemArg, [memArg: MemArgInput], [memArg: MemArg], Args, Results>(
+  let instruction = define(
     name,
     withNaturalAlign(MemArg, bits),
-    {
-      create(_, memArg) {
-        const { address, deps } = memoryUse(memArg.memory);
-        return {
-          in: [address, ...expectedArgs.slice(1)] as ValueType[] as Args,
-          out: valueTypeLiterals<Results>(results),
-          resolveArgs: [memArgFromInput(name, bits, memArg)],
-          deps,
-        };
-      },
-      resolve: ([memoryIdx], memArg) => withMemory(memArg, memoryIdx),
-    },
+    ([memoryIdx]: number[], memArg: MemArg) => withMemory(memArg, memoryIdx),
   );
-  let { instruction } = createInstr;
-  let defaultArgs = ["i32", ...expectedArgs.slice(1)] as ValueType[];
-  let n = defaultArgs.length;
-  let results_ = valueTypeLiterals<Results>(results);
-  let [result] = results_;
+  let { ins32, ins64 } = addressed(valueTypeLiterals<Args>(args));
+  let outs: ValueType[] = valueTypeLiterals<Results>(results);
   let natural = Math.log2(bits / 8);
-  let general = (ctx: LocalContext, memArg: MemArgInput, actualArgs: Input<ValueType>[]) => {
-    if (memArg.memory !== undefined || results_.length > 1) {
-      const { address } = memoryUse(memArg.memory);
-      processStackArgs(ctx, name, [address, ...expectedArgs.slice(1)], actualArgs);
-      return createInstr(ctx, memArg);
-    }
-    if (actualArgs.length > 0) processStackArgs(ctx, name, defaultArgs, actualArgs);
-    ctx.deps.add(Dependency.hasMemory);
-    let immediate = memArgFromInput(name, bits, memArg);
-    return emitSimple(ctx, instruction, defaultArgs, result, immediate);
-  };
-  // Accesses to the default memory, which has 32-bit addresses and index 0, are written directly.
-  let createInstr_ = function (
+  let operands: (Input<ValueType> | undefined)[] = [];
+  let emit = function (
     ctx: LocalContext,
     memArg: MemArgInput,
     a?: Input<ValueType>,
     b?: Input<ValueType>,
     c?: Input<ValueType>,
   ) {
-    if (memArg.memory !== undefined || results_.length > 1 || ctx.allowed !== undefined || n > 3)
-      return general(ctx, memArg, a === undefined ? [] : [a, b!, c!].slice(0, n));
-    flatOperands(ctx, name, defaultArgs, n, a, b, c);
-    ctx.deps.add(Dependency.hasMemory);
+    if (ctx.allowed !== undefined) checkAllowed(ctx, name);
+    let { memory } = memArg;
+    let ins = memory?.address === "i64" ? ins64 : ins32;
+    if (ins.length === 1) takeOne(ctx, name, ins[0], a);
+    else if (ins.length === 2) takeTwo(ctx, name, ins[0], ins[1], a, b);
+    else {
+      operands[0] = a;
+      operands[1] = b;
+      operands[2] = c;
+      takeOperands(ctx, name, ins, operands);
+    }
     let { code } = ctx;
-    writeByteArray(code, instruction.opcodeBytes);
-    let { offset = 0, align } = memArg;
-    writeUnsignedLEB(code, align === undefined ? natural : alignExponent(name, align));
-    U64.writeBytes(code, memoryOffset(offset));
-    return result === undefined ? undefined : pushResult(ctx, result);
+    writeOpcode(code, instruction.opcodeBytes);
+    if (memory === undefined) {
+      ctx.deps.add(Dependency.hasMemory);
+      let { offset = 0, align } = memArg;
+      writeUnsignedLEB(code, align === undefined ? natural : alignExponent(name, align));
+      U64.writeBytes(code, memoryOffset(offset));
+    } else {
+      ctx.deps.add(memory);
+      addHole(code, instruction, [memory], [memArgFromInput(name, bits, memArg)]);
+    }
+    return pushResults(ctx, outs);
   };
   // The function takes its operands as separate parameters, without the array of a rest parameter,
   // so TypeScript can't relate it to the signature, which it implements.
-  return Object.assign(createInstr_, { instruction }) as MemoryInstruction<Args, Results>;
+  return Object.assign(emit, { instruction }) as MemoryInstruction<Args, Results>;
+}
+
+/** Operand types with a 32-bit address, and with a 64-bit address. */
+function addressed(args: ValueType[]) {
+  let rest = args.slice(1);
+  return { ins32: ["i32", ...rest] as ValueType[], ins64: ["i64", ...rest] as ValueType[] };
 }
 
 /** A memory access, as a function of its memory argument and operands. */
@@ -329,6 +336,7 @@ type MemoryInstruction<Args extends Tuple<ValueType>, Results extends Tuple<Valu
 type MemArgAndLane = { memArg: MemArg; lane: U8 };
 const MemArgAndLane = record({ memArg: MemArg, lane: U8 });
 
+/** Memory accesses to a lane of a vector, like `v128.load8_lane`, whose lane follows the memory argument. */
 function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueType>>(
   name: InstructionName,
   bits: number,
@@ -341,38 +349,42 @@ function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tu
   ...args: AccessArgs<Args> | []
 ) => Instruction_<Args, Results>) &
   WithPublicSignature<LaneAccessSignature<Args, Results>> & { instruction: BaseInstruction } {
-  let expectedArgs = valueTypeLiterals<Args>(args);
-  let createInstr = baseInstruction<
-    MemArgAndLane,
-    [memArg: MemArgInput, lane: number],
-    [memArgAndLane: MemArgAndLane],
-    Args,
-    Results
-  >(name, withNaturalAlign(MemArgAndLane, bits), {
-    create(_, memArg, lane) {
-      const { address, deps } = memoryUse(memArg.memory);
-      return {
-        in: [address, ...expectedArgs.slice(1)] as ValueType[] as Args,
-        out: valueTypeLiterals<Results>(results),
-        resolveArgs: [{ memArg: memArgFromInput(name, bits, memArg), lane }],
-        deps,
-      };
-    },
-    resolve: ([memoryIdx], { memArg, lane }) => ({ memArg: withMemory(memArg, memoryIdx), lane }),
-  });
-  return Object.assign(
-    function createInstr_(
-      ctx: LocalContext,
-      memArg: MemArgInput,
-      lane: number,
-      ...actualArgs: AccessArgs<Args> | []
-    ) {
-      const { address } = memoryUse(memArg.memory);
-      processStackArgs(ctx, name, [address, ...expectedArgs.slice(1)], actualArgs);
-      return createInstr(ctx, memArg, lane);
-    },
-    { instruction: createInstr.instruction },
+  let instruction = define(
+    name,
+    withNaturalAlign(MemArgAndLane, bits),
+    ([memoryIdx]: number[], { memArg, lane }: MemArgAndLane) => ({
+      memArg: withMemory(memArg, memoryIdx),
+      lane,
+    }),
   );
+  let { ins32, ins64 } = addressed(valueTypeLiterals<Args>(args));
+  let outs: ValueType[] = valueTypeLiterals<Results>(results);
+  let emit = function (
+    ctx: LocalContext,
+    memArg: MemArgInput,
+    lane: number,
+    a?: Input<ValueType>,
+    b?: Input<ValueType>,
+  ) {
+    if (ctx.allowed !== undefined) checkAllowed(ctx, name);
+    let { memory } = memArg;
+    let ins = memory?.address === "i64" ? ins64 : ins32;
+    takeTwo(ctx, name, ins[0], ins[1], a, b);
+    let { code } = ctx;
+    writeOpcode(code, instruction.opcodeBytes);
+    let value = { memArg: memArgFromInput(name, bits, memArg), lane };
+    if (memory === undefined) {
+      ctx.deps.add(Dependency.hasMemory);
+      MemArgAndLane.writeBytes(code, value);
+    } else {
+      ctx.deps.add(memory);
+      addHole(code, instruction, [memory], [value]);
+    }
+    return pushResults(ctx, outs);
+  };
+  return Object.assign(emit, { instruction }) as ReturnType<
+    typeof memoryLaneInstruction<Args, Results>
+  >;
 }
 
 function memArgFromInput(

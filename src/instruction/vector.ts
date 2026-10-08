@@ -12,7 +12,7 @@ import { memoryLaneInstruction as mli, memoryInstruction as mi } from "./memory.
 import { array, Byte } from "../binable.ts";
 import type { TupleN } from "../util.ts";
 import type { LocalContext } from "../local-context.ts";
-import { instruction as i, instructionWithArg as iarg } from "./stack-args.ts";
+import { fixed as i, fixedWithImmediate as iarg } from "./stack-args.ts";
 
 export { v128Ops, i8x16Ops, i16x8Ops, i32x4Ops, i64x2Ops, f32x4Ops, f64x2Ops, wrapConst };
 

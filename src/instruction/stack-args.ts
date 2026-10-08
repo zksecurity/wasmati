@@ -1,4 +1,4 @@
-import { Binable, reserve, Undefined, writeByte, writeIndexed } from "../binable.ts";
+import { Binable, reserve, writeByte, writeIndexed } from "../binable.ts";
 import type { AnyGlobal } from "../dependency.ts";
 import {
   isStackVar,
@@ -22,24 +22,28 @@ import type { Tuple } from "../util.ts";
 import {
   type BaseInstruction,
   type Instruction_,
-  baseInstruction,
-  emitResults,
-  emitSimple,
+  checkAllowed,
+  define,
   writeInstruction,
 } from "./base.ts";
+import type { Code } from "../code.ts";
 import { checkInt32, checkInt64, f32Const, f64Const, i32Const, i64Const } from "./const.ts";
 import { F32, F64, I32, I64 } from "../immediate.ts";
 import type { InstructionName } from "./opcodes.ts";
 import { globalGet, localGet } from "./variable-get.ts";
 
 export {
-  instruction,
-  instructionWithArg,
+  fixed,
+  fixedWithImmediate,
+  takeOne,
+  takeTwo,
+  takeOperands,
+  writeOpcode,
+  pushResults,
   type Input,
   type Inputs,
   processStackArgs,
   writeOperand,
-  flatOperands,
   checkLatest,
   namedInputs,
 };
@@ -79,38 +83,61 @@ type InputsAsParameters<Args extends readonly ValueType[]> = ((...args: [] | Arg
   : never;
 
 /**
- * instruction that is completely fixed
+ * An instruction of fixed operand and result types, without an immediate, like `i32.add`. Its
+ * function takes its operands, or takes them from the stack, writes the instruction, and pushes its
+ * results.
  */
-function instruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueType>>(
+function fixed<Args extends Tuple<ValueType>, Results extends Tuple<ValueType>>(
   name: InstructionName,
   args: ValueTypeObjects<Args>,
   results: ValueTypeObjects<Results>,
 ): FixedInstruction<Args, Results> {
-  let instr = {
-    in: valueTypeLiterals<Args>(args),
-    out: valueTypeLiterals<Results>(results),
-  };
-  let createInstr = baseInstruction<undefined, [], [], Args, Results>(name, Undefined, {
-    create: () => instr,
-  });
-  let { instruction } = createInstr;
-  let [result] = instr.out;
-  let simple = instr.out.length <= 1;
-  let general = function createInstr_(
-    ctx: LocalContext,
-    ...actualArgs: Input<ValueType>[]
-  ): Instruction_<Args, Results> {
-    // Constant expressions, and instructions without operands
-    if (actualArgs.length > 0) processStackArgs(ctx, name, instr.in, actualArgs);
-    if (simple)
-      return emitSimple(ctx, instruction, instr.in, result) as Instruction_<Args, Results>;
-    return emitResults(ctx, instruction, instr.in, instr.out) as Instruction_<Args, Results>;
-  };
-  // The flat functions take their operands as separate parameters, without the array of a rest
+  let instruction = define(name);
+  let ins: ValueType[] = valueTypeLiterals<Args>(args);
+  let outs: ValueType[] = valueTypeLiterals<Results>(results);
+  let opcode = instruction.opcodeBytes;
+  let emit;
+  // A function for each number of operands, which takes them as parameters, without a rest array.
+  if (ins.length === 0) {
+    emit = function (ctx: LocalContext) {
+      if (ctx.allowed !== undefined) checkAllowed(ctx, name);
+      return finish(ctx, opcode, outs);
+    };
+  } else if (ins.length === 1) {
+    let [t0] = ins;
+    emit = function (ctx: LocalContext, a?: Input<ValueType>) {
+      if (ctx.allowed !== undefined) checkAllowed(ctx, name);
+      takeOne(ctx, name, t0, a);
+      return finish(ctx, opcode, outs);
+    };
+  } else if (ins.length === 2) {
+    let [t0, t1] = ins;
+    emit = function (ctx: LocalContext, a?: Input<ValueType>, b?: Input<ValueType>) {
+      if (ctx.allowed !== undefined) checkAllowed(ctx, name);
+      takeTwo(ctx, name, t0, t1, a, b);
+      return finish(ctx, opcode, outs);
+    };
+  } else {
+    let operands: (Input<ValueType> | undefined)[] = [];
+    emit = function (
+      ctx: LocalContext,
+      a?: Input<ValueType>,
+      b?: Input<ValueType>,
+      c?: Input<ValueType>,
+      d?: Input<ValueType>,
+    ) {
+      if (ctx.allowed !== undefined) checkAllowed(ctx, name);
+      operands[0] = a;
+      operands[1] = b;
+      operands[2] = c;
+      operands[3] = d;
+      takeOperands(ctx, name, ins, operands);
+      return finish(ctx, opcode, outs);
+    };
+  }
+  // The functions take their operands as separate parameters, without the array of a rest
   // parameter, so TypeScript can't relate them to the signature, which they implement.
-  return Object.assign(flat(name, instruction.opcodeBytes, instr.in, instr.out, general), {
-    instruction,
-  }) as FixedInstruction<Args, Results>;
+  return Object.assign(emit, { instruction }) as FixedInstruction<Args, Results>;
 }
 
 /** An instruction of fixed operand and result types, as a function of its operands. */
@@ -125,107 +152,123 @@ type FixedInstruction<Args extends Tuple<ValueType>, Results extends Tuple<Value
     ) => Instruction_<Args, Results>
   : never) & { instruction: BaseInstruction };
 
-type General = (ctx: LocalContext, ...operands: Input<ValueType>[]) => unknown;
-
 /**
- * An instruction of up to four operands, flat: it checks and writes its operands, writes itself, and
- * pushes its results in one function, which matters most for code that runs for the first time.
- * Constant expressions take the general path.
+ * An instruction of fixed operand and result types with an immediate value, like `i32.const` or
+ * `i8x16.extract_lane`, which its function takes before its operands. `validate` checks the value.
  */
-function flat(
-  name: string,
-  opcode: number[],
-  args: ValueType[],
-  results: ValueType[],
-  general: General,
-): General {
-  if (args.length === 1) {
-    let [t0] = args;
-    return function (ctx: LocalContext, a?: Input<ValueType>) {
-      if (ctx.allowed !== undefined) return a === undefined ? general(ctx) : general(ctx, a);
-      if (a !== undefined && !(a instanceof StackValue)) writeOperand(ctx, name, t0, a);
-      else {
-        if (a !== undefined) checkLatest(ctx, name, a, 1);
-        popOne(ctx, t0, name);
-      }
-      return finish(ctx, opcode, results);
-    };
-  }
-  if (args.length === 2) {
-    let [t0, t1] = args;
-    return function (ctx: LocalContext, a?: Input<ValueType>, b?: Input<ValueType>) {
-      if (ctx.allowed !== undefined) return a === undefined ? general(ctx) : general(ctx, a, b!);
-      if (a === undefined) {
-        popOne(ctx, t1, name);
-        popOne(ctx, t0, name);
-        return finish(ctx, opcode, results);
-      }
-      let aResult = a instanceof StackValue;
-      let bResult = b instanceof StackValue;
-      if (bResult && !aResult) newBeforeResult(name);
-      if (aResult) checkLatest(ctx, name, a as StackVar<ValueType>, bResult ? 2 : 1);
-      if (bResult) checkLatest(ctx, name, b as StackVar<ValueType>, 1);
-      if (!aResult) writeOperand(ctx, name, t0, a);
-      if (!bResult) writeOperand(ctx, name, t1, b!);
-      if (bResult) popOne(ctx, t1, name);
-      if (aResult) popOne(ctx, t0, name);
-      return finish(ctx, opcode, results);
-    };
-  }
-  if (args.length === 3 || args.length === 4) {
-    let n = args.length;
-    return function (
+function fixedWithImmediate<
+  Args extends Tuple<ValueType>,
+  Results extends Tuple<ValueType>,
+  Immediate,
+>(
+  name: InstructionName,
+  immediate: Binable<Immediate>,
+  args: ValueTypeObjects<Args>,
+  results: ValueTypeObjects<Results>,
+  validate?: (value: Immediate) => void,
+): FixedWithImmediate<Args, Results, Immediate> {
+  let instruction = define(name, immediate);
+  let ins: ValueType[] = valueTypeLiterals<Args>(args);
+  let outs: ValueType[] = valueTypeLiterals<Results>(results);
+  let opcode = instruction.opcodeBytes;
+  let operands: (Input<ValueType> | undefined)[] = [];
+  let emit = function (
+    ctx: LocalContext,
+    value: Immediate,
+    a?: Input<ValueType>,
+    b?: Input<ValueType>,
+    c?: Input<ValueType>,
+  ) {
+    if (ctx.allowed !== undefined) checkAllowed(ctx, name);
+    if (validate !== undefined) validate(value);
+    if (ins.length > 0) {
+      operands[0] = a;
+      operands[1] = b;
+      operands[2] = c;
+      takeOperands(ctx, name, ins, operands);
+    }
+    writeOpcode(ctx.code, opcode);
+    immediate.writeBytes(ctx.code, value);
+    return pushResults(ctx, outs);
+  };
+  return Object.assign(emit, { instruction }) as FixedWithImmediate<Args, Results, Immediate>;
+}
+
+/** An instruction of fixed operand and result types, as a function of its immediate and operands. */
+type FixedWithImmediate<
+  Args extends Tuple<ValueType>,
+  Results extends Tuple<ValueType>,
+  Immediate,
+> = (((...args: [] | Args) => any) extends (...args: infer P) => any
+  ? (
       ctx: LocalContext,
-      a?: Input<ValueType>,
-      b?: Input<ValueType>,
-      c?: Input<ValueType>,
-      d?: Input<ValueType>,
-    ) {
-      if (ctx.allowed === undefined) {
-        flatOperands(ctx, name, args, n, a, b, c, d);
-        return finish(ctx, opcode, results);
+      immediate: Immediate,
+      ...args: {
+        [i in keyof P]: Input<P[i] extends ValueType ? P[i] : never>;
       }
-      if (a === undefined) return general(ctx);
-      return n === 3 ? general(ctx, a, b!, c!) : general(ctx, a, b!, c!, d!);
-    };
+    ) => Instruction_<Args, Results>
+  : never) & { instruction: BaseInstruction };
+
+/** One operand: a value to write, or an instruction result or `$` on the stack, or none. */
+function takeOne(ctx: LocalContext, name: string, type: ValueType, a?: Input<ValueType>) {
+  if (a !== undefined && !(a instanceof StackValue)) writeOperand(ctx, name, type, a);
+  else {
+    if (a !== undefined) checkLatest(ctx, name, a, 1);
+    popOne(ctx, type, name);
   }
-  return general;
+}
+
+/** Two operands, as `takeOperands()` takes them, without its loops: most instructions have two. */
+function takeTwo(
+  ctx: LocalContext,
+  name: string,
+  t0: ValueType,
+  t1: ValueType,
+  a?: Input<ValueType>,
+  b?: Input<ValueType>,
+) {
+  if (a === undefined) {
+    popOne(ctx, t1, name);
+    popOne(ctx, t0, name);
+    return;
+  }
+  let aResult = a instanceof StackValue;
+  let bResult = b instanceof StackValue;
+  if (bResult && !aResult) newBeforeResult(name);
+  if (aResult) checkLatest(ctx, name, a as StackVar<ValueType>, bResult ? 2 : 1);
+  if (bResult) checkLatest(ctx, name, b as StackVar<ValueType>, 1);
+  if (!aResult) writeOperand(ctx, name, t0, a);
+  if (!bResult) writeOperand(ctx, name, t1, b!);
+  if (bResult) popOne(ctx, t1, name);
+  if (aResult) popOne(ctx, t0, name);
 }
 
 /**
- * Check and write up to four operands, or take them from the stack. Instruction results, and `$`, are
- * on the stack and come first; new values that follow them are written in place.
+ * The operands of the given types, or none, which takes them from the stack. Instruction results, and
+ * `$`, are on the stack and come first; new values that follow them are written in place.
  */
-function flatOperands(
+function takeOperands(
   ctx: LocalContext,
   name: string,
-  args: ValueType[],
-  n: number,
-  a?: Input<ValueType>,
-  b?: Input<ValueType>,
-  c?: Input<ValueType>,
-  d?: Input<ValueType>,
+  types: ValueType[],
+  operands: (Input<ValueType> | undefined)[],
 ) {
-  if (a === undefined) {
-    for (let i = n - 1; i >= 0; i--) popOne(ctx, args[i], name);
+  let n = types.length;
+  if (operands[0] === undefined) {
+    for (let i = n - 1; i >= 0; i--) popOne(ctx, types[i], name);
     return;
   }
   let count = 0;
-  while (count < n && pick(count, a, b, c, d) instanceof StackValue) count++;
+  while (count < n && operands[count] instanceof StackValue) count++;
   // Instruction results are the latest values on the stack, in order.
   for (let i = 0; i < count; i++)
-    checkLatest(ctx, name, pick(i, a, b, c, d) as StackVar<ValueType>, count - i);
+    checkLatest(ctx, name, operands[i] as StackVar<ValueType>, count - i);
   for (let i = count; i < n; i++) {
-    let x = pick(i, a, b, c, d)!;
+    let x = operands[i]!;
     if (x instanceof StackValue) newBeforeResult(name);
-    writeOperand(ctx, name, args[i], x);
+    writeOperand(ctx, name, types[i], x);
   }
-  for (let i = count - 1; i >= 0; i--) popOne(ctx, args[i], name);
-}
-
-/** The i-th of up to four operands, without a closure, which would be allocated per instruction. */
-function pick<T>(i: number, a: T, b: T, c: T, d: T): T {
-  return i === 0 ? a : i === 1 ? b : i === 2 ? c : d;
+  for (let i = count - 1; i >= 0; i--) popOne(ctx, types[i], name);
 }
 
 /** An operand that is an instruction result must be the value `depth` from the top of the stack. */
@@ -250,12 +293,20 @@ function newBeforeResult(name: string): never {
 
 /** Write an instruction's opcode, and push its results. */
 function finish(ctx: LocalContext, opcode: number[], results: ValueType[]) {
-  let { code } = ctx;
+  writeOpcode(ctx.code, opcode);
+  return pushResults(ctx, results);
+}
+
+function writeOpcode(code: Code, opcode: number[]) {
   let n = opcode.length;
   reserve(code, n);
   let { bytes, offset } = code;
   for (let i = 0; i < n; i++) bytes[offset + i] = opcode[i];
   code.offset = offset + n;
+}
+
+/** Push results: none, one, which is returned, or several, which are returned as a list. */
+function pushResults(ctx: LocalContext, results: ValueType[]) {
   // Pushed here rather than through pushResult(), which is measurably slower on this hottest path.
   if (results.length === 1) {
     let value = new StackValue(results[0]);
@@ -264,58 +315,6 @@ function finish(ctx: LocalContext, opcode: number[], results: ValueType[]) {
   }
   if (results.length === 0) return undefined;
   return pushStack(ctx, results);
-}
-
-/**
- * instruction of constant type without dependencies,
- * but with an immediate argument
- */
-function instructionWithArg<
-  Args extends Tuple<ValueType>,
-  Results extends Tuple<ValueType>,
-  Immediate extends any,
->(
-  name: InstructionName,
-  immediate: Binable<Immediate>,
-  args: ValueTypeObjects<Args>,
-  results: ValueTypeObjects<Results>,
-): ((...args: [] | Args) => any) extends (...args: infer P) => any
-  ? (
-      ctx: LocalContext,
-      immediate: Immediate,
-      ...args: {
-        [i in keyof P]: Input<P[i] extends ValueType ? P[i] : never>;
-      }
-    ) => Instruction_<Args, Results>
-  : never {
-  let instr = {
-    in: valueTypeLiterals<Args>(args),
-    out: valueTypeLiterals<Results>(results),
-  };
-  let createInstr = baseInstruction<
-    Immediate,
-    [immediate: Immediate],
-    [immediate: Immediate],
-    Args,
-    Results
-  >(name, immediate, { create: () => instr });
-  let { instruction } = createInstr;
-  let [result] = instr.out;
-  let simple = instr.out.length <= 1;
-  let createInstr_ = function (
-    ctx: LocalContext,
-    immediate: Immediate,
-    ...actualArgs: Input<ValueType>[]
-  ): Instruction_<Args, Results> {
-    if (actualArgs.length > 0) processStackArgs(ctx, name, instr.in, actualArgs);
-    if (simple)
-      return emitSimple(ctx, instruction, instr.in, result, immediate) as Instruction_<
-        Args,
-        Results
-      >;
-    return createInstr(ctx, immediate);
-  };
-  return Object.assign(createInstr_, { instruction });
 }
 
 /** Named operands, in parameter order. */
@@ -382,6 +381,7 @@ function writeOperand(ctx: LocalContext, string: string, type: ValueType, x: Inp
       );
     writeIndexed(code, 0x20, x.index);
   } else if (isGlobal(x)) {
+    if (ctx.allowed !== undefined) checkAllowed(ctx, "global.get");
     if (!isSubtype(x.type.value, type))
       throw Error(
         `${string}: Expected type ${printValueType(type)}, got global of type ${printValueType(x.type.value)}.`,
