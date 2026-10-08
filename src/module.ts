@@ -488,7 +488,9 @@ type TypedInstance<Exports extends Record<string, ExportInput>> = Omit<
  * The instance of a module, as `instantiate()` returns it, for instances created otherwise: for
  * example in a worker, from the compiled module and the import object of the module.
  */
-type ModuleInstance<M extends Module> = Awaited<ReturnType<M["instantiate"]>>["instance"];
+type ModuleInstance<M extends { instantiate(): Promise<{ instance: unknown }> }> = Awaited<
+  ReturnType<M["instantiate"]>
+>["instance"];
 
 type ModuleExport<Export extends ExportInput> =
   Export extends AsyncExport<infer F>
