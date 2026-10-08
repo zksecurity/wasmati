@@ -1,4 +1,14 @@
-import { Binable, constant, or, record, withByteCode } from "../binable.ts";
+import {
+  Binable,
+  constant,
+  or,
+  readByte,
+  record,
+  withByteCode,
+  writeByte,
+  writeByteArray,
+  writeUnsignedLEB,
+} from "../binable.ts";
 import { S33, U32, vec } from "../immediate.ts";
 import { ValueType } from "../types.ts";
 import {
@@ -25,29 +35,23 @@ export {
 };
 
 const Instruction = Binable<ResolvedInstruction>({
-  toBytes({ name, immediate }) {
+  writeBytes(output, { name, immediate }) {
     let instr = lookupInstruction(name);
-    let imm: number[] = [];
-    if (instr.immediate !== undefined) {
-      imm = instr.immediate.toBytes(immediate);
-    }
-    if (typeof instr.opcode === "number") return [instr.opcode, ...imm];
-    return [instr.opcode[0], ...U32.toBytes(instr.opcode[1]), ...imm];
-  },
-  readBytes(bytes, offset) {
-    let opcode = bytes[offset++];
-    let instr_ = lookupOpcode(opcode);
-    let instr: BaseInstruction;
-    if (isInstruction(instr_)) instr = instr_;
+    if (typeof instr.opcode === "number") writeByte(output, instr.opcode);
     else {
-      let subcode: number;
-      [subcode, offset] = U32.readBytes(bytes, offset);
-      instr = lookupSubcode(opcode, subcode, instr_);
+      writeByte(output, instr.opcode[0]);
+      writeUnsignedLEB(output, instr.opcode[1]);
     }
-    if (instr.immediate === undefined)
-      return [{ name: instr.string, immediate: undefined }, offset];
-    let [immediate, end] = instr.immediate.readBytes(bytes, offset);
-    return [{ name: instr.string, immediate }, end];
+    if (instr.immediate !== undefined) instr.immediate.writeBytes(output, immediate);
+  },
+  readBytes(input) {
+    let opcode = readByte(input);
+    let instr_ = lookupOpcode(opcode);
+    let instr: BaseInstruction = isInstruction(instr_)
+      ? instr_
+      : lookupSubcode(opcode, U32.readBytes(input), instr_);
+    let immediate = instr.immediate === undefined ? undefined : instr.immediate.readBytes(input);
+    return { name: instr.string, immediate };
   },
 });
 
@@ -57,31 +61,28 @@ const END = 0x0b;
  * Encodings of expressions that were encoded already, to measure the offsets of branch hints, for
  * the next encoding of the expression only.
  */
-const encodings = new WeakMap<ResolvedInstruction[], number[]>();
+const encodings = new WeakMap<ResolvedInstruction[], Uint8Array>();
 
-function rememberEncoding(expression: ResolvedInstruction[], bytes: number[]) {
+function rememberEncoding(expression: ResolvedInstruction[], bytes: Uint8Array) {
   encodings.set(expression, bytes);
 }
 type Expression = ResolvedInstruction[];
 const Expression = Binable<ResolvedInstruction[]>({
-  toBytes(t) {
+  writeBytes(output, t) {
     let encoded = encodings.get(t);
     if (encoded !== undefined) {
       encodings.delete(t);
-      return encoded;
+      writeByteArray(output, encoded);
+      return;
     }
-    let instructions = t.map(Instruction.toBytes).flat();
-    instructions.push(END);
-    return instructions;
+    for (let i = 0; i < t.length; i++) Instruction.writeBytes(output, t[i]);
+    writeByte(output, END);
   },
-  readBytes(bytes, offset) {
+  readBytes(input) {
     let instructions: ResolvedInstruction[] = [];
-    while (bytes[offset] !== END) {
-      let instr: ResolvedInstruction;
-      [instr, offset] = Instruction.readBytes(bytes, offset);
-      instructions.push(instr);
-    }
-    return [instructions, offset + 1];
+    while (input.bytes[input.offset] !== END) instructions.push(Instruction.readBytes(input));
+    input.offset++;
+    return instructions;
   },
 });
 
@@ -91,31 +92,27 @@ type IfExpression = {
   else?: ResolvedInstruction[];
 };
 const IfExpression = Binable<IfExpression>({
-  toBytes(t) {
-    let instructions = t.if.map(Instruction.toBytes).flat();
+  writeBytes(output, t) {
+    for (let instruction of t.if) Instruction.writeBytes(output, instruction);
     if (t.else !== undefined) {
-      instructions.push(ELSE, ...t.else.map(Instruction.toBytes).flat());
+      writeByte(output, ELSE);
+      for (let instruction of t.else) Instruction.writeBytes(output, instruction);
     }
-    instructions.push(END);
-    return instructions;
+    writeByte(output, END);
   },
-  readBytes(bytes, offset) {
+  readBytes(input) {
     let t: IfExpression = { if: [], else: undefined };
     let instructions = t.if;
     while (true) {
-      if (bytes[offset] === ELSE) {
+      let byte = input.bytes[input.offset];
+      if (byte === ELSE) {
         instructions = t.else = [];
-        offset++;
-        continue;
-      } else if (bytes[offset] === END) {
-        offset++;
-        break;
-      }
-      let instr: ResolvedInstruction;
-      [instr, offset] = Instruction.readBytes(bytes, offset);
-      instructions.push(instr);
+        input.offset++;
+      } else if (byte === END) {
+        input.offset++;
+        return t;
+      } else instructions.push(Instruction.readBytes(input));
     }
-    return [t, offset];
   },
 });
 
@@ -137,21 +134,18 @@ type Catch =
   | { kind: "catch_all" | "catch_all_ref"; label: number };
 const catchKinds = ["catch", "catch_ref", "catch_all", "catch_all_ref"] as const;
 const Catch = Binable<Catch>({
-  toBytes(clause) {
-    let code = catchKinds.indexOf(clause.kind);
-    let tag = "tag" in clause ? U32.toBytes(clause.tag) : [];
-    return [code, ...tag, ...U32.toBytes(clause.label)];
+  writeBytes(output, clause) {
+    writeByte(output, catchKinds.indexOf(clause.kind));
+    if ("tag" in clause) writeUnsignedLEB(output, clause.tag);
+    writeUnsignedLEB(output, clause.label);
   },
-  readBytes(bytes, offset) {
-    let kind = catchKinds[bytes[offset++]];
+  readBytes(input) {
+    let kind = catchKinds[readByte(input)];
     if (kind === undefined) throw Error("malformed catch clause");
-    if (kind === "catch_all" || kind === "catch_all_ref") {
-      let [label, end] = U32.readBytes(bytes, offset);
-      return [{ kind, label }, end];
-    }
-    let [tag, afterTag] = U32.readBytes(bytes, offset);
-    let [label, end] = U32.readBytes(bytes, afterTag);
-    return [{ kind, tag, label }, end];
+    if (kind === "catch_all" || kind === "catch_all_ref")
+      return { kind, label: U32.readBytes(input) };
+    let tag = U32.readBytes(input);
+    return { kind, tag, label: U32.readBytes(input) };
   },
 });
 const TryTable = record({ blockType: BlockType, catches: vec(Catch), instructions: Expression });

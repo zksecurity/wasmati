@@ -393,7 +393,7 @@ class ModuleParser {
     }
     const address = this.address(c);
     const data = c.list("data");
-    const init = data.until((d) => d.bytes()).flat();
+    const init = Uint8Array.from(data.until((d) => d.bytes()).flat());
     data.end();
     const pages = Math.ceil(init.length / 65536);
     this.module.memories.push({ limits: limits(pages, pages, false, address) });
@@ -467,7 +467,7 @@ class ModuleParser {
       memory?.end();
       mode = { memory: memoryIndex, offset: this.offset(c) };
     }
-    const init = c.until((c) => c.bytes()).flat();
+    const init = Uint8Array.from(c.until((c) => c.bytes()).flat());
     this.module.datas[index] = { init, mode };
   }
 
@@ -500,7 +500,7 @@ class ModuleParser {
       const previous = direction === "after" ? sectionOrder[position] : sectionOrder[position - 1];
       after = previous === undefined ? 0 : sectionIds[previous];
     }
-    const data = c.until((c) => c.bytes()).flat();
+    const data = Uint8Array.from(c.until((c) => c.bytes()).flat());
     (this.module.customSections ??= []).push({
       name,
       data,

@@ -1,4 +1,4 @@
-import { Binable, Bool, Byte, record, withByteCode } from "./binable.ts";
+import { Binable, Bool, readByte, record, withByteCode, writeByte } from "./binable.ts";
 import { S33, U32, U64, vec } from "./immediate.ts";
 import type { Tuple } from "./util.ts";
 
@@ -343,52 +343,53 @@ const codeToHeapType = invertRecord(heapTypeCodes);
 
 /** Heap types: an s33, negative for abstract heap types, a type index otherwise. */
 const HeapType = Binable<HeapType>({
-  toBytes(heap) {
+  writeBytes(output, heap) {
     if (typeof heap === "object") throw Error("HeapType: defined type has no index yet");
-    return S33.toBytes(typeof heap === "number" ? heap : heapTypeCodes[heap]);
+    S33.writeBytes(output, typeof heap === "number" ? heap : heapTypeCodes[heap]);
   },
-  readBytes(bytes, offset) {
-    let [code, end] = S33.readBytes(bytes, offset);
-    if (code >= 0) return [code, end];
+  readBytes(input) {
+    let code = S33.readBytes(input);
+    if (code >= 0) return code;
     let heap = codeToHeapType.get(code);
     if (heap === undefined) throw Error(`malformed heap type ${code}`);
-    return [heap, end];
+    return heap;
   },
 });
 
 type ValueTypeObject = { kind: ValueType };
 const ValueType = Binable<ValueType>({
-  toBytes(type) {
-    if (typeof type === "object")
-      return [type.nullable ? 0x63 : 0x64, ...HeapType.toBytes(type.ref)];
-    if (type in shorthands) return S33.toBytes(heapTypeCodes[shorthands[type as Shorthand]]);
-    let code = valueTypeCodes[type as NumberOrVectorType];
-    if (code === undefined) throw Error(`Invalid value type ${type}`);
-    return [code];
-  },
-  readBytes(bytes, offset) {
-    let code = Byte.readBytes(bytes, offset)[0];
-    if (code === 0x63 || code === 0x64) {
-      let [heap, end] = HeapType.readBytes(bytes, offset + 1);
-      return [refType(heap, code === 0x63), end];
+  writeBytes(output, type) {
+    if (typeof type === "object") {
+      writeByte(output, type.nullable ? 0x63 : 0x64);
+      HeapType.writeBytes(output, type.ref);
+    } else if (type in shorthands)
+      S33.writeBytes(output, heapTypeCodes[shorthands[type as Shorthand]]);
+    else {
+      let code = valueTypeCodes[type as NumberOrVectorType];
+      if (code === undefined) throw Error(`Invalid value type ${type}`);
+      writeByte(output, code);
     }
+  },
+  readBytes(input) {
+    let code = readByte(input);
+    if (code === 0x63 || code === 0x64) return refType(HeapType.readBytes(input), code === 0x63);
     let type = codeToValueType.get(code);
-    if (type !== undefined) return [type, offset + 1];
+    if (type !== undefined) return type;
     let heap = codeToHeapType.get(code - 0x80);
     if (heap === undefined) throw Error(`Invalid value type code ${code.toString(16)}.`);
-    return [refType(heap, true), offset + 1];
+    return refType(heap, true);
   },
 });
 
 type RefTypeObject = { kind: RefType };
 const RefType = Binable<RefType>({
-  toBytes(t) {
-    return ValueType.toBytes(t);
+  writeBytes(output, t) {
+    ValueType.writeBytes(output, t);
   },
-  readBytes(bytes, offset) {
-    let [type, end] = ValueType.readBytes(bytes, offset);
+  readBytes(input) {
+    let type = ValueType.readBytes(input);
     if (!isRefType(type)) throw Error("invalid reftype");
-    return [type, end];
+    return type;
   },
 });
 
@@ -399,21 +400,21 @@ type AddressType = "i32" | "i64";
 /** Limits of a memory or table. A 64-bit address type is recorded as `address: "i64"`, as in the JS API. */
 type Limits = { min: U64; max?: U64; shared: boolean; address?: "i64" };
 const Limits = Binable<Limits>({
-  toBytes({ min, max, shared, address }) {
-    let flags = (max === undefined ? 0 : 1) | (shared ? 2 : 0) | (address === "i64" ? 4 : 0);
+  writeBytes(output, { min, max, shared, address }) {
+    writeByte(output, (max === undefined ? 0 : 1) | (shared ? 2 : 0) | (address === "i64" ? 4 : 0));
     let Size = address === "i64" ? U64 : U32;
-    return [flags, ...Size.toBytes(min), ...(max === undefined ? [] : Size.toBytes(max))];
+    Size.writeBytes(output, min);
+    if (max !== undefined) Size.writeBytes(output, max);
   },
-  readBytes(bytes, offset) {
-    let flags: number, min: U64, max: U64 | undefined;
-    [flags, offset] = Byte.readBytes(bytes, offset);
+  readBytes(input) {
+    let flags = readByte(input);
     if (flags > 7) throw Error("invalid limit type");
     let Size = flags & 4 ? U64 : U32;
-    [min, offset] = Size.readBytes(bytes, offset);
-    if (flags & 1) [max, offset] = Size.readBytes(bytes, offset);
+    let min = Size.readBytes(input);
+    let max = flags & 1 ? Size.readBytes(input) : undefined;
     let limits: Limits = { min, max, shared: (flags & 2) !== 0 };
     if (flags & 4) limits.address = "i64";
-    return [limits, offset];
+    return limits;
   },
 });
 
@@ -435,27 +436,31 @@ const ResultType = vec(ValueType);
 
 /** Storage types add the packed integers i8 and i16 to value types. */
 const StorageType = Binable<StorageType>({
-  toBytes(type) {
-    if (type === "i8") return [0x78];
-    if (type === "i16") return [0x77];
-    return ValueType.toBytes(type);
+  writeBytes(output, type) {
+    if (type === "i8") writeByte(output, 0x78);
+    else if (type === "i16") writeByte(output, 0x77);
+    else ValueType.writeBytes(output, type);
   },
-  readBytes(bytes, offset) {
-    if (bytes[offset] === 0x78) return ["i8", offset + 1];
-    if (bytes[offset] === 0x77) return ["i16", offset + 1];
-    return ValueType.readBytes(bytes, offset);
+  readBytes(input) {
+    let code = input.bytes[input.offset];
+    if (code === 0x78 || code === 0x77) {
+      input.offset++;
+      return code === 0x78 ? "i8" : "i16";
+    }
+    return ValueType.readBytes(input);
   },
 });
 
 const FieldType = Binable<FieldType>({
-  toBytes({ type, mutable }) {
-    return [...StorageType.toBytes(type), mutable ? 1 : 0];
+  writeBytes(output, { type, mutable }) {
+    StorageType.writeBytes(output, type);
+    writeByte(output, mutable ? 1 : 0);
   },
-  readBytes(bytes, offset) {
-    let [type, end] = StorageType.readBytes(bytes, offset);
-    let mutability = Byte.readBytes(bytes, end)[0];
+  readBytes(input) {
+    let type = StorageType.readBytes(input);
+    let mutability = readByte(input);
     if (mutability > 1) throw Error("malformed mutability");
-    return [{ type, mutable: mutability === 1 }, end + 1];
+    return { type, mutable: mutability === 1 };
   },
 });
 
@@ -463,23 +468,22 @@ const StructFields = vec(FieldType);
 
 /** Composite types: functions (0x60), structs (0x5f) and arrays (0x5e). */
 const CompositeType = Binable<CompositeType>({
-  toBytes(type) {
-    if ("struct" in type) return [0x5f, ...StructFields.toBytes(type.struct)];
-    if ("array" in type) return [0x5e, ...FieldType.toBytes(type.array)];
-    return FunctionType.toBytes({ args: type.args, results: type.results });
+  writeBytes(output, type) {
+    if ("struct" in type) {
+      writeByte(output, 0x5f);
+      StructFields.writeBytes(output, type.struct);
+    } else if ("array" in type) {
+      writeByte(output, 0x5e);
+      FieldType.writeBytes(output, type.array);
+    } else FunctionType.writeBytes(output, { args: type.args, results: type.results });
   },
-  readBytes(bytes, offset) {
-    let code = Byte.readBytes(bytes, offset)[0];
-    if (code === 0x5f) {
-      let [struct, end] = StructFields.readBytes(bytes, offset + 1);
-      return [{ struct }, end];
-    }
-    if (code === 0x5e) {
-      let [array, end] = FieldType.readBytes(bytes, offset + 1);
-      return [{ array }, end];
-    }
-    if (code !== 0x60) throw Error(`malformed composite type ${code.toString(16)}`);
-    return FunctionType.readBytes(bytes, offset);
+  readBytes(input) {
+    let code = input.bytes[input.offset];
+    if (code === 0x5f || code === 0x5e) input.offset++;
+    if (code === 0x5f) return { struct: StructFields.readBytes(input) };
+    if (code === 0x5e) return { array: FieldType.readBytes(input) };
+    if (code !== 0x60) throw Error(`malformed composite type ${code?.toString(16)}`);
+    return FunctionType.readBytes(input);
   },
 });
 
@@ -490,24 +494,25 @@ const Supertypes = vec(U32);
  * with its supertypes. wasmati supports at most one supertype, as validation requires.
  */
 const TypeDefinition = Binable<TypeDefinition>({
-  toBytes(type) {
+  writeBytes(output, type) {
     let { final, supertype, ...composite } = type;
-    if (final !== false && supertype === undefined) return CompositeType.toBytes(composite);
-    if (typeof supertype === "object") throw Error("TypeDefinition: supertype has no index yet");
-    let supertypes = Supertypes.toBytes(supertype === undefined ? [] : [supertype]);
-    return [final === false ? 0x50 : 0x4f, ...supertypes, ...CompositeType.toBytes(composite)];
+    if (final === false || supertype !== undefined) {
+      if (typeof supertype === "object") throw Error("TypeDefinition: supertype has no index yet");
+      writeByte(output, final === false ? 0x50 : 0x4f);
+      Supertypes.writeBytes(output, supertype === undefined ? [] : [supertype]);
+    }
+    CompositeType.writeBytes(output, composite);
   },
-  readBytes(bytes, offset) {
-    let code = Byte.readBytes(bytes, offset)[0];
-    if (code !== 0x50 && code !== 0x4f) return CompositeType.readBytes(bytes, offset);
-    let [supertypes, end] = Supertypes.readBytes(bytes, offset + 1);
+  readBytes(input) {
+    let code = input.bytes[input.offset];
+    if (code !== 0x50 && code !== 0x4f) return CompositeType.readBytes(input);
+    input.offset++;
+    let supertypes = Supertypes.readBytes(input);
     if (supertypes.length > 1) throw Error("multiple supertypes are not supported");
-    let composite: CompositeType;
-    [composite, end] = CompositeType.readBytes(bytes, end);
-    let type: TypeDefinition = { ...composite };
+    let type: TypeDefinition = { ...CompositeType.readBytes(input) };
     if (code === 0x50) type.final = false;
     if (supertypes.length === 1) type.supertype = supertypes[0];
-    return [type, end];
+    return type;
   },
 });
 
@@ -515,14 +520,15 @@ const RecGroup = vec(TypeDefinition);
 
 /** A recursion group (0x4e), or a single type definition, which forms a group of its own. */
 const RecType = Binable<TypeDefinition[]>({
-  toBytes(group) {
-    if (group.length === 1) return TypeDefinition.toBytes(group[0]);
-    return [0x4e, ...RecGroup.toBytes(group)];
+  writeBytes(output, group) {
+    if (group.length === 1) return TypeDefinition.writeBytes(output, group[0]);
+    writeByte(output, 0x4e);
+    RecGroup.writeBytes(output, group);
   },
-  readBytes(bytes, offset) {
-    if (bytes[offset] === 0x4e) return RecGroup.readBytes(bytes, offset + 1);
-    let [type, end] = TypeDefinition.readBytes(bytes, offset);
-    return [[type], end];
+  readBytes(input) {
+    if (input.bytes[input.offset] !== 0x4e) return [TypeDefinition.readBytes(input)];
+    input.offset++;
+    return RecGroup.readBytes(input);
   },
 });
 

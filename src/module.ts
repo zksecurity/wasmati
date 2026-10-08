@@ -464,7 +464,7 @@ function createModule<Exports extends Record<string, ExportInput>>(
     /** Instantiate Wasm with inferred native export signatures; exports are the actual Wasm functions. */
     async instantiate() {
       let { instance, module } = await WebAssembly.instantiate(
-        Uint8Array.from(BinableModule.toBytes(binableModule)),
+        BinableModule.toBytes(binableModule),
         importMap,
         compileOptions(binableModule),
       );
@@ -476,13 +476,12 @@ function createModule<Exports extends Record<string, ExportInput>>(
     /** Compile Wasm without instantiating it, for example to instantiate it in workers. */
     compile() {
       return WebAssembly.compile(
-        Uint8Array.from(BinableModule.toBytes(binableModule)),
+        BinableModule.toBytes(binableModule),
         compileOptions(binableModule),
       );
     },
     toBytes() {
-      let bytes = BinableModule.toBytes(module.module);
-      return Uint8Array.from(bytes);
+      return BinableModule.toBytes(module.module);
     },
     /** The module in the WebAssembly text format, with names as identifiers. */
     toWat() {

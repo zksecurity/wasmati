@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- **Bytes are `Uint8Array`s.** Codecs (`Binable`) encode to and decode from `Uint8Array`s, and the bytes of custom sections, unknown name subsections and data segments in module JSON are `Uint8Array`s. `data()` still accepts arrays of numbers.
+- **Codecs read and write at a cursor.** `toBytes(value)` and `fromBytes(bytes)` stay; the hooks of composed codecs are `readBytes(input)` and `writeBytes(output, value)`, which read and write at the `offset` of a `ByteCursor`, `{ bytes, offset }`, and advance it.
+
+### Changes
+
+- **Faster encoding and decoding**: modules encode into one growable byte buffer instead of nested arrays, and integers avoid BigInt where they fit. `module.toBytes()` of a 245 KB module takes about 20 ms instead of 70, and decoding allocates no intermediate arrays.
+
 ## 1.0.0
 
 wasmati supports all of WebAssembly 3.0, verified by running the official spec test suite through wasmati in CI, and the standardized proposals beyond it. Modules can be written as WAT, decompiled, and built into `.wasm` files that JS imports without the wasmati runtime.
