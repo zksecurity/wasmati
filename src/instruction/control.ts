@@ -54,7 +54,7 @@ import { Block, BlockType, Catch, ELSE, END, IfBlock, TryTable } from "./binable
 import { type Immediate, addHole } from "../code.ts";
 import { type Input, namedInputs, processStackArgs } from "./stack-args.ts";
 
-export { control, bindControlOps, parametric };
+export { control, bindControlOps, parametric, instructions };
 
 // control instructions
 
@@ -129,13 +129,14 @@ function blockInstruction(name: "block" | "loop") {
     lazy(() => Block),
     { create: notBuilt },
   );
-  return function (ctx: LocalContext, ...args: BlockArgs) {
+  let block = function (ctx: LocalContext, ...args: BlockArgs) {
     let [options, run] = withOptions<BlockOptions, [Body]>(args, 1);
     let type = typeFromInput(options);
     writeHeader(ctx, instruction, type);
     runBlock(ctx, name, type, run);
     return endBlock(ctx, name, type);
   };
+  return Object.assign(block, { instruction });
 }
 
 function notBuilt(): never {
@@ -512,3 +513,6 @@ const select_t = baseInstruction("select_t", vec(ValueType), {
 });
 
 const parametric = { drop, select_t, select_poly };
+
+/** Instructions that the operations above write themselves, which lookups by name or opcode find. */
+const instructions = [block, loop, ifInstruction, brIf, call, dropInstruction, tryTableInstruction];

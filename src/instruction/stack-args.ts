@@ -113,7 +113,9 @@ function instruction<Args extends Tuple<ValueType>, Results extends Tuple<ValueT
       return emitSimple(ctx, instruction, instr.in, result) as Instruction_<Args, Results>;
     return emitResults(ctx, instruction, instr.in, instr.out) as Instruction_<Args, Results>;
   };
-  return flat(name, instruction.opcodeBytes, instr.in, instr.out, general) as any;
+  return Object.assign(flat(name, instruction.opcodeBytes, instr.in, instr.out, general), {
+    instruction,
+  }) as any;
 }
 
 type General = (ctx: LocalContext, ...operands: Input<ValueType>[]) => unknown;
@@ -293,7 +295,7 @@ function instructionWithArg<
   let { instruction } = createInstr;
   let [result] = instr.out;
   let simple = instr.out.length <= 1;
-  return function createInstr_(
+  let createInstr_ = function (
     ctx: LocalContext,
     immediate: Immediate,
     ...actualArgs: Input<ValueType>[]
@@ -306,6 +308,7 @@ function instructionWithArg<
       >;
     return createInstr(ctx, immediate);
   };
+  return Object.assign(createInstr_, { instruction });
 }
 
 /** Named operands, in parameter order. */

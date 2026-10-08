@@ -36,7 +36,17 @@ import { baseInstruction, type Description, withPublicSignature } from "./base.t
 import type { ArrayType, FieldInput, FieldValue, StructType } from "../type-definitions.ts";
 import { type Input, namedInputs, processStackArgs } from "./stack-args.ts";
 
-export { structOps, arrayOps, i31Ops, gcRefOps, anyOps, externOps, br_on_cast, br_on_cast_fail };
+export {
+  structOps,
+  arrayOps,
+  i31Ops,
+  gcRefOps,
+  anyOps,
+  externOps,
+  br_on_cast,
+  br_on_cast_fail,
+  instructions,
+};
 
 /** Packed fields are read and written as i32. */
 function unpacked(type: StorageType): ValueType {
@@ -268,13 +278,14 @@ function testOrCast(kind: "test" | "cast") {
       },
     }),
   );
-  return (ctx: LocalContext, type: Type<RefType>, operand?: Operand) => {
+  let testOrCast = (ctx: LocalContext, type: Type<RefType>, operand?: Operand) => {
     let literal = valueTypeLiteral(type);
     let instruction = instructions[referenced(literal).nullable ? 1 : 0];
     if (operand !== undefined)
       processStackArgs(ctx, `ref.${kind}`, [refType(top(literal), true)], [operand]);
     return instruction(ctx, literal);
   };
+  return Object.assign(testOrCast, { instructions });
 }
 
 function heapDeps(type: RefType): Dependency.t[] {
@@ -501,6 +512,16 @@ const gcRefOps = {
     <T extends RefType>(type: Type<T>, ...operand: [] | [Operand]) => StackVar<T>
   >()(refInstructions.cast),
 };
+
+/** The instructions behind the operations, which lookups by name or opcode find. */
+const instructions = [
+  structInstructions,
+  arrayInstructions,
+  i31Instructions,
+  refInstructions,
+  anyConvert,
+  externConvert,
+];
 
 const anyOps = { convert_extern: withOperands(anyConvert, 0) };
 const externOps = { convert_any: withOperands(externConvert, 0) };

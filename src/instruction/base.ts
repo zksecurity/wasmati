@@ -43,8 +43,6 @@ export {
   checkAllowed,
   hasDefinedType,
   type FunctionTypeInput,
-  nameToInstruction,
-  opcodeToInstruction,
   typeFromInput,
   functionTypeOf,
   type FunctionTypeReference,
@@ -64,9 +62,6 @@ type WithPublicSignature<Signature> = { readonly [publicSignature]?: Signature }
 function withPublicSignature<Signature>() {
   return <F>(instruction: F) => instruction as F & WithPublicSignature<Signature>;
 }
-
-const nameToInstruction: Record<string, BaseInstruction> = {};
-const opcodeToInstruction: Record<number, BaseInstruction | Record<number, BaseInstruction>> = {};
 
 type BaseInstruction = Immediate & {
   opcode: number | [number, number];
@@ -154,13 +149,6 @@ function baseInstruction<
     typed: typedInstructions.has(string),
     directCall: string === "call" || string === "return_call",
   };
-  nameToInstruction[string] = instruction;
-  if (typeof opcode === "number") {
-    opcodeToInstruction[opcode] = instruction;
-  } else {
-    opcodeToInstruction[opcode[0]] ??= {} as Record<number, BaseInstruction>;
-    (opcodeToInstruction[opcode[0]] as Record<number, BaseInstruction>)[opcode[1]] = instruction;
-  }
 
   function wrapCreate(ctx: LocalContext, ...createArgs: CreateArgs): Description {
     let {

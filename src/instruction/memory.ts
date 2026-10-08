@@ -299,7 +299,7 @@ function memoryInstruction<
     return emitSimple(ctx, instruction, defaultArgs, result, immediate);
   };
   // Accesses to the default memory, which has 32-bit addresses and index 0, are written directly.
-  return function createInstr_(
+  let createInstr_ = function (
     ctx: LocalContext,
     memArg: MemArgInput,
     a?: Input<ValueType>,
@@ -316,7 +316,8 @@ function memoryInstruction<
     writeUnsignedLEB(code, align === undefined ? natural : alignExponent(name, align));
     U64.writeBytes(code, memoryOffset(offset));
     return result === undefined ? undefined : pushResult(ctx, result);
-  } as any;
+  };
+  return Object.assign(createInstr_, { instruction }) as any;
 }
 
 type MemArgAndLane = { memArg: MemArg; lane: U8 };
@@ -353,11 +354,17 @@ function memoryLaneInstruction<Args extends Tuple<ValueType>, Results extends Tu
     },
     resolve: ([memoryIdx], { memArg, lane }) => ({ memArg: withMemory(memArg, memoryIdx), lane }),
   });
-  return function createInstr_(ctx, memArg, lane, ...actualArgs) {
+  let createInstr_ = function (
+    ctx: LocalContext,
+    memArg: MemArgInput,
+    lane: number,
+    ...actualArgs: Input<ValueType>[]
+  ) {
     const { address } = memoryUse(memArg.memory);
     processStackArgs(ctx, name, [address, ...expectedArgs.slice(1)], actualArgs);
     return createInstr(ctx, memArg, lane);
   };
+  return Object.assign(createInstr_, { instruction: createInstr.instruction }) as any;
 }
 
 function memArgFromInput(
