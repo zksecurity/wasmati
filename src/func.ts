@@ -75,7 +75,6 @@ function func<
 ): Func<ParameterSchema<Args>, Results> {
   let { in: entries, locals = {} as Locals, out: results } = signature;
   const args = createParameters<Args>(entries);
-  ctx.stack = [];
   const { names: argNames, types: argsArray } = args;
   const nArgs = argsArray.length;
   // Locals in declaration order, with an entry per element of arrays of locals. Loops, which code

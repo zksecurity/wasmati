@@ -15,6 +15,7 @@
 - **No side effects**: the package declares `sideEffects: false`, so bundlers leave wasmati out where it is imported but unused.
 - **`Module({ skipDebugNames: true })`** leaves parameter and local names out of the name section, which makes modules a few percent smaller and faster to build. Function names stay.
 - **Instance types have only the module's exports**: `instance.exports.missing` is a type error, and exported globals are typed as `WebAssembly.Global`s with typed values, so exports can be imports of other modules. `TypedInstance`, `ExportInput` and `AsyncExport` are exported, so that libraries can emit declarations of builders that are generic in their exports.
+- **Fixed**: a function built in the middle of another function's body lost the values on the outer function's stack.
 
 ## 1.0.0
 
