@@ -1,9 +1,10 @@
 import type {} from "./js-api.ts";
+import { fromJSONValue, toJSONValue, type JSONValue } from "./json.ts";
 import * as Dependency from "./dependency.ts";
 import { Export, Import } from "./export.ts";
 import type { JSFunction } from "./func.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
-import { END, rememberEncoding } from "./instruction/binable.ts";
+import { END, Expression, rememberEncoding } from "./instruction/binable.ts";
 import { byteCursor, writeByte, writtenBytes } from "./binable.ts";
 import { link, type Linker } from "./code.ts";
 import { Locals } from "./func.ts";
@@ -225,6 +226,14 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     rememberEncoding(expression, writtenBytes(writer));
     return expression;
   };
+  // Element segments of function references encode compactly, which their encoding finds out from
+  // the instructions.
+  let decodedConstant = (constant: Dependency.Constant): ResolvedInstruction[] => {
+    writer.offset = 0;
+    link(constant.code, writer, linker);
+    writeByte(writer, END);
+    return Expression.fromBytes(writtenBytes(writer));
+  };
   // Functions are encoded once, here, from their code.
   let funcs = funcs0.map(({ typeIdx, type, locals, code }) => {
     registry.signature(type);
@@ -245,7 +254,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   }));
   let elems: Elem[] = dependencyByKind.elem.map(({ type, init, mode }) => ({
     type: value(type),
-    init: init.map(constant),
+    init: init.map(decodedConstant),
     mode:
       typeof mode === "object"
         ? { table: depToIndex.get(mode.table)!, offset: constant(mode.offset) }
@@ -456,9 +465,23 @@ function createModule<Exports extends Record<string, ExportInput>>(
     toBytes() {
       return bytes;
     },
-    /** The module decoded, as JSON, which `Module.fromJSON()` encodes. */
-    toJSON(): BinableModule {
+    /**
+     * The module decoded into plain JS data, close to the spec's layout, which `Module.fromObject()`
+     * encodes. Indices, sizes and 32-bit integers are numbers; 64-bit integers are bigints, as are
+     * 64-bit sizes and offsets beyond 2^53; floats are numbers, or `{ bits }` for NaNs, which keeps
+     * their payload; bytes, like data segments and custom sections, are `Uint8Array`s. Because of
+     * bigints and bytes, it is not JSON; `toJSON()` is.
+     */
+    toObject(): BinableModule {
       return BinableModule.fromBytes(bytes);
+    },
+    /**
+     * `toObject()` as JSON, which `JSON.stringify(module)` gives, and `Module.fromJSON()` encodes.
+     * Bigints, bytes and numbers that are not finite, or -0, are tagged objects like
+     * `{ $bigint: "123" }`, `{ $bytes: "00ff" }` in hex, and `{ $number: "Infinity" }`.
+     */
+    toJSON(): JSONValue {
+      return toJSONValue(BinableModule.fromBytes(bytes));
     },
     /** The module in the WebAssembly text format, with names as identifiers. */
     toWat() {
@@ -534,19 +557,26 @@ const Module = Object.assign(ModuleConstructor, {
       bytes.buffer instanceof ArrayBuffer ? (bytes as Uint8Array<ArrayBuffer>) : bytes.slice();
     return createModule<Exports>(own, importMap);
   },
-  /** A module from JSON, like `module.toJSON()` gives it, which it encodes. */
-  fromJSON<Exports extends Record<string, ExportInput>>(
-    json: BinableModule,
+  /** A module from plain JS data, like `module.toObject()` gives it, which it encodes. */
+  fromObject<Exports extends Record<string, ExportInput>>(
+    object: BinableModule,
     importMap: WebAssembly.Imports = {},
   ) {
-    return createModule<Exports>(BinableModule.toBytes(json), importMap);
+    return createModule<Exports>(BinableModule.toBytes(object), importMap);
+  },
+  /** A module from JSON, like `module.toJSON()` gives it, which it encodes. */
+  fromJSON<Exports extends Record<string, ExportInput>>(
+    json: JSONValue,
+    importMap: WebAssembly.Imports = {},
+  ) {
+    return Module.fromObject<Exports>(fromJSONValue(json) as BinableModule, importMap);
   },
   /** A module from the WebAssembly text format. */
   fromWat<Exports extends Record<string, ExportInput>>(
     text: string,
     importMap: WebAssembly.Imports = {},
   ) {
-    return Module.fromJSON<Exports>(parseWat(text), importMap);
+    return Module.fromObject<Exports>(parseWat(text), importMap);
   },
 });
 

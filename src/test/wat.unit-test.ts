@@ -31,7 +31,7 @@ test("WAT reaches named wasmati builders directly, with folded operands in stack
   assert.doesNotMatch(generated, /fromBytes|resolveArgs/);
   const canonical = parseWat(printWat(parsed));
   assert.deepEqual(canonical, parsed);
-  assert.equal(rebuilt.toJSON().names?.module, "arithmetic");
+  assert.equal(rebuilt.toObject().names?.module, "arithmetic");
 });
 
 test("flat and folded control flow resolve labels, forward calls and recursion", async () => {
@@ -251,7 +251,7 @@ test("repeated export names survive decompilation, so the engine can reject them
   assert.match(decompileModule(parsed), /exportEntries: \[\["a", f\], \["a", f\]\]/);
   const rebuilt = await buildTextModule(parsed);
   assert.deepEqual(
-    rebuilt.toJSON().exports.map((e) => e.name),
+    rebuilt.toObject().exports.map((e) => e.name),
     ["a", "a"],
   );
   await assert.rejects(WebAssembly.compile(rebuilt.toBytes()), /Duplicate export name/);
@@ -263,7 +263,7 @@ test("modules convert from and to the text format", async () => {
       (i32.mul (local.get $x) (i32.const 2))))`);
   const { instance } = await module.instantiate();
   assert.equal((instance.exports.double as (x: number) => number)(21), 42);
-  assert.deepEqual(Module.fromWat(module.toWat()).toJSON(), module.toJSON());
+  assert.deepEqual(Module.fromWat(module.toWat()).toObject(), module.toObject());
   const add = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y }) => i32.add(x, y));
   assert.match(Module({ exports: { add } }).toWat(), /\(export "add" \(func \$add\)\)/);
 });

@@ -46,7 +46,7 @@ test("branch hints on if and br_if roundtrip through the code metadata section",
     ["br_if", true],
     ["if", false],
   ];
-  assert.deepEqual(hints(module.toJSON().funcs[0].body), expected);
+  assert.deepEqual(hints(module.toObject().funcs[0].body), expected);
   const decoded = BinaryModule.fromBytes(module.toBytes());
   assert.deepEqual(hints(decoded.funcs[0].body), expected);
   assert.equal(decoded.customSections, undefined);
@@ -55,7 +55,7 @@ test("branch hints on if and br_if roundtrip through the code metadata section",
 });
 
 test("branch hints print as annotations, and decompile to likely options", () => {
-  const module = Module({ exports: { countdown } }).toJSON();
+  const module = Module({ exports: { countdown } }).toObject();
   const text = printWat(module);
   assert.match(text, /\(@metadata\.code\.branch_hint "\\00"\) br_if 1/);
   assert.match(text, /\(@metadata\.code\.branch_hint "\\00"\) if \(result i32\)/);

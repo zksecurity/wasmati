@@ -25,7 +25,7 @@ import { Module as BinaryModule } from "../module-binable.ts";
  */
 function bothEncodings(exports: Record<string, Func<any, any>>) {
   const module = Module({ exports });
-  return { linked: module.toBytes(), reencoded: Module.fromJSON(module.toJSON()).toBytes() };
+  return { linked: module.toBytes(), reencoded: Module.fromObject(module.toObject()).toBytes() };
 }
 
 const counter = global(

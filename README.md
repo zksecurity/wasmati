@@ -129,7 +129,7 @@ const myFunction = func({ in: [{ x: i32 }, { y: i32 }], out: [i32] }, ({ x, y })
 
 - Great composability and IO
   - Convert to/from Wasm bytecode with `module.toBytes()`, `Module.fromBytes(bytes)`
-  - Convert to/from a readable JSON object with `module.toJSON()`, `Module.fromJSON(json)`, close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary)
+  - Convert to/from a readable JS object with `module.toObject()`, `Module.fromObject(object)`, close to [the spec's type layout](https://webassembly.github.io/spec/core/syntax/modules.html#modules) (but improves readability or JS ergonomics where necessary), or to/from JSON with `module.toJSON()`, `Module.fromJSON(json)`, which `JSON.stringify(module)` uses
   - Convert to/from WAT text format with `module.toWat()`, `Module.fromWat(text)`, preserving variable and function names
   - Generate wasmati TS from Wasm with `decompile(bytesOrWat)` or `wasmati decompile input.wasm -o output.ts` (omit `-o` to write to stdout). The generated default export builds a `Module` from a `WebAssembly.Imports` object.
   - Convert between wasm and wat with `wasmati wat input.wasm` and `wasmati wasm input.wat -o output.wasm`.

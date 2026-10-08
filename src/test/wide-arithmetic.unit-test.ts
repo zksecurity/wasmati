@@ -47,11 +47,11 @@ test("wide arithmetic encodes and decodes the proposal opcodes", () => {
       0x0b,
     ];
     // Name metadata follows the code section; inspect code without that metadata.
-    const { names, ...json } = single.toJSON();
-    const codeOnly = Module.fromJSON(json);
+    const { names, ...rest } = single.toObject();
+    const codeOnly = Module.fromObject(rest);
     assert.deepEqual([...codeOnly.toBytes().slice(-body.length)], body);
     const recovered = Module.fromBytes(bytes);
-    assert.deepEqual(recovered.toJSON(), single.toJSON());
+    assert.deepEqual(recovered.toObject(), single.toObject());
     assert.deepEqual(recovered.toBytes(), bytes);
   }
 });

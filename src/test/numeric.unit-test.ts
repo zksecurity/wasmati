@@ -27,7 +27,7 @@ test("signed and unsigned greater-than use distinct instructions for i32 and i64
   );
   const module = Module({ exports: { signed32, unsigned32, signed64, unsigned64 } });
   assert.deepEqual(
-    module.toJSON().funcs.map((f) => f.body.at(-1)!.name),
+    module.toObject().funcs.map((f) => f.body.at(-1)!.name),
     ["i32.gt_s", "i32.gt_u", "i64.gt_s", "i64.gt_u"],
   );
   const { instance } = await module.instantiate();
@@ -88,7 +88,7 @@ test("constant expressions combine integers with add, sub and mul", async () => 
   const readWide = func({ in: [], out: [i64] }, () => global.get(wide));
   const module = Module({ exports: { read, readWide } });
   assert.deepEqual(
-    module.toJSON().globals[1].init.map((i) => i.name),
+    module.toObject().globals[1].init.map((i) => i.name),
     ["global.get", "i32.const", "i32.const", "i32.mul", "i32.add"],
   );
   const { instance } = await module.instantiate();

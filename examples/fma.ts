@@ -15,7 +15,7 @@ const fnma = func({ in: [{ x: f64 }, { y: f64 }, { z: f64 }], out: [f64] }, ({ x
 let module = Module({ exports: { fma, fnma } });
 let { instance } = await module.instantiate();
 
-console.dir(module.toJSON(), { depth: Infinity });
+console.dir(module.toObject(), { depth: Infinity });
 
 let [x, y, z] = [0.5, 3, 1.25];
 

@@ -21,7 +21,7 @@ test("instructions and segments name one of several memories", async () => {
     i32.add();
   });
   const module = Module({ exports: { copy }, dependencies: [small, large] });
-  assert.equal(module.toJSON().memories.length, 2);
+  assert.equal(module.toObject().memories.length, 2);
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.copy(), 9);
 });

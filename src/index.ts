@@ -3,6 +3,7 @@ export { localArray, type LocalArray } from "./locals.ts";
 export { Module } from "./module.ts";
 export { NameSection, type NameMap, type IndirectNameMap } from "./name-section.ts";
 export type { CustomSection } from "./module-binable.ts";
+export type { JSONValue } from "./json.ts";
 import {
   globalConstructor,
   refOps,
