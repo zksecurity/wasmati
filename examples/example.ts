@@ -192,13 +192,13 @@ let module = Module({
   start: startFunc,
 });
 
-console.dir(module.module, { depth: Infinity });
+console.dir(module.toJSON(), { depth: Infinity });
 
 // create byte code and check roundtrip
 let wasmByteCode = module.toBytes();
 console.log(`wasm size: ${wasmByteCode.length} byte`);
 let recoveredModule = Module.fromBytes(wasmByteCode);
-assert.deepStrictEqual(recoveredModule.module, module.module);
+assert.deepStrictEqual(recoveredModule.toJSON(), module.toJSON());
 
 // write wat file for comparison
 await writeFile(import.meta.url.slice(7).replace(".ts", ".wat"), module.toWat());

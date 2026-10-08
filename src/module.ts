@@ -1,14 +1,13 @@
 import type {} from "./js-api.ts";
 import * as Dependency from "./dependency.ts";
 import { Export, Import } from "./export.ts";
-import type { FinalizedFunc, JSFunction } from "./func.ts";
+import type { JSFunction } from "./func.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 import { END, Expression } from "./instruction/binable.ts";
 import { Writer } from "./binable.ts";
 import { link, type Linker } from "./code.ts";
-import { withEncodedBody } from "./code-section.ts";
 import { Locals } from "./func.ts";
-import { Module as BinableModule } from "./module-binable.ts";
+import { Module as BinableModule, type EncodableModule } from "./module-binable.ts";
 import { Data, Elem, Global, Table } from "./memory-binable.ts";
 import {
   FunctionType,
@@ -25,7 +24,7 @@ import {
 import { elemConstructor, memoryConstructor } from "./memory.ts";
 import { parseWat } from "./text/wat.ts";
 import { printWat } from "./text/print.ts";
-import { jsStringBuiltins, usesJSStringBuiltins } from "./js-string.ts";
+import { jsStringBuiltins } from "./js-string.ts";
 import type { AsyncExport } from "./export.ts";
 import { TypeRegistry } from "./type-registry.ts";
 import type { NameMap, NameSection } from "./name-section.ts";
@@ -216,13 +215,14 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     writer.byte(END);
     return Expression.readBytes(writer.buffer as unknown as number[], 0)[0];
   };
-  let funcs: FinalizedFunc[] = funcs0.map(({ typeIdx, funcIdx, type, locals, code }) => {
-    let func = { funcIdx, typeIdx, type: registry.signature(type), locals: locals.map(value) };
+  // Functions are encoded once, here, from their code.
+  let funcs = funcs0.map(({ typeIdx, type, locals, code }) => {
+    registry.signature(type);
     writer.length = 0;
-    Locals.write(writer, func.locals);
+    Locals.write(writer, locals.map(value));
     let hints = link(code, writer, linker, 0);
     writer.byte(END);
-    return withEncodedBody(func, writer.result(), hints);
+    return { typeIdx, encoded: { bytes: writer.result(), hints } };
   });
   let globals: Global[] = dependencyByKind.global.map(({ type, init }) => ({
     type: { ...type, value: value(type.value) },
@@ -328,7 +328,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
   if (Object.keys(typeNames).length > 0) mergedNames.types = { ...typeNames, ...mergedNames.types };
   if (Object.keys(fieldNames).length > 0)
     mergedNames.fields = { ...fieldNames, ...mergedNames.fields };
-  let binableModule: BinableModule = {
+  let binableModule: EncodableModule = {
     types: registry.types,
     ...(registry.groups.some((size) => size !== 1) ? { recGroups: registry.groups } : {}),
     funcs,
@@ -344,7 +344,7 @@ function ModuleConstructor<Exports extends Record<string, ExportInput>>({
     ...(Object.keys(mergedNames).length === 0 ? {} : { names: mergedNames }),
     ...(customSections === undefined ? {} : { customSections }),
   };
-  return createModule<Exports>(binableModule, importMap, {
+  return createModule<Exports>(BinableModule.encode(binableModule), importMap, {
     asyncExports,
     importDependencies,
   });
@@ -411,30 +411,25 @@ function orderGlobals(globals: Dependency.Global[]): Dependency.Global[] {
 }
 
 /**
- * `asyncExports` names the exports that are wrapped by `WebAssembly.promising` on instantiation.
- * Modules of the builder know the dependencies behind their imports, in order, which `wasmati build`
- * turns into a JS module.
+ * A module is its bytes, which are well-formed, with the import object that instantiates it. `asyncExports` names the exports
+ * that are wrapped by `WebAssembly.promising` on instantiation. Modules of the builder know the
+ * dependencies behind their imports, in order, which `wasmati build` turns into a JS module.
  */
 function createModule<Exports extends Record<string, ExportInput>>(
-  binableModule: BinableModule,
+  bytes: Uint8Array<ArrayBuffer>,
   importMap: WebAssembly.Imports,
   {
     asyncExports = [],
     importDependencies,
   }: { asyncExports?: string[]; importDependencies?: Dependency.AnyImport[] } = {},
 ) {
-  let module = {
-    module: binableModule,
+  return {
     importMap,
     asyncExports,
     importDependencies,
     /** Instantiate Wasm with inferred native export signatures; exports are the actual Wasm functions. */
     async instantiate() {
-      let { instance, module } = await WebAssembly.instantiate(
-        BinableModule.encode(binableModule),
-        importMap,
-        compileOptions(binableModule),
-      );
+      let { instance, module } = await WebAssembly.instantiate(bytes, importMap, jsStringBuiltins);
       return { instance: withAsyncExports(instance, asyncExports), module } as {
         instance: TypedInstance<Exports>;
         module: WebAssembly.Module;
@@ -442,25 +437,21 @@ function createModule<Exports extends Record<string, ExportInput>>(
     },
     /** Compile Wasm without instantiating it, for example to instantiate it in workers. */
     compile() {
-      return WebAssembly.compile(
-        BinableModule.encode(binableModule),
-        compileOptions(binableModule),
-      );
+      return WebAssembly.compile(bytes, jsStringBuiltins);
     },
+    /** The module's bytes, which are the module: changing them changes it. */
     toBytes() {
-      return BinableModule.encode(module.module);
+      return bytes;
+    },
+    /** The module decoded, as JSON, which `Module.fromJSON()` encodes. */
+    toJSON(): BinableModule {
+      return BinableModule.fromBytes(bytes);
     },
     /** The module in the WebAssembly text format, with names as identifiers. */
     toWat() {
-      return printWat(module.module);
+      return printWat(BinableModule.fromBytes(bytes));
     },
   };
-  return module;
-}
-
-/** Modules that use JS string builtins compile with them. */
-function compileOptions(module: BinableModule): WebAssembly.CompileOptions {
-  return usesJSStringBuiltins(module.imports) ? jsStringBuiltins : {};
 }
 
 /**
@@ -511,19 +502,33 @@ type AsyncFunction<T extends Dependency.AnyFunc> = (
 ) => Promise<ReturnType<JSFunction<T>>>;
 
 const Module = Object.assign(ModuleConstructor, {
+  /**
+   * A module of the given bytes, which must be well-formed: this decodes them, and throws if they are
+   * not a module. Engines check that it is valid, like its types, when they compile it.
+   */
   fromBytes<Exports extends Record<string, ExportInput>>(
     bytes: Uint8Array,
     importMap: WebAssembly.Imports = {},
   ) {
-    let binableModule = BinableModule.fromBytes(bytes);
-    return createModule<Exports>(binableModule, importMap);
+    BinableModule.fromBytes(bytes);
+    // Bytes in a shared buffer are copied, which Wasm compiles.
+    let own =
+      bytes.buffer instanceof ArrayBuffer ? (bytes as Uint8Array<ArrayBuffer>) : bytes.slice();
+    return createModule<Exports>(own, importMap);
+  },
+  /** A module from JSON, like `module.toJSON()` gives it, which it encodes. */
+  fromJSON<Exports extends Record<string, ExportInput>>(
+    json: BinableModule,
+    importMap: WebAssembly.Imports = {},
+  ) {
+    return createModule<Exports>(BinableModule.encode(json), importMap);
   },
   /** A module from the WebAssembly text format. */
   fromWat<Exports extends Record<string, ExportInput>>(
     text: string,
     importMap: WebAssembly.Imports = {},
   ) {
-    return createModule<Exports>(parseWat(text), importMap);
+    return Module.fromJSON<Exports>(parseWat(text), importMap);
   },
 });
 

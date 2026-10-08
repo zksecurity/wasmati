@@ -55,15 +55,16 @@ const Hints = vec(Hint);
  * The custom section of the functions' branch hints, if any; `firstFunc` is the first function's index.
  * Functions that are encoded already know their hints' offsets.
  */
-function encodeBranchHints(
-  codes: Code[],
+function encodeBranchHints<C>(
+  codes: C[],
   firstFunc: number,
-  encoded: (code: Code) => { offset: number; likely: boolean }[] | undefined,
+  encoded: (code: C) => { offset: number; likely: boolean }[] | undefined,
 ): number[] | undefined {
-  let functions = codes.flatMap((code, i): FunctionHints[] => {
-    let known = encoded(code);
+  let functions = codes.flatMap((entry, i): FunctionHints[] => {
+    let known = encoded(entry);
     if (known !== undefined)
       return known.length === 0 ? [] : [{ func: firstFunc + i, hints: known }];
+    let code = entry as Code;
     if (!hasHints(code.body)) return [];
     // Offsets are measured by encoding the function, and the code section reuses the encoding.
     let { offsets, bytes } = encodeWithOffsets(

@@ -28,10 +28,10 @@ import {
 import { Export, type Import, Imports } from "./export.ts";
 import { Data, Elem, Global, Table } from "./memory-binable.ts";
 import type { FinalizedFunc } from "./func.ts";
-import { CodeEntry, type Code, encodedHints } from "./code-section.ts";
+import { CodeEntry, type Code, type EncodedCode, encodedHints } from "./code-section.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 
-export { Module, type CustomSection };
+export { Module, type EncodableModule, type CustomSection };
 
 type CustomSection = {
   name: string;
@@ -59,6 +59,11 @@ type Module = {
   exports: Export[];
   names?: NameSection;
   customSections?: CustomSection[];
+};
+
+/** A module to encode, whose functions may be encoded already. */
+type EncodableModule = Omit<Module, "funcs"> & {
+  funcs: (FinalizedFunc | (EncodedCode & { typeIdx: number }))[];
 };
 
 /** Split types into their recursion groups; without groups, each type forms a group of its own. */
@@ -118,7 +123,7 @@ type ElemSection = Elem[];
 let ElemSection = section<ElemSection>(9, vec(Elem));
 
 // 10: CodeSection
-type CodeSection = Code[];
+type CodeSection = (Code | EncodedCode)[];
 let CodeSection = section<CodeSection>(10, vec(CodeEntry));
 
 // 11: DataSection
@@ -216,7 +221,10 @@ const ParsedModule = withValidation(
     }
     if (dataCountSection !== undefined && dataSection.length !== dataCountSection)
       throw Error("data section length does not match data count section");
-    if (dataCountSection === undefined && codeSection.some(({ body }) => usesDataIndex(body)))
+    if (
+      dataCountSection === undefined &&
+      codeSection.some((code) => "body" in code && usesDataIndex(code.body))
+    )
       throw Error("data count section required");
   },
 );
@@ -235,7 +243,8 @@ function usesDataIndex(body: ResolvedInstruction[]): boolean {
   });
 }
 
-const Module = iso(ParsedModule, {
+/** Modules as JSON: decoding gives it, and encoding takes it, with functions that may be encoded. */
+const ModuleCodec = iso(ParsedModule, {
   to({
     types,
     imports,
@@ -251,7 +260,7 @@ const Module = iso(ParsedModule, {
     elems,
     names,
     customSections,
-  }: Module) {
+  }: EncodableModule) {
     const extras = (customSections ?? []).map(({ after, ...value }) => {
       const key = Object.entries(sectionIds).find(([, id]) => id === after)?.[0] as
         keyof Sections | undefined;
@@ -267,7 +276,7 @@ const Module = iso(ParsedModule, {
     }
     let funcSection = funcs.map((f) => f.typeIdx);
     // The functions themselves, whose bodies may be encoded already, and decoded only when read.
-    let codeSection: Code[] = funcs;
+    let codeSection: CodeSection = funcs;
     let importedFunctions = imports.filter((i) => i.description.kind === "function").length;
     let hints = encodeBranchHints(codeSection, importedFunctions, encodedHints);
     // Engines read branch hints before the code they refer to.
@@ -314,7 +323,7 @@ const Module = iso(ParsedModule, {
         elemSection,
       },
     },
-  }): Module {
+  }): EncodableModule {
     const customSections = extras.map(({ after, value }) => ({
       ...value,
       after: after === undefined || after === null ? 0 : sectionIds[after],
@@ -337,7 +346,7 @@ const Module = iso(ParsedModule, {
     if (hintSections.length === 1) {
       const section = hintSections[0];
       try {
-        decodeBranchHints(section.data, codeSection, importedFunctionsLength);
+        decodeBranchHints(section.data, codeSection as Code[], importedFunctionsLength);
         customSections.splice(customSections.indexOf(section), 1);
       } catch {
         // Invalid optional metadata remains an opaque custom section.
@@ -348,7 +357,7 @@ const Module = iso(ParsedModule, {
       let type = types[typeIdx];
       if (type === undefined || !isFunctionType(type))
         throw Error(`function ${funcIdx} does not have a function type`);
-      let { locals, body } = codeSection[funcIdx];
+      let { locals, body } = codeSection[funcIdx] as Code;
       return {
         funcIdx: importedFunctionsLength + funcIdx,
         typeIdx,
@@ -378,6 +387,12 @@ const Module = iso(ParsedModule, {
     };
   },
 });
+
+/** Modules: decoding gives their JSON, encoding takes it, or a module whose functions are encoded. */
+const Module = ModuleCodec as Omit<Binable<EncodableModule>, "fromBytes" | "readBytes"> & {
+  fromBytes(bytes: number[] | Uint8Array): Module;
+  readBytes(bytes: number[], offset: number): [Module, number];
+};
 
 // validation context according to spec.. may remain unused
 type ValidationContext = {

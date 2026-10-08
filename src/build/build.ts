@@ -36,7 +36,7 @@ const polyfillFile = "js-string.js";
 
 /** The parts of a wasmati module that the build needs. */
 type BuildableModule = {
-  module: BinaryModule;
+  toJSON(): BinaryModule;
   importMap: WebAssembly.Imports;
   asyncExports?: string[];
   importDependencies?: Dependency.AnyImport[];
@@ -59,8 +59,9 @@ async function build(input: string, { outDir }: { outDir?: string } = {}): Promi
       `${basename(path)} exports ${others.join(", ")}; a built file may only export its Module, as default. Move shared code to another module.`,
     );
   const module = entry.default as BuildableModule | undefined;
-  if (typeof module?.module?.imports !== "object")
+  if (typeof module?.toJSON !== "function" || typeof module.importMap !== "object")
     throw Error(`${basename(path)} must default-export a wasmati Module`);
+  const json = module.toJSON();
 
   await mkdir(out, { recursive: true });
   const source = new Source(path, await readFile(path, "utf8"));
@@ -68,7 +69,7 @@ async function build(input: string, { outDir }: { outDir?: string } = {}): Promi
   const host = new HostModule(source, out);
   const hostPath = `./${name}.host.js`;
   const imports: Import[] = [];
-  for (const [i, imported] of module.module.imports.entries()) {
+  for (const [i, imported] of json.imports.entries()) {
     const dependency = module.importDependencies?.[i];
     const value = module.importMap[imported.module]?.[imported.name];
     if (imported.module === constantModule) {
@@ -90,7 +91,7 @@ async function build(input: string, { outDir }: { outDir?: string } = {}): Promi
 
   const wasm = join(out, `${name}.wasm`);
   const types = join(out, `${name}.d.wasm.ts`);
-  const built = { ...module.module, imports };
+  const built = { ...json, imports };
   await writeFile(wasm, BinaryModule.encode(built));
   await writeFile(types, exportTypes(built));
   const output: BuildOutput = { wasm, types };

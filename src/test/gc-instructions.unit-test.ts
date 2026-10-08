@@ -58,7 +58,9 @@ test("structs are created and accessed with fields by name", async () => {
       i32.add();
     },
   );
-  const { module, instantiate } = Module({ exports: { sum } });
+  const built = Module({ exports: { sum } });
+  const module = built.toJSON();
+  const { instantiate } = built;
   assert.deepEqual(module.funcs[0].body.slice(0, 1), [{ name: "local.get", immediate: 0 }]);
   assert.ok(module.funcs[0].body.some((i) => i.name === "struct.get" && i.immediate[1] === 1));
   const { instance } = await instantiate();

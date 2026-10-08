@@ -48,7 +48,7 @@ test("typed function references are called with call_ref and tail calls", async 
   // Functions referenced in code are declared by a declarative segment.
   const module = Module({ exports: { apply, tail, tailRef } });
   assert.deepEqual(
-    module.module.elems.map(({ mode }) => mode),
+    module.toJSON().elems.map(({ mode }) => mode),
     ["declarative"],
   );
   const { instance } = await module.instantiate();
@@ -66,8 +66,8 @@ test("functions referenced in code are declared once", () => {
     call_ref(unary);
   });
   const declared = elem({ type: funcref, mode: "declarative" }, [double]);
-  const modes = (module: { module: { elems: { mode: unknown }[] } }) =>
-    module.module.elems.map(({ mode }) => mode);
+  const modes = (module: { toJSON(): { elems: { mode: unknown }[] } }) =>
+    module.toJSON().elems.map(({ mode }) => mode);
   assert.deepEqual(modes(Module({ exports: { apply }, dependencies: [declared] })), [
     "declarative",
   ]);
@@ -137,7 +137,7 @@ test("tables may hold typed references and initialize them", async () => {
     call_ref(unary);
   });
   const module = Module({ exports: { call } });
-  assert.deepEqual(module.module.tables[0].type, { ref: 0, nullable: false });
+  assert.deepEqual(module.toJSON().tables[0].type, { ref: 0, nullable: false });
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.call(1), 7);
 });

@@ -102,7 +102,7 @@ async function runCommands(
   async function instantiate(factory: Factory, name: string | undefined) {
     current = undefined;
     const built = factory(registered);
-    current = { instance: (await built.instantiate()).instance, module: built.module };
+    current = { instance: (await built.instantiate()).instance, module: built.toJSON() };
     if (name !== undefined) instances.set(name, current);
   }
 

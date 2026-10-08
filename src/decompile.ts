@@ -1,5 +1,6 @@
 import * as api from "./index.ts";
-import type { Module as DecodedModule } from "./module-binable.ts";
+import { Module as BinaryModule, type Module as DecodedModule } from "./module-binable.ts";
+import { parseWat } from "./text/wat.ts";
 import type { ResolvedInstruction } from "./instruction/base.ts";
 import type { Catch } from "./instruction/binable.ts";
 import {
@@ -27,10 +28,7 @@ export { decompile, decompileModule };
  * Unsupported builder constructs throw rather than embedding raw instructions or input bytes.
  */
 function decompile(input: Uint8Array | string, { importPath = "wasmati" } = {}): string {
-  const module =
-    typeof input === "string"
-      ? api.Module.fromWat(input).module
-      : api.Module.fromBytes(input).module;
+  const module = typeof input === "string" ? parseWat(input) : BinaryModule.fromBytes(input);
   return decompileModule(module, { importPath });
 }
 

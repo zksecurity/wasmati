@@ -19,7 +19,7 @@ test("public Module API emits readable module, function and local names", async 
   const sections = WebAssembly.Module.customSections(compiled, "name");
   assert.equal(sections.length, 1);
   assert.deepEqual([...new Uint8Array(sections[0])], NameSection.toBytes(names));
-  assert.deepEqual(Module.fromBytes(bytes).module.names, names);
+  assert.deepEqual(Module.fromBytes(bytes).toJSON().names, names);
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.add(20, 22), 42);
   const wat = Module.fromBytes(bytes).toWat();
@@ -44,12 +44,12 @@ const wabtModule =
 test("decodes WABT names, including imported functions, parameters and locals", async () => {
   const bytes = Uint8Array.from(atob(wabtModule), (char) => char.charCodeAt(0));
   const module = Module.fromBytes<{ add: typeof add }>(bytes, { env: { id: (x: number) => x } });
-  assert.deepEqual(module.module.names, {
+  assert.deepEqual(module.toJSON().names, {
     module: "named",
     functions: { 0: "id", 1: "add" },
     locals: { 0: {}, 1: { 0: "x", 1: "y", 2: "tmp" } },
   });
-  assert.deepEqual(Module.fromBytes(module.toBytes()).module.names, module.module.names);
+  assert.deepEqual(Module.fromBytes(module.toBytes()).toJSON().names, module.toJSON().names);
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.add(20, 22), 42);
 });
@@ -83,7 +83,7 @@ test("custom sections survive before, between and after standard sections", asyn
   ];
   const module = Module({ exports: { add }, customSections, names: { functions: { 0: "add" } } });
   const recovered = Module.fromBytes<{ add: typeof add }>(module.toBytes());
-  assert.deepEqual(recovered.module.customSections, customSections);
+  assert.deepEqual(recovered.toJSON().customSections, customSections);
   assert.deepEqual(recovered.toBytes(), module.toBytes());
   const { instance } = await recovered.instantiate();
   assert.equal(instance.exports.add(20, 22), 42);
@@ -113,7 +113,7 @@ test("preserves custom metadata when an empty preceding standard section is omit
   ]);
   assert.equal(WebAssembly.validate(bytes), true);
   const module = Module.fromBytes(bytes);
-  assert.deepEqual(module.module.customSections, [{ name: "x", data: [42], after: 1 }]);
+  assert.deepEqual(module.toJSON().customSections, [{ name: "x", data: [42], after: 1 }]);
   const rewritten = new WebAssembly.Module(module.toBytes());
   assert.deepEqual([...new Uint8Array(WebAssembly.Module.customSections(rewritten, "x")[0])], [42]);
 });
@@ -131,7 +131,7 @@ test("opaque custom sections can be large or repeated", () => {
   assert.equal(WebAssembly.validate(bytes), true);
   const decoded = Module.fromBytes(bytes);
   assert.deepEqual(
-    decoded.module.customSections?.map(({ name, data }) => ({ name, data })),
+    decoded.toJSON().customSections?.map(({ name, data }) => ({ name, data })),
     [
       { name: "x", data },
       { name: "x", data: [] },
@@ -152,7 +152,7 @@ test("UTF-8 names use byte lengths", () => {
   const bytes = Module({ exports: { 加算: add }, names }).toBytes();
   const compiled = new WebAssembly.Module(bytes);
   assert.equal(WebAssembly.Module.exports(compiled)[0].name, "加算");
-  assert.deepEqual(Module.fromBytes(bytes).module.names, names);
+  assert.deepEqual(Module.fromBytes(bytes).toJSON().names, names);
 });
 
 test("malformed optional name metadata is preserved without invalidating the module", () => {
@@ -165,8 +165,8 @@ test("malformed optional name metadata is preserved without invalidating the mod
     const bytes = Module({ exports: {}, customSections: [{ name: "name", data }] }).toBytes();
     assert.equal(WebAssembly.validate(bytes), true);
     const module = Module.fromBytes(bytes);
-    assert.equal(module.module.names, undefined);
-    assert.deepEqual(module.module.customSections?.[0].data, data);
+    assert.equal(module.toJSON().names, undefined);
+    assert.deepEqual(module.toJSON().customSections?.[0].data, data);
     assert.equal(WebAssembly.validate(module.toBytes()), true);
   }
 });
@@ -181,8 +181,8 @@ test("duplicate name sections remain opaque and are preserved", () => {
     ],
   }).toBytes();
   const module = Module.fromBytes(bytes);
-  assert.equal(module.module.names, undefined);
-  assert.equal(module.module.customSections?.length, 2);
+  assert.equal(module.toJSON().names, undefined);
+  assert.equal(module.toJSON().customSections?.length, 2);
   assert.equal(
     WebAssembly.Module.customSections(new WebAssembly.Module(module.toBytes()), "name").length,
     2,

@@ -22,7 +22,7 @@ test("optional import paths retain automatic defaults and link all import kinds"
   );
   const module = Module({ exports: { first, second, global, memory, table } });
   assert.deepEqual(
-    module.module.imports.map(({ module, name }) => [module, name]),
+    module.toJSON().imports.map(({ module, name }) => [module, name]),
     [
       ["env", "f0"],
       ["", "double"],
@@ -42,7 +42,7 @@ test("optional import paths retain automatic defaults and link all import kinds"
 test("explicit empty import fields override generated names", async () => {
   const empty = importFunc({ module: "", field: "", in: [], out: [i32] }, () => 42);
   const module = Module({ exports: { empty } });
-  assert.equal(module.module.imports[0].name, "");
+  assert.equal(module.toJSON().imports[0].name, "");
   const { instance } = await module.instantiate();
   assert.equal(instance.exports.empty(), 42);
 });

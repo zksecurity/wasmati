@@ -20,14 +20,12 @@ import {
 import { Module as BinaryModule } from "../module-binable.ts";
 
 /**
- * Built modules encode their linked code; once their bodies are read, they encode from the
- * instructions, through the reference encoder, which also computes branch hint offsets anew.
+ * Built modules encode while they are built. Decoding them and encoding the JSON goes through the
+ * reference encoder, which also computes branch hint offsets anew.
  */
 function bothEncodings(exports: Record<string, Func<any, any>>) {
-  const linked = Module({ exports }).toBytes();
   const module = Module({ exports });
-  for (const func of module.module.funcs) func.body;
-  return { linked, decoded: module.toBytes() };
+  return { linked: module.toBytes(), reencoded: Module.fromJSON(module.toJSON()).toBytes() };
 }
 
 const counter = global(
@@ -59,8 +57,8 @@ const holes = func({ in: [{ x: i32 }], out: [i32] }, ({ x }) => {
 });
 
 test("linked code encodes like its instructions, with branch hints after holes", async () => {
-  const { linked, decoded } = bothEncodings({ holes });
-  assert.deepEqual(linked, decoded);
+  const { linked, reencoded } = bothEncodings({ holes });
+  assert.deepEqual(linked, reencoded);
   const hints = (body: { name: string; likely?: boolean; immediate: any }[]): unknown[] =>
     body.flatMap(({ name, likely, immediate }) => [
       ...(Array.isArray(immediate?.instructions) ? hints(immediate.instructions) : []),
@@ -77,14 +75,4 @@ test("linked code encodes like its instructions, with branch hints after holes",
   ]);
   const { instance } = await Module({ exports: { holes } }).instantiate();
   assert.equal(instance.exports.holes(7), 1);
-});
-
-test("bodies of built modules decode where they are read, and encode as changed", () => {
-  const seven = func({ in: [], out: [i32] }, () => i32.const(7));
-  const module = Module({ exports: { seven } });
-  const [{ body }] = module.module.funcs;
-  assert.deepEqual(body, [{ name: "i32.const", immediate: 7 }]);
-  body[0].immediate = 8;
-  const [changed] = BinaryModule.fromBytes(module.toBytes()).funcs;
-  assert.deepEqual(changed.body, [{ name: "i32.const", immediate: 8 }]);
 });
