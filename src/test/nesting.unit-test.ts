@@ -22,7 +22,8 @@ test("functions, constants and modules can be built in the middle of a function 
     });
     const offset = global(constant(() => i32.const(100)));
     local.set(t, i32.mul($, 2));
-    i32.add(call(inner!, { y: x }), t);
+    call(inner!, { y: x });
+    i32.add($, t);
     i32.add($, offset);
   });
   const { instance } = await Module({ exports: { outer } }).instantiate();
